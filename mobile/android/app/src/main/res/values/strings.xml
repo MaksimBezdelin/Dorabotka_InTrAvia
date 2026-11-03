@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">InTrAvia Инженер</string>
+    <string name="title_activity_main">InTrAvia Инженер</string>
+    <string name="package_name">ru.intravia.engineer</string>
+    <string name="custom_url_scheme">ru.intravia.engineer</string>
+</resources>

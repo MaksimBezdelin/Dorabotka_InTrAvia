@@ -1,0 +1,24 @@
+{
+  "name": "intravia-engineer-mobile",
+  "version": "0.1.0",
+  "description": "InTrAvia Dispatch — мобильное приложение инженера (Capacitor)",
+  "private": true,
+  "scripts": {
+    "sync-web": "cp -r ../frontend/. www/ && npx cap copy && npx cap sync",
+    "build:apk": "npm run sync-web && cd android && ./gradlew assembleDebug",
+    "open:android": "npx cap open android",
+    "android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor-community/sqlite": "^6.0.1",
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/geolocation": "^6.0.1",
+    "@capacitor/network": "^6.0.2",
+    "@capacitor/preferences": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "typescript": "5.4"
+  }
+}
