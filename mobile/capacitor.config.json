@@ -1,0 +1,13 @@
+{
+  "appId": "ru.intravia.engineer",
+  "appName": "InTrAvia Инженер",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,1848 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пилот — InTrAvia Dispatch</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="/config.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --aero-blue: #003366; --aero-blue-light: #0055aa; --aero-blue-pale: #e8f0fe;
+            --aero-gold: #c9a84c;
+            --aero-red: #dc2626; --aero-green: #16a34a; --aero-orange: #f59e0b;
+            --aero-text: #1a2332; --aero-text-light: #4a5a6a;
+            --aero-gray: #8a9bb5; --aero-gray-light: #e8ecf0; --aero-bg: #f0f2f5;
+            --aero-gray-dark: #6b7280; --aero-gray-soft: #f3f4f6;
+            --transition: 0.2s ease;
+        }
+        body { font-family: 'Inter', -apple-system, sans-serif; background: var(--aero-bg); color: var(--aero-text); display: flex; min-height: 100vh; overflow: hidden; height: 100vh; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--aero-gray); border-radius: 4px; }
+
+        .sidebar { width: 260px; background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%); padding: 20px 16px; height: 100vh; overflow-y: auto; flex-shrink: 0; display: flex; flex-direction: column; }
+        .sidebar-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .sidebar-brand .brand-icon { width: 40px; height: 40px; background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+        .sidebar-brand .brand-text { font-size: 17px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; }
+        .sidebar-brand .brand-text .brand-vector { background: linear-gradient(135deg, #4d9fff 0%, #0066cc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; margin-right: 4px; }
+        .sidebar-brand .brand-text .brand-in { color: #ffffff; font-weight: 700; }
+        .sidebar-brand .brand-text .brand-tr { color: #0039A6; font-weight: 800; }
+        .sidebar-brand .brand-text .brand-avia { color: #D52B1E; font-weight: 800; }
+
+        .sidebar-user { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; }
+        .sidebar-user .avatar {
+            width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(201, 168, 76, 0.15);
+            border: 2px solid rgba(201, 168, 76, 0.4);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; color: #c9a84c; flex-shrink: 0;
+        }
+        .sidebar-user .user-info { flex: 1; min-width: 0; }
+        .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
+
+        .sidebar-nav { list-style: none; flex: 1; overflow-y: auto; }
+        .sidebar-nav li { margin-bottom: 4px; }
+        .sidebar-nav li a { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; color: #8899aa; text-decoration: none; font-size: 13px; font-weight: 500; transition: all var(--transition); cursor: pointer; }
+        .sidebar-nav li a:hover { background: rgba(255,255,255,0.06); color: #ffffff; }
+        .sidebar-nav li.active a { background: rgba(77,159,255,0.12); color: #ffffff; font-weight: 600; position: relative; }
+        .sidebar-nav li.active a::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--aero-gold); border-radius: 0 2px 2px 0; }
+        .sidebar-nav li a i { width: 20px; font-size: 15px; text-align: center; }
+
+        .aeroflot-brand { text-align: center; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; color: #8899aa; }
+        .aeroflot-brand img { max-width: 110px; height: auto; margin-bottom: 10px; display: inline-block; }
+        .aeroflot-brand .brand-text-small { font-size: 10px; font-weight: 600; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.5px; }
+        .sidebar-footer { margin-top: auto; padding-top: 14px; }
+        .btn-logout { width: 100%; padding: 10px; background: rgba(255,255,255,0.05); color: #8899aa; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+        .btn-logout:hover { background: rgba(220,38,38,0.15); color: #fca5a5; border-color: rgba(220,38,38,0.3); }
+
+        .main { flex: 1; padding: 24px 32px 32px; overflow-y: auto; height: 100vh; display: flex; flex-direction: column; gap: 16px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; flex-shrink: 0; }
+        .page-header h1 { font-size: 24px; font-weight: 700; color: var(--aero-text); letter-spacing: -0.3px; }
+        .page-header .date { font-size: 13px; color: var(--aero-gray); }
+        .section-content { display: none; flex-direction: column; gap: 16px; }
+        .section-content.active { display: flex; }
+
+        .card { background: #ffffff; border-radius: 12px; padding: 20px 24px; border: 1px solid var(--aero-gray-light); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+        .card-header h3 { font-size: 15px; font-weight: 700; color: var(--aero-text); display: flex; align-items: center; gap: 8px; }
+        .card-header h3::before { content: ''; display: inline-block; width: 3px; height: 16px; background: var(--aero-blue); border-radius: 2px; }
+
+        .recorder-block { background: #f8fafc; border: 1px solid var(--aero-gray-light); border-radius: 12px; padding: 30px 20px; text-align: center; }
+        .recorder-block.recording { background: var(--aero-blue-pale); border-color: var(--aero-blue-light); }
+        .recorder-viz { display: flex; align-items: center; justify-content: center; gap: 4px; height: 60px; margin-bottom: 20px; }
+        .recorder-viz .bar { width: 6px; background: var(--aero-blue); border-radius: 3px; transition: height 0.1s ease; min-height: 4px; }
+        .recorder-block.recording .recorder-viz .bar { background: var(--aero-blue); }
+        .recorder-timer { font-size: 36px; font-weight: 800; color: var(--aero-text); letter-spacing: -1px; font-variant-numeric: tabular-nums; margin-bottom: 20px; }
+        .recorder-block.recording .recorder-timer { color: var(--aero-blue); }
+        .recorder-controls { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .btn-record { width: 72px; height: 72px; border-radius: 50%; border: none; background: var(--aero-blue); color: white; font-size: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .btn-record:hover { background: var(--aero-blue-light); }
+        .btn-record.recording { background: #0a1628; }
+
+        .audio-player { background: #ffffff; border: 1px solid var(--aero-gray-light); border-radius: 12px; padding: 16px; margin-top: 20px; display: flex; align-items: center; gap: 14px; }
+        .audio-player.hidden { display: none; }
+        .audio-play-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--aero-blue); color: white; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .audio-play-btn:hover { background: var(--aero-blue-light); }
+        .audio-player .audio-info { flex: 1; text-align: left; }
+        .audio-player .audio-info .audio-title { font-size: 13px; font-weight: 600; }
+        .audio-player .audio-info .audio-meta { font-size: 11px; color: var(--aero-gray); margin-top: 2px; }
+        .audio-player audio { display: none; }
+        .audio-progress { width: 100%; height: 4px; background: var(--aero-gray-light); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+        .audio-progress .progress-fill { height: 100%; background: var(--aero-blue); border-radius: 2px; width: 0%; transition: width 0.2s linear; }
+
+        .table-wrapper { overflow-x: auto; border-radius: 10px; border: 1px solid var(--aero-gray-light); margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: #f8fafc; border-bottom: 2px solid var(--aero-gray-light); }
+        thead th { text-align: left; padding: 12px 14px; font-weight: 700; color: var(--aero-text-light); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        tbody td { padding: 12px 14px; border-bottom: 1px solid var(--aero-gray-light); vertical-align: middle; }
+        tbody tr.atlb-row { cursor: pointer; transition: background 0.15s; }
+        tbody tr.atlb-row:hover { background: #f8fafc; }
+        tbody tr.atlb-row.ready { background: #fffbeb; }
+        tbody tr.atlb-row.ready:hover { background: #fef3c7; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .data-input { width: 100%; padding: 8px 10px; border: 1px solid var(--aero-gray-light); border-radius: 6px; font-family: inherit; font-size: 13px; background: #fff; }
+        .data-input:focus { outline: none; border-color: var(--aero-blue); }
+        .data-textarea { min-height: 60px; resize: vertical; }
+        select.data-input { cursor: pointer; }
+        .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+        .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--aero-blue); color: white; }
+        .btn-primary:hover { background: var(--aero-blue-light); }
+        .btn-success { background: var(--aero-blue); color: white; }
+        .btn-success:hover { background: var(--aero-blue-light); }
+        .btn-secondary { background: var(--aero-gray-light); color: var(--aero-text-light); }
+        .btn-secondary:hover { background: #d0d7e2; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-full { width: 100%; justify-content: center; }
+
+        .record-item { display: flex; align-items: center; gap: 14px; padding: 12px 14px; background: #f8fafc; border-radius: 10px; margin-bottom: 8px; }
+        .record-item .record-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--aero-blue-pale); display: flex; align-items: center; justify-content: center; color: var(--aero-blue); font-size: 14px; flex-shrink: 0; }
+        .record-item .record-info { flex: 1; min-width: 0; }
+        .record-item .record-title { font-size: 13px; font-weight: 600; }
+        .record-item .record-meta { font-size: 11px; color: var(--aero-gray); margin-top: 2px; }
+        .record-item .record-actions { display: flex; gap: 6px; }
+        .record-item .record-actions button { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--aero-gray-light); background: #ffffff; color: var(--aero-text-light); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+        .record-item .record-actions button:hover { background: var(--aero-blue); color: white; border-color: var(--aero-blue); }
+
+        .empty-state { text-align: center; padding: 32px 16px; color: var(--aero-gray); }
+        .empty-state i { font-size: 40px; opacity: 0.3; display: block; margin-bottom: 10px; }
+        .empty-state p { font-size: 14px; font-weight: 500; }
+
+        .atlb-stats { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; font-size: 12px; color: var(--aero-text-light); }
+        .atlb-stats > div { padding: 6px 12px; background: #f8fafc; border-radius: 6px; border: 1px solid var(--aero-gray-light); }
+        .atlb-stats strong { color: var(--aero-text); font-weight: 700; margin-left: 4px; }
+
+        .atlb-open-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: 1px solid var(--aero-gray-light); border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; background: #fff; color: var(--aero-text); transition: all 0.15s; font-family: inherit; white-space: nowrap; }
+        .atlb-open-btn:hover { background: #f8fafc; border-color: var(--aero-blue); color: var(--aero-blue); }
+        .atlb-open-btn.ready { background: var(--aero-blue); color: white; border-color: var(--aero-blue); }
+        .atlb-open-btn.ready:hover { background: var(--aero-blue-light); border-color: var(--aero-blue-light); }
+
+        .attention-tag { display: inline-block; background: #fef3c7; color: #92400e; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; margin-left: 6px; }
+
+        .defects-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+        .defect-card { border: 1px solid var(--aero-gray-light); border-radius: 10px; padding: 14px 16px; background: #f8fafc; position: relative; }
+        .defect-card .defect-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .defect-card .defect-num { font-size: 12px; font-weight: 700; color: var(--aero-blue); text-transform: uppercase; letter-spacing: 0.3px; }
+        .defect-card .btn-remove-defect { width: 26px; height: 26px; border-radius: 50%; border: none; background: var(--aero-blue-pale); color: var(--aero-blue); cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; font-family: inherit; transition: background 0.15s; }
+        .defect-card .btn-remove-defect:hover { background: var(--aero-blue); color: white; }
+        .defect-card .defect-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 10px; }
+        .defect-card .defect-desc-wrap { margin-top: 0; }
+        .btn-add-defect { width: 100%; padding: 12px 16px; background: #fff; border: 1px dashed var(--aero-gray-light); border-radius: 8px; color: var(--aero-blue); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; margin-bottom: 16px; transition: all 0.15s; }
+        .btn-add-defect:hover { background: var(--aero-blue-pale); border-color: var(--aero-blue); }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15,23,42,0.5); z-index: 20000; justify-content: center; align-items: center; padding: 20px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #ffffff; border-radius: 12px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal.modal-lg { max-width: 620px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 20px 24px 16px; border-bottom: 1px solid var(--aero-gray-light); gap: 12px; }
+        .modal-header h2 { font-size: 16px; font-weight: 700; color: var(--aero-text); line-height: 1.3; }
+        .modal-header .modal-sub { font-size: 12px; color: var(--aero-gray); margin-top: 3px; }
+        .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--aero-gray); padding: 0; line-height: 1; width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .modal-close:hover { background: var(--aero-gray-light); color: var(--aero-text); }
+        .modal-body { padding: 20px 24px; }
+        .modal .form-group { margin-bottom: 14px; }
+        .modal .form-group label { display: block; font-size: 11px; font-weight: 600; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .modal .form-group input, .modal .form-group textarea, .modal .form-group select { width: 100%; padding: 10px 12px; border: 1px solid var(--aero-gray-light); border-radius: 8px; font-size: 13px; font-family: inherit; background: #fff; color: var(--aero-text); }
+        .modal .form-group input:focus, .modal .form-group textarea:focus, .modal .form-group select:focus { outline: none; border-color: var(--aero-blue); }
+        .modal .form-group textarea { resize: vertical; min-height: 80px; }
+        .modal-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--aero-gray-light); }
+        .modal-actions .btn { flex: 1; justify-content: center; }
+
+        .atlb-info-list { display: flex; flex-direction: column; margin-bottom: 16px; font-size: 13px; border-top: 1px solid var(--aero-gray-light); }
+        .atlb-info-list .row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--aero-gray-light); gap: 16px; }
+        .atlb-info-list .row .label { color: var(--aero-gray); flex-shrink: 0; }
+        .atlb-info-list .row .val { font-weight: 500; text-align: right; color: var(--aero-text); word-break: break-word; }
+
+        .atlb-status-line { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #f8fafc; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+        .atlb-status-line i { font-size: 16px; }
+
+        .atlb-work-block { background: #f8fafc; border-left: 3px solid var(--aero-blue); border-radius: 6px; padding: 10px 14px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+        .atlb-work-block .work-label { font-size: 11px; color: var(--aero-gray); text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600; margin-bottom: 4px; }
+
+        .sign-block { border: 1px solid var(--aero-gray-light); border-radius: 10px; padding: 16px; margin-top: 4px; }
+        .sign-block .sign-label { font-size: 12px; color: var(--aero-text-light); margin-bottom: 10px; line-height: 1.5; }
+        .sign-block .sign-label strong { color: var(--aero-text); }
+        .sign-canvas { width: 100%; height: 150px; background: #fafbfc; border: 1px dashed #cbd5e1; border-radius: 8px; cursor: crosshair; touch-action: none; display: block; transition: border-color 0.2s, background-color 0.2s; }
+        .sign-canvas:hover { border-color: #94a3b8; }
+        .sign-canvas.filled { border-color: var(--aero-blue); border-style: solid; background: var(--aero-blue-pale); }
+        .sign-actions { display: flex; gap: 8px; margin-top: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .btn-clear-sign { padding: 8px 14px; font-size: 12px; font-weight: 500; background: #fff; color: var(--aero-text-light); border: 1px solid var(--aero-gray-light); border-radius: 6px; cursor: pointer; font-family: inherit; }
+        .btn-clear-sign:hover:not(:disabled) { background: var(--aero-blue-pale); color: var(--aero-blue); border-color: var(--aero-blue-light); }
+        .btn-clear-sign:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-sign-crs { padding: 10px 20px; font-size: 13px; font-weight: 600; background: var(--aero-blue); color: white; border: none; border-radius: 8px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-sign-crs:hover:not(:disabled) { background: var(--aero-blue-light); }
+        .btn-sign-crs:disabled { background: #cbd5e1; color: #94a3b8; cursor: not-allowed; }
+
+        .crs-signed { border: 1px solid #bfdbfe; background: var(--aero-blue-pale); border-radius: 10px; padding: 14px; }
+        .crs-signed .crs-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .crs-signed .crs-head i { font-size: 22px; color: var(--aero-blue); }
+        .crs-signed .crs-head .txt { font-size: 13px; font-weight: 600; color: var(--aero-blue); }
+        .crs-signed .crs-head .meta { font-size: 11px; color: var(--aero-blue-light); margin-top: 2px; }
+        .crs-signed img { display: block; max-width: 240px; height: auto; background: #fff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 4px; }
+
+        .hist-title { font-size: 11px; color: var(--aero-gray); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px; }
+        .hist-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--aero-gray-light); font-size: 12px; }
+        .hist-item:last-child { border-bottom: none; }
+        .hist-item .hist-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
+        .hist-item .hist-body { flex: 1; }
+        .hist-item .hist-line { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+        .hist-item .hist-status { font-weight: 600; }
+        .hist-item .hist-date { color: var(--aero-gray); font-size: 11px; }
+        .hist-item .hist-note { color: var(--aero-text-light); font-size: 11px; }
+
+        .mic-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .mic-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--aero-gray-light); border-radius: 10px; cursor: pointer; background: #fafbfc; }
+        .mic-item:hover { border-color: var(--aero-blue); background: var(--aero-blue-pale); }
+        .mic-item.selected { border-color: var(--aero-blue); background: var(--aero-blue-pale); }
+        .mic-item .mic-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--aero-blue-pale); display: flex; align-items: center; justify-content: center; color: var(--aero-blue); font-size: 14px; flex-shrink: 0; }
+        .mic-item .mic-info { flex: 1; min-width: 0; }
+        .mic-item .mic-label { font-size: 13px; font-weight: 600; }
+        .mic-item .mic-id { font-size: 11px; color: var(--aero-gray); margin-top: 2px; font-family: Consolas, monospace; }
+        .mic-item .mic-check { color: var(--aero-blue); font-size: 16px; display: none; }
+        .mic-item.selected .mic-check { display: block; }
+        .info-box { background: var(--aero-blue-pale); border: 1px solid #bfdbfe; color: var(--aero-blue); padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+        .info-list { margin: 10px 0 0 0; padding-left: 22px; font-size: 13px; line-height: 1.8; }
+
+        .toast { position: fixed; top: 24px; right: 24px; padding: 12px 20px; background: var(--aero-blue); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.25); z-index: 9999; display: flex; align-items: center; gap: 10px; max-width: 480px; }
+        .toast.success { border-left: 4px solid var(--aero-blue-light); }
+        .toast.error { border-left: 4px solid #b91c1c; }
+        .toast.warning { border-left: 4px solid #b45309; }
+
+        @media (max-width: 768px) {
+            .sidebar { width: 68px; padding: 16px 12px; }
+            .sidebar-brand .brand-text, .sidebar-user .user-info, .sidebar-nav li a span, .aeroflot-brand, .sidebar-footer .btn-logout span { display: none; }
+            .sidebar-nav li a { justify-content: center; padding: 12px; }
+            .sidebar-nav li a i { margin: 0; font-size: 18px; }
+            .sidebar-user { justify-content: center; }
+            .main { padding: 18px; }
+            .page-header h1 { font-size: 20px; }
+            .form-grid-3 { grid-template-columns: 1fr; }
+            .defect-card .defect-fields { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-icon">✈</div>
+        <div class="brand-text">
+            <span class="brand-vector">Вектор</span> <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
+        </div>
+    </div>
+    <div class="sidebar-user">
+        <div class="avatar" id="userAvatar"><i class="fas fa-user-tie"></i></div>
+        <div class="user-info">
+            <div class="name" id="userName">Пилот</div>
+            <div class="role" id="userRole">КВС</div>
+        </div>
+    </div>
+    <ul class="sidebar-nav">
+        <li id="nav-recorder" class="active"><a href="#" onclick="showTab('recorder'); return false;"><i class="fas fa-microphone"></i><span>Запись заявки</span></a></li>
+        <li id="nav-text"><a href="#" onclick="showTab('text'); return false;"><i class="fas fa-keyboard"></i><span>Текстовая заявка</span></a></li>
+        <li id="nav-logbook"><a href="#" onclick="showTab('logbook'); return false;"><i class="fas fa-book"></i><span>ATLB</span></a></li>
+        <li style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+            <a href="#" onclick="openProfileModal(); return false;"><i class="fas fa-user-circle"></i><span>Личный кабинет</span></a>
+        </li>
+    </ul>
+    <div class="aeroflot-brand">
+        <img src="static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
+    </div>
+    <div class="sidebar-footer">
+        <button class="btn-logout" onclick="logout()">
+            <i class="fas fa-sign-out-alt"></i><span>Выйти</span>
+        </button>
+    </div>
+</nav>
+
+<div class="main">
+    <div class="page-header">
+        <h1 id="pageTitle">Запись заявки</h1>
+        <span class="date" id="currentDate"></span>
+    </div>
+
+    <div class="section-content active" id="section-recorder">
+        <div class="card">
+            <div class="card-header"><h3>Голосовое сообщение</h3></div>
+            <div class="recorder-block" id="recorderBlock">
+                <div class="recorder-viz" id="recorderViz">
+                    <div class="bar" style="height: 10px;"></div><div class="bar" style="height: 20px;"></div>
+                    <div class="bar" style="height: 30px;"></div><div class="bar" style="height: 40px;"></div>
+                    <div class="bar" style="height: 50px;"></div><div class="bar" style="height: 40px;"></div>
+                    <div class="bar" style="height: 30px;"></div><div class="bar" style="height: 20px;"></div>
+                    <div class="bar" style="height: 10px;"></div>
+                </div>
+                <div class="recorder-timer" id="recorderTimer">00:00</div>
+                <div class="recorder-controls">
+                    <button class="btn-record" id="recordBtn" onclick="toggleRecording()" title="Начать запись">
+                        <i class="fas fa-microphone" id="recordIcon"></i>
+                    </button>
+                    <button class="btn btn-secondary" id="resetBtn" onclick="resetRecording()" style="display:none;">
+                        <i class="fas fa-redo"></i> Перезаписать
+                    </button>
+                </div>
+                <div class="audio-player hidden" id="audioPlayer">
+                    <button class="audio-play-btn" id="playBtn" onclick="togglePlayback()">
+                        <i class="fas fa-play" id="playIcon"></i>
+                    </button>
+                    <div class="audio-info">
+                        <div class="audio-title">Запись готова</div>
+                        <div class="audio-meta" id="audioMeta">0 сек • Готово к отправке</div>
+                        <div class="audio-progress"><div class="progress-fill" id="progressFill"></div></div>
+                    </div>
+                    <audio id="audioElement" controls playsinline></audio>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-full" id="analyzeBtn" onclick="analyzeRequest()" disabled style="margin-top: 20px;">
+                <i class="fas fa-magic"></i> Проверить данные (распознать)
+            </button>
+        </div>
+
+        <div class="card" id="reviewCard" style="display: none;">
+            <div class="card-header"><h3>Проверка данных</h3></div>
+            <p style="font-size: 13px; color: var(--aero-text-light); margin-bottom: 16px;">
+                Нейросеть распознала вашу речь. Проверьте данные.
+            </p>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>Борт</th><th>Стоянка</th><th>Неисправность</th><th>Текст заявки</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><input type="text" class="data-input" id="reviewAircraft" placeholder="RA-73701"></td>
+                            <td><input type="text" class="data-input" id="reviewParking" placeholder="101"></td>
+                            <td><input type="text" class="data-input" id="reviewFault" placeholder="Например: вибрация двигателя"></td>
+                            <td><textarea class="data-input data-textarea" id="reviewDesc" placeholder="Описание..."></textarea></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-success btn-full" id="confirmBtn" onclick="confirmRequest()" style="margin-top: 20px;">
+                <i class="fas fa-check"></i> Подтвердить и отправить в MCC
+            </button>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>Локальная история записей</h3></div>
+            <div id="recordsList">
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>Пока нет отправленных заявок</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="section-text">
+        <div class="card">
+            <div class="card-header"><h3>Текстовая заявка о дефекте</h3></div>
+            <p style="font-size: 13px; color: var(--aero-text-light); margin-bottom: 20px;">
+                Опишите дефекты — можно добавить несколько. Заявка уйдёт в MCC, а каждая запись появится в ATLB.
+            </p>
+            <div class="form-grid-3">
+                <div><label class="form-label">Борт</label><input type="text" class="data-input" id="textAircraft" placeholder="RA-73701"></div>
+                <div><label class="form-label">Номер рейса</label><input type="text" class="data-input" id="textFlight" placeholder="SU-101"></div>
+                <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="textParking" placeholder="101"></div>
+            </div>
+            <div class="defects-list" id="defectsList"></div>
+            <button type="button" class="btn-add-defect" onclick="addDefectRow()">
+                <i class="fas fa-plus"></i> Добавить ещё дефект
+            </button>
+            <button class="btn btn-success btn-full" onclick="submitTextRequest(event)">
+                <i class="fas fa-paper-plane"></i> Отправить заявку в MCC
+            </button>
+        </div>
+    </div>
+
+    <div class="section-content" id="section-logbook">
+        <div class="card">
+            <div class="card-header">
+                <h3>ATLB · Aircraft Technical Log Book</h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px;" onclick="addManualDefect()">
+                        <i class="fas fa-plus"></i> MEL
+                    </button>
+                    <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px;" onclick="exportATLB()">
+                        <i class="fas fa-file-export"></i> Экспорт
+                    </button>
+                </div>
+            </div>
+            <div class="atlb-stats">
+                <div>Борт: <strong id="atlbAircraftLabel">—</strong></div>
+                <div>В процессе: <strong id="atlbInProgressCount">0</strong></div>
+                <div>Ждут подписи: <strong id="atlbReadyCount">0</strong></div>
+                <div>Выпущено: <strong id="atlbReleasedCount">0</strong></div>
+            </div>
+            <p style="font-size:12px; color:var(--aero-gray); margin-bottom:10px;">
+                Нажмите на запись, чтобы увидеть детали и поставить подпись.
+            </p>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:110px;">Дата / борт</th>
+                            <th>Дефект</th>
+                            <th style="width:90px;">MEL</th>
+                            <th style="width:200px;">Статус</th>
+                            <th style="width:120px;">CRS</th>
+                            <th style="width:110px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="atlbTableBody">
+                        <tr><td colspan="6" class="empty-state"><i class="fas fa-book-open"></i><p>ATLB пуст</p></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="micModal"><div class="modal"><div class="modal-header"><h2>Выбор микрофона</h2><button class="modal-close" onclick="closeMicModal()">×</button></div><div class="modal-body" id="micModalContent"></div></div></div>
+<div class="modal-overlay" id="helpModal"><div class="modal"><div class="modal-header"><h2>Почему микрофон недоступен</h2><button class="modal-close" onclick="closeHelpModal()">×</button></div><div class="modal-body" id="helpModalContent"></div></div></div>
+<div class="modal-overlay" id="playModal"><div class="modal"><div class="modal-header"><h2 id="playModalTitle">Прослушивание записи</h2><button class="modal-close" onclick="closePlayModal()">×</button></div><div class="modal-body" id="playModalContent"></div></div></div>
+
+<div class="modal-overlay" id="profileModal">
+    <div class="modal">
+        <div class="modal-header"><h2>Редактирование профиля</h2><button class="modal-close" onclick="closeProfileModal()">×</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label>Имя</label><input type="text" id="profileNameInput"></div>
+            <div class="form-group"><label>Email</label><input type="text" id="profileEmailInput" disabled></div>
+            <div class="form-group"><label>Новый пароль</label><input type="password" id="profilePasswordInput" placeholder="••••••••"></div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="profileSaveBtn" onclick="saveProfile()">Сохранить</button>
+                <button class="btn btn-secondary" onclick="closeProfileModal()">Отмена</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="manualDefectModal">
+    <div class="modal">
+        <div class="modal-header"><h2>Отложенный дефект (MEL)</h2><button class="modal-close" onclick="closeManualDefectModal()">×</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label>Описание дефекта *</label><textarea id="manualDefectDesc" placeholder="Например: Неисправен указатель давления в гидросистеме №1"></textarea></div>
+            <div class="form-group"><label>MEL reference *</label><input type="text" id="manualDefectMel" placeholder="MEL 29-10"></div>
+            <div class="form-group"><label>Стоянка / борт</label><input type="text" id="manualDefectParking" placeholder="Стоянка 101, борт RA-73701"></div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="saveManualDefect()">Добавить в ATLB</button>
+                <button class="btn btn-secondary" onclick="closeManualDefectModal()">Отмена</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="atlbDetailModal">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <div>
+                <h2 id="atlbDetailTitle">Дефект</h2>
+                <div class="modal-sub" id="atlbDetailSub">—</div>
+            </div>
+            <button class="modal-close" onclick="closeATLBDetail()">×</button>
+        </div>
+        <div class="modal-body" id="atlbDetailContent"></div>
+    </div>
+</div>
+
+<script>
+/* ============================================================
+   InTrAvia Pilot — v2026-11-12-fix-escapeHtml
+   ВСЕ утилитарные функции объявлены в самом начале + window bindings.
+   Записи НЕ продвигаются автоматически — статусы двигает только MCC.
+   ============================================================ */
+console.log('[InTrAvia Pilot] Script loading, version 2026-11-12-fix-escapeHtml');
+
+/* ============================================================
+   УТИЛИТЫ (объявлены первыми, чтобы точно были доступны)
+   ============================================================ */
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    try {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    } catch (e) {
+        console.error('[escapeHtml] error:', e);
+        return String(s);
+    }
+}
+window.escapeHtml = escapeHtml;
+
+function showToast(message, type) {
+    type = type || 'info';
+    try {
+        var existing = document.querySelector('.toast');
+        if (existing) existing.remove();
+        var toast = document.createElement('div');
+        toast.className = 'toast ' + type;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(function() {
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.3s';
+            setTimeout(function() { toast.remove(); }, 300);
+        }, 5000);
+    } catch (e) {
+        console.error('[showToast] error:', e);
+    }
+}
+window.showToast = showToast;
+
+function formatTime(seconds) {
+    var min = Math.floor(seconds / 60);
+    var sec = Math.floor(seconds % 60);
+    return (min < 10 ? '0' : '') + min + ':' + (sec < 10 ? '0' : '') + sec;
+}
+window.formatTime = formatTime;
+
+function isSecureContext() {
+    if (location.protocol === 'https:') return true;
+    if (location.hostname === 'localhost') return true;
+    if (location.hostname === '127.0.0.1') return true;
+    if (location.hostname === '[::1]') return true;
+    return false;
+}
+window.isSecureContext = isSecureContext;
+
+function hasGetUserMedia() {
+    return !!((navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia);
+}
+window.hasGetUserMedia = hasGetUserMedia;
+
+/* ============================================================
+   State
+   ============================================================ */
+var API_URL = '/api';
+
+var mediaRecorder = null;
+var audioChunks = [];
+var audioBlob = null;
+var audioUrl = null;
+var recordingStartTime = 0;
+var recordingTimerInterval = null;
+var audioContext = null;
+var analyserNode = null;
+var vizAnimationId = null;
+var isRecording = false;
+var isPlaying = false;
+var records = [];
+var finalDuration = 0;
+var selectedMicId = null;
+var availableMics = [];
+var currentDraftId = null;
+var atlbEntries = [];
+var currentDetailId = null;
+
+var signatureCtx = null;
+var signatureDrawing = false;
+var signatureHasStroke = false;
+var signatureLastPos = null;
+
+var defectCounter = 0;
+
+var STORAGE_KEY = 'pilotRecords_v4';
+var MIC_STORAGE_KEY = 'pilotSelectedMic';
+var ATLB_KEY = 'pilotATLB_v4';
+
+var ATLB_STATUSES = {
+    'open':            { label: 'Передан в MCC', icon: 'fa-paper-plane', color: '#003366', bg: '#e8f0fe', role: 'Экипаж', hint: 'Ожидает решения MCC', pilotAction: false },
+    'assigned':        { label: 'Инженер назначен', icon: 'fa-user-check', color: '#003366', bg: '#dbeafe', role: 'MCC', hint: 'Инженер выехал к ВС', pilotAction: false },
+    'in_work':         { label: 'Инженер работает', icon: 'fa-wrench', color: '#0055aa', bg: '#dbeafe', role: 'Инженер', hint: 'Диагностика и устранение', pilotAction: false },
+    'awaiting_parts':  { label: 'Ожидает деталей', icon: 'fa-box', color: '#0055aa', bg: '#e8f0fe', role: 'Инженер', hint: 'Требуется поставка деталей', pilotAction: false },
+    'repaired':        { label: 'Устранено — ждёт вашей подписи', icon: 'fa-check', color: '#b45309', bg: '#fef3c7', role: 'Инженер → Пилот', hint: 'Проверьте работы и подпишите CRS', pilotAction: true },
+    'deferred':        { label: 'Отложено по MEL — ждёт вашей подписи', icon: 'fa-clock', color: '#b45309', bg: '#fef3c7', role: 'MCC → Пилот', hint: 'MEL согласован, подпишите CRS', pilotAction: true },
+    'released':        { label: 'Выпущено (CRS подписан)', icon: 'fa-check-double', color: '#6b7280', bg: '#f3f4f6', role: 'Пилот', hint: 'ВС готово к вылету', pilotAction: false }
+};
+
+var FAULT_LABELS = {
+    'engine_failure': 'Отказ двигателя', 'engine_oil': 'Утечка масла',
+    'engine_overheat': 'Перегрев двигателя', 'engine_vibration': 'Вибрация двигателя',
+    'engine_start': 'Проблема с запуском', 'fuel_leak': 'Утечка топлива',
+    'fuel_system': 'Топливная система', 'avionics_nav': 'Навигация',
+    'avionics_radio': 'Радиосвязь', 'avionics_autopilot': 'Автопилот',
+    'avionics_transponder': 'Транспондер', 'avionics_display': 'Дисплей',
+    'avionics_gps': 'GPS', 'hydraulic': 'Гидравлика',
+    'hydraulic_leak': 'Утечка гидравлики', 'hydraulic_pressure': 'Давление гидравлики',
+    'electrical': 'Электрика', 'electrical_generator': 'Генератор',
+    'electrical_battery': 'Аккумулятор', 'electrical_short': 'Короткое замыкание',
+    'electrical_lighting': 'Освещение', 'landing_gear': 'Шасси',
+    'pneumatic': 'Пневматика', 'brake_system': 'Тормозная система',
+    'flap_issue': 'Закрылки', 'aileron_issue': 'Элероны',
+    'rudder_issue': 'Руль направления', 'wing_damage': 'Повреждение крыла',
+    'fuselage_damage': 'Повреждение фюзеляжа', 'door_issue': 'Дверь',
+    'air_condition': 'Кондиционирование', 'pressurization': 'Разгерметизация',
+    'oxygen_system': 'Кислородная система', 'fire_system': 'Пожарная система',
+    'deicing_system': 'Противообледенительная', 'pilot_voice': 'Голосовое сообщение'
+};
+
+function codeToLabel(code) {
+    if (!code) return '';
+    return FAULT_LABELS[code] || code;
+}
+function labelToCode(label) {
+    if (!label) return '';
+    if (FAULT_LABELS[label]) return label;
+    var lower = label.toLowerCase().trim();
+    for (var key in FAULT_LABELS) {
+        if (FAULT_LABELS.hasOwnProperty(key) && FAULT_LABELS[key].toLowerCase() === lower) return key;
+    }
+    return label;
+}
+
+/* Session init */
+(function() {
+    var session = sessionStorage.getItem('userSession');
+    if (!session) { window.location.href = '/login.html'; return; }
+    var user;
+    try {
+        user = JSON.parse(session);
+        if (user.role !== 'pilot') { window.location.href = '/login.html'; return; }
+    } catch (_) { window.location.href = '/login.html'; return; }
+    document.getElementById('userName').textContent = user.name || 'Пилот';
+    document.getElementById('userAvatar').innerHTML = '<i class="fas fa-user-tie"></i>';
+    document.getElementById('userRole').textContent = user.rank || 'КВС';
+})();
+
+(function() {
+    var now = new Date();
+    var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    document.getElementById('currentDate').textContent = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+})();
+
+function showTab(tabName) {
+    document.querySelectorAll('.section-content').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.sidebar-nav li').forEach(function(el) { el.classList.remove('active'); });
+    document.getElementById('section-' + tabName).classList.add('active');
+    document.getElementById('nav-' + tabName).classList.add('active');
+    if (tabName === 'recorder') document.getElementById('pageTitle').textContent = 'Запись заявки';
+    if (tabName === 'text') document.getElementById('pageTitle').textContent = 'Текстовая заявка';
+    if (tabName === 'logbook') {
+        document.getElementById('pageTitle').textContent = 'ATLB · Aircraft Technical Log Book';
+        renderATLB();
+    }
+}
+window.showTab = showTab;
+
+/* Dynamic defect rows */
+function initDefectsForm() {
+    defectCounter = 0;
+    var list = document.getElementById('defectsList');
+    if (!list) return;
+    list.innerHTML = '';
+    addDefectRow();
+}
+
+function addDefectRow() {
+    defectCounter++;
+    var id = defectCounter;
+    var list = document.getElementById('defectsList');
+    var html = '<div class="defect-card" data-defect-id="' + id + '">' +
+        '<div class="defect-head">' +
+            '<span class="defect-num">Дефект ' + id + '</span>' +
+            '<button type="button" class="btn-remove-defect" onclick="removeDefectRow(' + id + ')" title="Удалить">×</button>' +
+        '</div>' +
+        '<div class="defect-fields">' +
+            '<div>' +
+                '<label class="form-label">Неисправность *</label>' +
+                '<input type="text" class="data-input" id="defectName_' + id + '" placeholder="Например: вибрация двигателя №2">' +
+            '</div>' +
+            '<div>' +
+                '<label class="form-label">Серьёзность</label>' +
+                '<select class="data-input" id="defectSeverity_' + id + '">' +
+                    '<option value="low">Низкая</option>' +
+                    '<option value="medium" selected>Средняя</option>' +
+                    '<option value="high">Высокая</option>' +
+                '</select>' +
+            '</div>' +
+        '</div>' +
+        '<div class="defect-desc-wrap">' +
+            '<label class="form-label">Описание дефекта *</label>' +
+            '<textarea class="data-input data-textarea" id="defectDesc_' + id + '" placeholder="Подробности..." style="min-height:70px;"></textarea>' +
+        '</div>' +
+    '</div>';
+    list.insertAdjacentHTML('beforeend', html);
+    updateDefectNumbers();
+    updateRemoveButtons();
+}
+window.addDefectRow = addDefectRow;
+
+function removeDefectRow(id) {
+    var card = document.querySelector('.defect-card[data-defect-id="' + id + '"]');
+    if (card) card.remove();
+    updateDefectNumbers();
+    updateRemoveButtons();
+}
+window.removeDefectRow = removeDefectRow;
+
+function updateDefectNumbers() {
+    var cards = document.querySelectorAll('.defect-card');
+    for (var i = 0; i < cards.length; i++) {
+        var numEl = cards[i].querySelector('.defect-num');
+        if (numEl) numEl.textContent = 'Дефект ' + (i + 1);
+    }
+}
+
+function updateRemoveButtons() {
+    var cards = document.querySelectorAll('.defect-card');
+    for (var i = 0; i < cards.length; i++) {
+        var btn = cards[i].querySelector('.btn-remove-defect');
+        if (btn) btn.style.display = cards.length > 1 ? 'flex' : 'none';
+    }
+}
+
+function collectDefects() {
+    var result = [];
+    var cards = document.querySelectorAll('.defect-card');
+    for (var i = 0; i < cards.length; i++) {
+        var id = cards[i].getAttribute('data-defect-id');
+        var nameEl = document.getElementById('defectName_' + id);
+        var descEl = document.getElementById('defectDesc_' + id);
+        var sevEl = document.getElementById('defectSeverity_' + id);
+        result.push({
+            name: nameEl ? nameEl.value.trim() : '',
+            desc: descEl ? descEl.value.trim() : '',
+            severity: sevEl ? sevEl.value : 'medium'
+        });
+    }
+    return result;
+}
+
+/* ============================================================
+   ATLB
+   ============================================================ */
+function loadATLB() {
+    try {
+        var s = localStorage.getItem(ATLB_KEY);
+        if (!s) s = localStorage.getItem('pilotATLB_v3') || localStorage.getItem('pilotATLB_v2') || localStorage.getItem('pilotATLB_v1');
+        if (!s) { console.log('[loadATLB] localStorage пуст'); return []; }
+        var d = JSON.parse(s);
+        if (!Array.isArray(d)) return [];
+        for (var i = 0; i < d.length; i++) {
+            var e = d[i];
+            if (!e.history || !Array.isArray(e.history)) {
+                e.history = [{ at: e.createdAt || new Date().toISOString(), from: null, to: e.status || 'open', role: 'Экипаж', note: 'Загружено из предыдущей версии' }];
+            }
+            if (!ATLB_STATUSES[e.status]) e.status = 'open';
+            if (!e.crs) e.crs = { signed: false, signedAt: null, signedBy: null, signature: null };
+        }
+        console.log('[loadATLB] Загружено:', d.length, 'записей');
+        return d;
+    } catch(err) {
+        console.error('[loadATLB] Ошибка:', err);
+        return [];
+    }
+}
+
+function saveATLB() {
+    try {
+        var payload = JSON.stringify(atlbEntries);
+        localStorage.setItem(ATLB_KEY, payload);
+        console.log('[saveATLB] OK — записей:', atlbEntries.length, '· размер:', payload.length, 'байт');
+        return true;
+    } catch(e) {
+        console.error('[saveATLB] FAILED:', e);
+        try { showToast('Ошибка сохранения ATLB: ' + e.message, 'error'); } catch(_) {}
+        return false;
+    }
+}
+
+function createATLBEntry(data) {
+    var now = new Date().toISOString();
+    var entry = {
+        id: 'atlb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+        aircraft: data.aircraft || '—',
+        flightNumber: data.flightNumber || '',
+        createdAt: now,
+        defect: data.defect || '',
+        faultType: data.faultType || '',
+        severity: data.severity || 'medium',
+        parking: data.parking || '',
+        source: data.source || 'text',
+        requestId: data.requestId || null,
+        melRef: '', deferred: false, rectification: '',
+        status: 'open',
+        crs: { signed: false, signedAt: null, signedBy: null, signature: null },
+        demo: false,
+        history: [{ at: now, from: null, to: 'open', role: 'Экипаж', note: 'Дефект зарегистрирован в ATLB → очередь MCC' }]
+    };
+    atlbEntries.unshift(entry);
+    saveATLB();
+    renderATLB();
+    return entry;
+}
+
+function findATLB(id) {
+    for (var i = 0; i < atlbEntries.length; i++) {
+        if (atlbEntries[i].id === id) return atlbEntries[i];
+    }
+    return null;
+}
+
+function renderATLB() {
+    var tbody = document.getElementById('atlbTableBody');
+    if (!tbody) return;
+    var inProgress = 0, readyCount = 0, releasedCount = 0, lastAircraft = '—';
+    for (var i = 0; i < atlbEntries.length; i++) {
+        var e = atlbEntries[i];
+        if (e.status === 'repaired' || e.status === 'deferred') readyCount++;
+        else if (e.status !== 'released') inProgress++;
+        if (e.status === 'released') releasedCount++;
+        if (lastAircraft === '—' && e.aircraft && e.aircraft !== '—') lastAircraft = e.aircraft;
+    }
+    var el;
+    if ((el = document.getElementById('atlbInProgressCount'))) el.textContent = inProgress;
+    if ((el = document.getElementById('atlbReadyCount'))) el.textContent = readyCount;
+    if ((el = document.getElementById('atlbReleasedCount'))) el.textContent = releasedCount;
+    if ((el = document.getElementById('atlbAircraftLabel'))) el.textContent = lastAircraft;
+
+    if (!atlbEntries.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-book-open"></i><p>ATLB пуст</p></td></tr>';
+        return;
+    }
+    var html = '';
+    for (var j = 0; j < atlbEntries.length; j++) html += renderATLBRow(atlbEntries[j]);
+    tbody.innerHTML = html;
+}
+
+function renderATLBRow(e) {
+    var created = new Date(e.createdAt);
+    var dateStr = created.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
+    var isReady = e.status === 'repaired' || e.status === 'deferred';
+
+    var sevColor = e.severity === 'high' ? '#4b5563' : e.severity === 'medium' ? '#9ca3af' : '#d1d5db';
+    var sevDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + sevColor + ';margin-right:6px;flex-shrink:0;"></span>';
+
+    var melHtml = e.melRef ? '<span style="font-family:Consolas;font-size:11px;color:#0055aa;font-weight:600;">' + escapeHtml(e.melRef) + '</span>' : '<span style="color:#8a9bb5;">—</span>';
+
+    var statusHtml = '<span class="status-badge" style="background:' + meta.bg + ';color:' + meta.color + ';">' +
+        '<i class="fas ' + meta.icon + '"></i> ' + meta.label + '</span>';
+    if (isReady) statusHtml += '<span class="attention-tag">подпись</span>';
+
+    var crsHtml;
+    if (e.crs.signed) {
+        crsHtml = '<div style="font-size:11px;color:#0055aa;font-weight:600;">✓ Подписан</div>' +
+            '<div style="font-size:10px;color:#8a9bb5;">' + new Date(e.crs.signedAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>';
+    } else if (isReady) {
+        crsHtml = '<span style="color:#b45309;font-size:11px;">ждёт подписи</span>';
+    } else {
+        crsHtml = '<span style="color:#8a9bb5;">—</span>';
+    }
+
+    var defectCell = '<div style="font-weight:600;font-size:13px;display:flex;align-items:flex-start;">' + sevDot +
+        '<span>' + escapeHtml(e.defect) + '</span></div>' +
+        '<div style="font-size:11px;color:#8a9bb5;margin-top:4px;padding-left:14px;">' +
+        escapeHtml(e.parking ? 'Стоянка ' + e.parking : '') +
+        (e.flightNumber ? ' • ' + escapeHtml(e.flightNumber) : '') +
+        '</div>';
+
+    var openBtn = isReady
+        ? '<button class="atlb-open-btn ready" onclick="event.stopPropagation(); openATLBDetail(\'' + e.id + '\')">Подписать</button>'
+        : '<button class="atlb-open-btn" onclick="event.stopPropagation(); openATLBDetail(\'' + e.id + '\')">Открыть</button>';
+
+    var rowClass = 'atlb-row' + (isReady ? ' ready' : '');
+
+    return '<tr class="' + rowClass + '" onclick="openATLBDetail(\'' + e.id + '\')">' +
+        '<td><div style="font-weight:600;font-size:12px;">' + dateStr + '</div>' +
+        '<div style="font-size:10px;color:#8a9bb5;">' + escapeHtml(e.aircraft) + '</div></td>' +
+        '<td>' + defectCell + '</td>' +
+        '<td>' + melHtml + '</td>' +
+        '<td>' + statusHtml + '</td>' +
+        '<td>' + crsHtml + '</td>' +
+        '<td>' + openBtn + '</td>' +
+    '</tr>';
+}
+
+function openATLBDetail(id) {
+    var e = findATLB(id);
+    if (!e) { showToast('Запись не найдена', 'error'); return; }
+    currentDetailId = id;
+
+    var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
+    var isReady = e.status === 'repaired' || e.status === 'deferred';
+
+    document.getElementById('atlbDetailTitle').textContent = e.faultType || (e.defect || '').split('.')[0] || 'Дефект';
+    document.getElementById('atlbDetailSub').textContent =
+        e.aircraft + (e.parking ? ' · Стоянка ' + e.parking : '') + (e.flightNumber ? ' · Рейс ' + e.flightNumber : '');
+
+    var html = '';
+
+    html += '<div class="atlb-status-line" style="color:' + meta.color + ';background:' + meta.bg + ';">' +
+        '<i class="fas ' + meta.icon + '"></i>' +
+        '<div>' +
+            '<strong>' + meta.label + '</strong>' +
+            '<div style="font-size:12px;color:#4a5a6a;margin-top:2px;">' + meta.hint + '</div>' +
+        '</div>' +
+    '</div>';
+
+    html += '<div class="atlb-info-list">' +
+        '<div class="row"><span class="label">Дата регистрации</span><span class="val">' +
+            new Date(e.createdAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) +
+        '</span></div>' +
+        '<div class="row"><span class="label">Серьёзность</span><span class="val">' + severityLabel(e.severity) + '</span></div>' +
+        '<div class="row"><span class="label">Описание</span><span class="val" style="font-weight:400;">' + escapeHtml(e.defect) + '</span></div>' +
+        (e.melRef ? '<div class="row"><span class="label">MEL</span><span class="val" style="font-family:Consolas;color:#0055aa;">' + escapeHtml(e.melRef) + '</span></div>' : '') +
+        (e.engineerName ? '<div class="row"><span class="label">Техник</span><span class="val">' + escapeHtml(e.engineerName) + '</span></div>' : '') +
+    '</div>';
+
+    if (e.rectification) {
+        html += '<div class="atlb-work-block">' +
+            '<div class="work-label">Работы инженера</div>' +
+            escapeHtml(e.rectification) +
+        '</div>';
+    }
+
+    if (isReady && !e.crs.signed) {
+        var pilotName = getPilotName();
+        html += '<div class="sign-block">' +
+            '<div class="sign-label">' +
+                'Поставьте подпись в поле ниже. Вы подтверждаете, что инженер выполнил работы' +
+                (e.melRef ? ' и MEL ' + escapeHtml(e.melRef) + ' согласован' : '') +
+                ', и подписываете CRS.<br>' +
+                '<strong>Подписант:</strong> ' + escapeHtml(pilotName) +
+            '</div>' +
+            '<canvas id="signatureCanvas" class="sign-canvas"></canvas>' +
+            '<div class="sign-actions">' +
+                '<button class="btn-clear-sign" id="sigClearBtn" onclick="clearSignature()" disabled>' +
+                    '<i class="fas fa-eraser"></i> Очистить' +
+                '</button>' +
+                '<button class="btn-sign-crs" id="crsSignBtn" onclick="pilotSignCRS(\'' + e.id + '\')" disabled>' +
+                    '<i class="fas fa-signature"></i> Подписать CRS' +
+                '</button>' +
+            '</div>' +
+        '</div>';
+    } else if (e.crs.signed) {
+        html += '<div class="crs-signed">' +
+            '<div class="crs-head">' +
+                '<i class="fas fa-check-circle"></i>' +
+                '<div>' +
+                    '<div class="txt">CRS подписан</div>' +
+                    '<div class="meta">' + escapeHtml(e.crs.signedBy || '') + ' · ' + new Date(e.crs.signedAt).toLocaleString('ru-RU') + '</div>' +
+                '</div>' +
+            '</div>';
+        if (e.crs.signature) {
+            html += '<img src="' + e.crs.signature + '" alt="Подпись КВС">';
+        }
+        html += '</div>';
+    } else {
+        html += '<div style="padding:12px 14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#4a5a6a;text-align:center;">' +
+            'Действий пока не требуется — ждём завершения работ инженером.' +
+        '</div>';
+    }
+
+    html += '<div style="margin-top:20px;">' +
+        '<div class="hist-title">История</div>';
+    var history = e.history || [];
+    for (var i = 0; i < history.length; i++) {
+        var h = history[i];
+        var toMeta = ATLB_STATUSES[h.to] || ATLB_STATUSES['open'];
+        html += '<div class="hist-item">' +
+            '<div class="hist-dot" style="background:' + toMeta.color + ';"></div>' +
+            '<div class="hist-body">' +
+                '<div class="hist-line">' +
+                    '<span class="hist-status" style="color:' + toMeta.color + ';">' + toMeta.label + '</span>' +
+                    '<span class="hist-date">' + new Date(h.at).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
+                '</div>' +
+                '<div class="hist-note">' + escapeHtml(h.role || '—') + (h.note ? ' · ' + escapeHtml(h.note) : '') + '</div>' +
+            '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="modal-actions" style="margin-top:20px;">';
+    if (e.status === 'released' || e.source === 'manual') {
+        html += '<button class="btn btn-secondary" onclick="deleteFromDetail(\'' + e.id + '\')"><i class="fas fa-trash"></i> Удалить</button>';
+    }
+    html += '<button class="btn btn-secondary" onclick="closeATLBDetail()">Закрыть</button>';
+    html += '</div>';
+
+    document.getElementById('atlbDetailContent').innerHTML = html;
+    document.getElementById('atlbDetailModal').classList.add('show');
+
+    if (isReady && !e.crs.signed) {
+        setTimeout(function() { initSignaturePad(); }, 50);
+    }
+}
+window.openATLBDetail = openATLBDetail;
+
+function severityLabel(s) {
+    if (s === 'high') return 'Высокая';
+    if (s === 'low') return 'Низкая';
+    return 'Средняя';
+}
+
+function closeATLBDetail() {
+    document.getElementById('atlbDetailModal').classList.remove('show');
+    currentDetailId = null;
+    signatureCtx = null;
+    signatureHasStroke = false;
+    signatureDrawing = false;
+    signatureLastPos = null;
+}
+window.closeATLBDetail = closeATLBDetail;
+
+function deleteFromDetail(id) {
+    if (!confirm('Удалить запись из ATLB?')) return;
+    atlbEntries = atlbEntries.filter(function(e) { return e.id !== id; });
+    saveATLB();
+    renderATLB();
+    closeATLBDetail();
+    showToast('Запись удалена', 'success');
+}
+window.deleteFromDetail = deleteFromDetail;
+
+/* Signature pad */
+function initSignaturePad() {
+    var canvas = document.getElementById('signatureCanvas');
+    if (!canvas) return;
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) { setTimeout(initSignaturePad, 50); return; }
+    var ratio = window.devicePixelRatio || 1;
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.strokeStyle = '#001f4d';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    signatureCtx = ctx;
+    signatureHasStroke = false;
+    signatureDrawing = false;
+    signatureLastPos = null;
+    if (canvas.setPointerCapture) canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointerdown', onSigPointerDown);
+    canvas.addEventListener('pointermove', onSigPointerMove);
+    canvas.addEventListener('pointerup', onSigPointerUp);
+    canvas.addEventListener('pointercancel', onSigPointerUp);
+}
+
+function getSigPos(ev, canvas) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+}
+
+function onSigPointerDown(ev) {
+    if (!signatureCtx) return;
+    ev.preventDefault();
+    var canvas = ev.target;
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    signatureDrawing = true;
+    var pos = getSigPos(ev, canvas);
+    signatureCtx.beginPath();
+    signatureCtx.moveTo(pos.x, pos.y);
+    signatureCtx.lineTo(pos.x + 0.1, pos.y + 0.1);
+    signatureCtx.stroke();
+    signatureLastPos = pos;
+    markSignatureStarted();
+}
+
+function onSigPointerMove(ev) {
+    if (!signatureDrawing || !signatureCtx) return;
+    ev.preventDefault();
+    var canvas = ev.target;
+    var pos = getSigPos(ev, canvas);
+    signatureCtx.beginPath();
+    signatureCtx.moveTo(signatureLastPos.x, signatureLastPos.y);
+    signatureCtx.lineTo(pos.x, pos.y);
+    signatureCtx.stroke();
+    signatureLastPos = pos;
+    markSignatureStarted();
+}
+
+function onSigPointerUp(ev) {
+    if (!signatureDrawing) return;
+    ev.preventDefault();
+    signatureDrawing = false;
+    signatureLastPos = null;
+    try { ev.target.releasePointerCapture(ev.pointerId); } catch (_) {}
+}
+
+function markSignatureStarted() {
+    if (signatureHasStroke) return;
+    signatureHasStroke = true;
+    var canvas = document.getElementById('signatureCanvas');
+    if (canvas) canvas.classList.add('filled');
+    var signBtn = document.getElementById('crsSignBtn');
+    if (signBtn) signBtn.disabled = false;
+    var clearBtn = document.getElementById('sigClearBtn');
+    if (clearBtn) clearBtn.disabled = false;
+}
+
+function clearSignature() {
+    var canvas = document.getElementById('signatureCanvas');
+    if (!canvas || !signatureCtx) return;
+    var rect = canvas.getBoundingClientRect();
+    signatureCtx.clearRect(0, 0, rect.width, rect.height);
+    signatureHasStroke = false;
+    canvas.classList.remove('filled');
+    var signBtn = document.getElementById('crsSignBtn');
+    if (signBtn) signBtn.disabled = true;
+    var clearBtn = document.getElementById('sigClearBtn');
+    if (clearBtn) clearBtn.disabled = true;
+}
+window.clearSignature = clearSignature;
+
+function getSignatureDataUrl() {
+    var canvas = document.getElementById('signatureCanvas');
+    if (!canvas || !signatureHasStroke) return null;
+    try { return canvas.toDataURL('image/png'); }
+    catch (e) { return null; }
+}
+
+function getPilotName() {
+    try {
+        var s = sessionStorage.getItem('userSession');
+        if (s) { var u = JSON.parse(s); return u.name || 'Пилот'; }
+    } catch (_) {}
+    return 'Пилот';
+}
+
+function pilotSignCRS(id) {
+    var e = findATLB(id);
+    if (!e) { showToast('Запись не найдена', 'error'); return; }
+    if (e.status !== 'repaired' && e.status !== 'deferred') {
+        showToast('CRS можно подписать только после завершения работ', 'warning'); return;
+    }
+    if (e.crs.signed) { showToast('CRS уже подписан', 'warning'); return; }
+
+    var signatureData = getSignatureDataUrl();
+    if (!signatureData) { showToast('Поставьте подпись в поле', 'error'); return; }
+
+    var pilotName = getPilotName();
+    var msg = 'Подписать CRS (Certificate of Release to Service)?\n\n' +
+        'Борт: ' + (e.aircraft || '—') + '\n' +
+        'Дефект: ' + (e.defect || '—') + '\n' +
+        (e.rectification ? 'Работы: ' + e.rectification + '\n' : '') +
+        (e.melRef ? 'MEL: ' + e.melRef + '\n' : '') +
+        '\nПодписант: ' + pilotName;
+
+    if (!confirm(msg)) return;
+
+    var fromStatus = e.status;
+    e.crs.signed = true;
+    e.crs.signedAt = new Date().toISOString();
+    e.crs.signedBy = pilotName;
+    e.crs.signature = signatureData;
+    e.status = 'released';
+
+    if (!e.history) e.history = [];
+    e.history.push({
+        at: new Date().toISOString(),
+        from: fromStatus, to: 'released',
+        role: 'Пилот',
+        note: 'Подписано ЭЦП: ' + pilotName
+    });
+
+    saveATLB();
+    renderATLB();
+    closeATLBDetail();
+    showToast('CRS подписан. ВС готово к вылету.', 'success');
+}
+window.pilotSignCRS = pilotSignCRS;
+
+function deleteATLBEntry(id) {
+    if (!confirm('Удалить запись из ATLB?')) return;
+    atlbEntries = atlbEntries.filter(function(e) { return e.id !== id; });
+    saveATLB();
+    renderATLB();
+    showToast('Запись удалена', 'success');
+}
+window.deleteATLBEntry = deleteATLBEntry;
+
+function exportATLB() {
+    if (!atlbEntries.length) { showToast('ATLB пуст', 'info'); return; }
+    var blob = new Blob([JSON.stringify(atlbEntries, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ATLB_' + new Date().toISOString().slice(0,10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('ATLB экспортирован', 'success');
+}
+window.exportATLB = exportATLB;
+
+function addManualDefect() {
+    document.getElementById('manualDefectDesc').value = '';
+    document.getElementById('manualDefectMel').value = '';
+    document.getElementById('manualDefectParking').value = '';
+    document.getElementById('manualDefectModal').classList.add('show');
+    setTimeout(function() { document.getElementById('manualDefectDesc').focus(); }, 100);
+}
+window.addManualDefect = addManualDefect;
+
+function closeManualDefectModal() { document.getElementById('manualDefectModal').classList.remove('show'); }
+window.closeManualDefectModal = closeManualDefectModal;
+
+function saveManualDefect() {
+    var desc = document.getElementById('manualDefectDesc').value.trim();
+    var mel = document.getElementById('manualDefectMel').value.trim();
+    var parking = document.getElementById('manualDefectParking').value.trim();
+    if (!desc) { showToast('Введите описание дефекта', 'error'); return; }
+    if (!mel) { showToast('Укажите MEL reference', 'error'); return; }
+
+    var entry = createATLBEntry({
+        aircraft: '—', flightNumber: '',
+        defect: desc, faultType: '',
+        severity: 'low', parking: parking,
+        source: 'manual', requestId: null
+    });
+    entry.melRef = mel;
+    entry.deferred = true;
+    entry.status = 'deferred';
+    entry.rectification = 'Отложено по ' + mel;
+    entry.history.push({ at: new Date().toISOString(), from: 'open', to: 'deferred', role: 'MCC', note: 'Согласованный MEL: ' + mel + ' — ожидает подписи КВС' });
+    saveATLB();
+    renderATLB();
+    closeManualDefectModal();
+    showToast('MEL добавлен. Откройте запись, чтобы поставить подпись.', 'success');
+}
+window.saveManualDefect = saveManualDefect;
+
+/* Text request */
+function submitTextRequest(event) {
+    var aircraft = document.getElementById('textAircraft').value.trim();
+    var flight = document.getElementById('textFlight').value.trim();
+    var parking = document.getElementById('textParking').value.trim();
+
+    if (!parking) { showToast('Укажите стоянку', 'error'); return; }
+
+    var defects = collectDefects();
+    if (defects.length === 0) { showToast('Добавьте хотя бы один дефект', 'error'); return; }
+
+    for (var i = 0; i < defects.length; i++) {
+        if (!defects[i].name) { showToast('Укажите неисправность (дефект ' + (i+1) + ')', 'error'); return; }
+        if (!defects[i].desc) { showToast('Опишите дефект ' + (i+1), 'error'); return; }
+    }
+
+    var btn = event.target.closest('button');
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка в MCC...';
+
+    var session = sessionStorage.getItem('userSession');
+    var user = session ? JSON.parse(session) : {};
+
+    var descLines = [];
+    for (var i = 0; i < defects.length; i++) {
+        descLines.push((i+1) + '. ' + defects[i].name + ' — ' + defects[i].desc);
+    }
+    var fullDescription = descLines.join('\n');
+
+    var payload = {
+        aircraft: aircraft || (user.aircraft || 'RA-XXXXX'),
+        fault_type: labelToCode(defects[0].name),
+        severity: defects[0].severity,
+        parking_id: parking,
+        flight_number: flight || null
+    };
+
+    console.log('[submitTextRequest] POST', API_URL + '/dispatch', payload);
+
+    fetch(API_URL + '/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) {
+        return r.text().then(function(txt) {
+            console.log('[submitTextRequest] HTTP ' + r.status + ':', txt);
+            if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + (txt || '(пустое тело)'));
+            try { return JSON.parse(txt); }
+            catch(e) { throw new Error('Не JSON: ' + txt.substring(0, 200)); }
+        });
+    })
+    .then(function(result) {
+        if (!result.success) throw new Error(result.error || 'success=false');
+        var requestId = result.request_id || result.requestId || result.id || null;
+        if (!requestId) return null;
+
+        var commentText = '📝 Заявка от КВС ' + (user.name || '') + (user.rank ? ' (' + user.rank + ')' : '') +
+            (defects.length > 1 ? ' [' + defects.length + ' дефектов]' : '') +
+            ':\n' + fullDescription;
+
+        return fetch(API_URL + '/requests/' + requestId, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engineer_comment: commentText })
+        })
+        .then(function() {
+            return fetch(API_URL + '/pilot/confirm/' + requestId, { method: 'POST' })
+                .then(function(r) { return r.ok ? r.json() : { success: false }; })
+                .then(function() { return requestId; })
+                .catch(function() { return requestId; });
+        });
+    })
+    .then(function(requestId) {
+        for (var i = 0; i < defects.length; i++) {
+            createATLBEntry({
+                aircraft: aircraft || '—',
+                flightNumber: flight,
+                defect: defects[i].name + '. ' + defects[i].desc,
+                faultType: defects[i].name,
+                severity: defects[i].severity,
+                parking: parking,
+                source: 'text',
+                requestId: requestId
+            });
+        }
+
+        document.getElementById('textAircraft').value = '';
+        document.getElementById('textFlight').value = '';
+        document.getElementById('textParking').value = '';
+        initDefectsForm();
+
+        showToast('Заявка отправлена в MCC. Записей: ' + defects.length, 'success');
+        setTimeout(function() { showTab('logbook'); }, 700);
+    })
+    .catch(function(err) {
+        console.error('[submitTextRequest] ERROR:', err);
+        showToast('Ошибка: ' + err.message, 'error');
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+window.submitTextRequest = submitTextRequest;
+
+/* Voice request */
+function analyzeRequest() {
+    if (!audioBlob) { showToast('Сначала запишите сообщение', 'error'); return; }
+    var analyzeBtn = document.getElementById('analyzeBtn');
+    analyzeBtn.disabled = true;
+    analyzeBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Распознавание...';
+
+    var session = sessionStorage.getItem('userSession');
+    var user = session ? JSON.parse(session) : {};
+    var duration = finalDuration > 0 ? finalDuration : 1;
+
+    var reader = new FileReader();
+    reader.readAsDataURL(audioBlob);
+    reader.onloadend = function() {
+        var base64Audio = reader.result;
+        var payload = {
+            source: 'pilot', is_draft: true,
+            engineer_id: user.id || null,
+            pilot_name: user.name || 'Пилот',
+            pilot_rank: user.rank || 'КВС',
+            aircraft: user.aircraft || null,
+            pilot_audio: base64Audio,
+            pilot_audio_mime: audioBlob.type || 'audio/webm',
+            pilot_audio_duration: duration
+        };
+
+        fetch(API_URL + '/dispatch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (!result.success) throw new Error(result.error);
+            currentDraftId = result.request_id;
+            return fetch(API_URL + '/requests/' + currentDraftId + '/transcribe', { method: 'POST' });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                var parsed = res.parsed || {};
+                document.getElementById('reviewAircraft').value = parsed.aircraft || '';
+                document.getElementById('reviewParking').value = parsed.parking_id || '';
+                document.getElementById('reviewFault').value = codeToLabel(parsed.fault_type || '');
+                document.getElementById('reviewDesc').value = res.text || '';
+                document.getElementById('reviewCard').style.display = 'block';
+                document.getElementById('analyzeBtn').style.display = 'none';
+                showToast('Данные распознаны. Проверьте их.', 'success');
+            } else {
+                showToast('Не удалось распознать речь. Введите данные вручную.', 'warning');
+                document.getElementById('reviewCard').style.display = 'block';
+                document.getElementById('analyzeBtn').style.display = 'none';
+            }
+        })
+        .catch(function(err) {
+            console.error(err);
+            showToast('Ошибка: ' + err.message, 'error');
+            analyzeBtn.disabled = false;
+            analyzeBtn.innerHTML = '<i class="fas fa-magic"></i> Проверить данные (распознать)';
+        });
+    };
+}
+window.analyzeRequest = analyzeRequest;
+
+function confirmRequest() {
+    if (!currentDraftId) return;
+    var confirmBtn = document.getElementById('confirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка...';
+
+    var aircraftVal = document.getElementById('reviewAircraft').value.trim();
+    var parkingVal = document.getElementById('reviewParking').value.trim();
+    var faultText = document.getElementById('reviewFault').value.trim();
+    var descVal = document.getElementById('reviewDesc').value.trim();
+
+    var data = {
+        aircraft: aircraftVal,
+        parking_id: parkingVal,
+        fault_type: labelToCode(faultText),
+        engineer_comment: descVal
+    };
+
+    fetch(API_URL + '/requests/' + currentDraftId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(function() { return fetch(API_URL + '/pilot/confirm/' + currentDraftId, { method: 'POST' }); })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+        if (result.success) {
+            showToast('Заявка отправлена в MCC', 'success');
+            var record = {
+                id: 'rec_' + Date.now(),
+                audioBase64: URL.createObjectURL(audioBlob),
+                audioMime: audioBlob.type,
+                duration: finalDuration,
+                sentAt: new Date().toISOString(),
+                requestId: currentDraftId
+            };
+            records.unshift(record);
+            saveRecords();
+            renderRecords();
+
+            if (faultText && descVal) {
+                createATLBEntry({
+                    aircraft: aircraftVal || '—', flightNumber: '',
+                    defect: faultText + '. ' + descVal,
+                    faultType: faultText,
+                    severity: 'medium',
+                    parking: parkingVal, source: 'voice',
+                    requestId: currentDraftId
+                });
+            }
+            resetRecording();
+            document.getElementById('reviewCard').style.display = 'none';
+            document.getElementById('analyzeBtn').style.display = 'block';
+            document.getElementById('analyzeBtn').disabled = true;
+            currentDraftId = null;
+        } else {
+            showToast('Ошибка подтверждения', 'error');
+        }
+    })
+    .catch(function(err) {
+        console.error(err);
+        showToast('Ошибка отправки', 'error');
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="fas fa-check"></i> Подтвердить и отправить в MCC';
+    });
+}
+window.confirmRequest = confirmRequest;
+
+/* Profile */
+function openProfileModal() {
+    var session = sessionStorage.getItem('userSession');
+    if (!session) return;
+    var user = JSON.parse(session);
+    document.getElementById('profileNameInput').value = user.name || '';
+    document.getElementById('profileEmailInput').value = user.email || '';
+    document.getElementById('profilePasswordInput').value = '';
+    document.getElementById('profileModal').classList.add('show');
+}
+window.openProfileModal = openProfileModal;
+
+function closeProfileModal() { document.getElementById('profileModal').classList.remove('show'); }
+window.closeProfileModal = closeProfileModal;
+
+async function saveProfile() {
+    var session = sessionStorage.getItem('userSession');
+    if (!session) return;
+    var user = JSON.parse(session);
+    var name = document.getElementById('profileNameInput').value.trim();
+    var password = document.getElementById('profilePasswordInput').value.trim();
+    if (!name) { showToast('Введите имя', 'error'); return; }
+
+    var btn = document.getElementById('profileSaveBtn');
+    var originalText = btn.innerHTML;
+    btn.innerHTML = 'Сохранение...';
+    btn.disabled = true;
+
+    var data = { name: name, status: 'online' };
+    if (password) data.password = password;
+
+    try {
+        var res = await fetch(API_URL + '/users/' + user.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        var result = await res.json();
+        if (result.success) {
+            user.name = name;
+            sessionStorage.setItem('userSession', JSON.stringify(user));
+            document.getElementById('userName').textContent = name;
+            showToast('Профиль обновлен', 'success');
+            closeProfileModal();
+        } else {
+            showToast(result.error || 'Ошибка сохранения', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Ошибка соединения', 'error');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+window.saveProfile = saveProfile;
+
+/* Help modals */
+function showHelpModal(reason) {
+    var content = '';
+    if (reason === 'insecure') {
+        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Незащищённый протокол.</strong></div><p style="font-size:13px;line-height:1.7;color:#4a5a6a;">Браузер разрешает доступ к микрофону только на защищённых страницах.</p><ul class="info-list"><li>Откройте <strong>https://…</strong></li><li>Или <strong>http://localhost</strong></li></ul><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
+    } else if (reason === 'no_api') {
+        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Браузер не поддерживает запись.</strong></div><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
+    } else if (reason === 'no_recorder') {
+        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Нет MediaRecorder.</strong></div><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
+    }
+    document.getElementById('helpModalContent').innerHTML = content;
+    document.getElementById('helpModal').classList.add('show');
+}
+
+function closeHelpModal() { document.getElementById('helpModal').classList.remove('show'); }
+window.closeHelpModal = closeHelpModal;
+
+function openMicModal(mics, currentId, onSelect) {
+    availableMics = mics;
+    var html = '';
+    if (mics.length === 0) {
+        html = '<div class="info-box"><i class="fas fa-info-circle"></i> Нет микрофонов.</div><div style="display:flex;gap:8px;"><button class="btn btn-secondary" onclick="closeMicModal()">Закрыть</button></div>';
+    } else {
+        html += '<p style="font-size:13px;color:#4a5a6a;margin-bottom:12px;">Выберите устройство:</p><div class="mic-list">';
+        for (var i = 0; i < mics.length; i++) {
+            var m = mics[i];
+            var isSelected = m.deviceId === currentId;
+            var label = m.label || ('Микрофон ' + (i + 1));
+            var shortId = m.deviceId ? m.deviceId.substring(0, 20) + (m.deviceId.length > 20 ? '…' : '') : '—';
+            html += '<div class="mic-item' + (isSelected ? ' selected' : '') + '" data-mic-id="' + m.deviceId + '"><div class="mic-icon"><i class="fas fa-microphone"></i></div><div class="mic-info"><div class="mic-label">' + escapeHtml(label) + '</div><div class="mic-id">' + escapeHtml(shortId) + '</div></div><div class="mic-check"><i class="fas fa-check-circle"></i></div></div>';
+        }
+        html += '</div><div style="display:flex;gap:8px;margin-top:16px;"><button class="btn btn-primary" onclick="confirmMicSelection()" style="flex:1;"><i class="fas fa-check"></i> Применить</button><button class="btn btn-secondary" onclick="closeMicModal()" style="flex:1;">Отмена</button></div>';
+    }
+    document.getElementById('micModalContent').innerHTML = html;
+    document.getElementById('micModal').classList.add('show');
+
+    var items = document.querySelectorAll('#micModalContent .mic-item');
+    items.forEach(function(item) {
+        item.addEventListener('click', function() {
+            items.forEach(function(o) { o.classList.remove('selected'); });
+            this.classList.add('selected');
+            selectedMicId = this.getAttribute('data-mic-id');
+        });
+    });
+    window.__micOnSelect = onSelect;
+}
+
+function confirmMicSelection() {
+    if (selectedMicId && typeof window.__micOnSelect === 'function') {
+        localStorage.setItem(MIC_STORAGE_KEY, selectedMicId);
+        window.__micOnSelect(selectedMicId);
+    }
+    closeMicModal();
+}
+window.confirmMicSelection = confirmMicSelection;
+
+function closeMicModal() { document.getElementById('micModal').classList.remove('show'); }
+window.closeMicModal = closeMicModal;
+
+/* Recording */
+function toggleRecording() { if (isRecording) stopRecording(); else startRecording(); }
+window.toggleRecording = toggleRecording;
+
+function startRecording() {
+    if (!isSecureContext()) { showHelpModal('insecure'); return; }
+    if (!hasGetUserMedia()) { showHelpModal('no_api'); return; }
+    if (typeof MediaRecorder === 'undefined') { showHelpModal('no_recorder'); return; }
+
+    var getUserMedia = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        : function(c) { return new Promise(function(res, rej) { var l = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia; if (!l) { rej(new Error('getUserMedia')); return; } l.call(navigator, c, res, rej); }); };
+
+    getUserMedia({ audio: true }).then(function(stream) {
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) { startRecordingWithDevice(null); return; }
+        navigator.mediaDevices.enumerateDevices().then(function(devices) {
+            var mics = devices.filter(function(d) { return d.kind === 'audioinput'; });
+            if (mics.length <= 1) { startRecordingWithDevice(mics.length === 1 ? mics[0].deviceId : null); return; }
+            var savedMic = localStorage.getItem(MIC_STORAGE_KEY) || null;
+            var hasSaved = false;
+            for (var i = 0; i < mics.length; i++) { if (mics[i].deviceId === savedMic) { hasSaved = true; break; } }
+            openMicModal(mics, hasSaved ? savedMic : mics[0].deviceId, function(micId) { startRecordingWithDevice(micId); });
+        }).catch(function() { startRecordingWithDevice(null); });
+    }).catch(function(err) {
+        console.error('Ошибка доступа:', err);
+        var msg = 'Не удалось получить доступ к микрофону';
+        if (err && err.name === 'NotAllowedError') msg = 'Доступ запрещён.';
+        else if (err && err.name === 'NotFoundError') msg = 'Микрофон не найден.';
+        else if (err && err.name === 'NotReadableError') msg = 'Микрофон занят.';
+        else if (err && err.name === 'SecurityError') { showHelpModal('insecure'); return; }
+        showToast(msg, 'error');
+    });
+}
+
+function startRecordingWithDevice(deviceId) {
+    var constraints = { audio: true };
+    if (deviceId) { constraints.audio = { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }; }
+    else { constraints.audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }; }
+
+    var getUserMedia = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        : function(c) { return new Promise(function(res, rej) { var l = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia; if (!l) { rej(new Error('getUserMedia')); return; } l.call(navigator, c, res, rej); }); };
+
+    getUserMedia(constraints).then(function(stream) {
+        var mimeType = '';
+        var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mpeg'];
+        if (MediaRecorder.isTypeSupported) { for (var i = 0; i < candidates.length; i++) { if (MediaRecorder.isTypeSupported(candidates[i])) { mimeType = candidates[i]; break; } } }
+
+        try { mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream); }
+        catch (e) { try { mediaRecorder = new MediaRecorder(stream); } catch (e2) { showHelpModal('no_recorder'); return; } }
+
+        audioChunks = []; finalDuration = 0;
+
+        mediaRecorder.ondataavailable = function(e) { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onerror = function(e) { console.error('MediaRecorder error:', e); showToast('Ошибка записи', 'error'); };
+
+        mediaRecorder.onstop = function() {
+            var timerDuration = Math.round((Date.now() - recordingStartTime) / 1000);
+            if (timerDuration < 0) timerDuration = 0;
+            setTimeout(function() {
+                if (!audioChunks.length) { showToast('Не удалось записать звук', 'error'); return; }
+                var finalMime = mediaRecorder.mimeType || mimeType || 'audio/webm';
+                audioBlob = new Blob(audioChunks, { type: finalMime });
+                if (audioBlob.size < 2000) { showToast('Запись слишком короткая', 'warning'); audioBlob = null; return; }
+                if (audioUrl) URL.revokeObjectURL(audioUrl);
+                audioUrl = URL.createObjectURL(audioBlob);
+                var audioEl = document.getElementById('audioElement');
+                audioEl.src = audioUrl;
+                audioEl.load();
+                var applyDuration = function(seconds) {
+                    if (!seconds || !isFinite(seconds) || seconds <= 0) seconds = timerDuration;
+                    finalDuration = Math.round(seconds);
+                    document.getElementById('audioPlayer').classList.remove('hidden');
+                    document.getElementById('audioMeta').textContent = finalDuration + ' сек • Готово к проверке';
+                    document.getElementById('recordBtn').style.display = 'none';
+                    document.getElementById('resetBtn').style.display = 'inline-flex';
+                    document.getElementById('analyzeBtn').disabled = false;
+                    showToast('Запись завершена. Нажмите «Проверить данные».', 'success');
+                };
+                if (audioEl.readyState >= 1 && audioEl.duration && isFinite(audioEl.duration)) { applyDuration(audioEl.duration); }
+                else {
+                    var handled = false;
+                    var onMeta = function() { if (handled) return; handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); applyDuration(audioEl.duration); };
+                    audioEl.addEventListener('loadedmetadata', onMeta);
+                    setTimeout(function() { if (!handled) { handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); applyDuration(timerDuration); } }, 800);
+                }
+            }, 250);
+        };
+
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            var source = audioContext.createMediaStreamSource(stream);
+            analyserNode = audioContext.createAnalyser();
+            analyserNode.fftSize = 64;
+            source.connect(analyserNode);
+            var dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+            var bars = document.querySelectorAll('#recorderViz .bar');
+            function animateViz() {
+                if (!isRecording) return;
+                analyserNode.getByteFrequencyData(dataArray);
+                var step = Math.floor(dataArray.length / bars.length) || 1;
+                for (var i = 0; i < bars.length; i++) {
+                    var sum = 0;
+                    for (var j = 0; j < step; j++) sum += dataArray[i * step + j] || 0;
+                    var avg = sum / step;
+                    bars[i].style.height = Math.max(4, (avg / 255) * 60) + 'px';
+                }
+                vizAnimationId = requestAnimationFrame(animateViz);
+            }
+            animateViz();
+        } catch (vizErr) {}
+
+        try { mediaRecorder.start(250); } catch (e) { showToast('Не удалось запустить запись', 'error'); return; }
+
+        isRecording = true;
+        recordingStartTime = Date.now();
+        document.getElementById('recorderBlock').classList.add('recording');
+        document.getElementById('recordBtn').classList.add('recording');
+        document.getElementById('recordIcon').className = 'fas fa-stop';
+        document.getElementById('recordBtn').title = 'Остановить запись';
+
+        document.getElementById('recorderTimer').textContent = '00:00';
+        recordingTimerInterval = setInterval(function() {
+            var elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+            document.getElementById('recorderTimer').textContent = formatTime(elapsed);
+            if (elapsed >= 180) { stopRecording(); showToast('Максимальная длительность — 3 минуты', 'warning'); }
+        }, 250);
+    }).catch(function(err) {
+        console.error('Ошибка запуска:', err);
+        showToast('Не удалось получить доступ к микрофону', 'error');
+    });
+}
+
+function stopRecording() {
+    if (!mediaRecorder || !isRecording) return;
+    isRecording = false;
+    if (recordingTimerInterval) { clearInterval(recordingTimerInterval); recordingTimerInterval = null; }
+    if (vizAnimationId) { cancelAnimationFrame(vizAnimationId); vizAnimationId = null; }
+    if (audioContext) { try { audioContext.close(); } catch(_) {} audioContext = null; }
+    if (analyserNode) analyserNode = null;
+    document.querySelectorAll('#recorderViz .bar').forEach(function(bar) { bar.style.height = '10px'; });
+    document.getElementById('recorderBlock').classList.remove('recording');
+    document.getElementById('recordBtn').classList.remove('recording');
+    document.getElementById('recordIcon').className = 'fas fa-microphone';
+    document.getElementById('recordBtn').title = 'Начать запись';
+    try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch (e) {}
+    setTimeout(function() {
+        try { mediaRecorder.stop(); } catch (e) {}
+        try { mediaRecorder.stream.getTracks().forEach(function(track) { track.stop(); }); } catch (_) {}
+    }, 50);
+}
+
+function resetRecording() {
+    if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+    audioBlob = null; audioChunks = []; finalDuration = 0; currentDraftId = null;
+    document.getElementById('audioPlayer').classList.add('hidden');
+    document.getElementById('audioElement').src = '';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('recorderTimer').textContent = '00:00';
+    document.getElementById('recordBtn').style.display = 'flex';
+    document.getElementById('resetBtn').style.display = 'none';
+    document.getElementById('analyzeBtn').disabled = true;
+    showToast('Готово к новой записи', 'info');
+}
+window.resetRecording = resetRecording;
+
+function togglePlayback() {
+    var audio = document.getElementById('audioElement');
+    var icon = document.getElementById('playIcon');
+    var fill = document.getElementById('progressFill');
+    if (isPlaying) { audio.pause(); isPlaying = false; icon.className = 'fas fa-play'; }
+    else { audio.play(); isPlaying = true; icon.className = 'fas fa-pause'; }
+    audio.ontimeupdate = function() { if (audio.duration) { fill.style.width = (audio.currentTime / audio.duration) * 100 + '%'; } };
+    audio.onended = function() { isPlaying = false; icon.className = 'fas fa-play'; fill.style.width = '0%'; };
+}
+window.togglePlayback = togglePlayback;
+
+/* Local records */
+function saveRecords() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch (e) {} }
+function loadRecords() { try { var s = localStorage.getItem(STORAGE_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; } catch (e) { return []; } }
+
+function renderRecords() {
+    var list = document.getElementById('recordsList');
+    if (records.length === 0) { list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Пока нет отправленных заявок</p></div>'; return; }
+    var html = '';
+    for (var i = 0; i < records.length; i++) {
+        var r = records[i];
+        var dateStr = new Date(r.sentAt).toLocaleString('ru-RU');
+        html += '<div class="record-item"><div class="record-icon"><i class="fas fa-check"></i></div><div class="record-info"><div class="record-title">🎤 Голосовая заявка</div><div class="record-meta">' + escapeHtml(dateStr) + ' • ' + (r.duration || 0) + ' сек</div></div><div class="record-actions"><button onclick="playRecordFromList(\'' + r.id + '\')"><i class="fas fa-play"></i></button><button onclick="deleteRecord(\'' + r.id + '\')"><i class="fas fa-trash"></i></button></div></div>';
+    }
+    list.innerHTML = html;
+}
+
+function playRecordFromList(recordId) {
+    var record = null;
+    for (var i = 0; i < records.length; i++) { if (records[i].id === recordId) { record = records[i]; break; } }
+    if (!record) { showToast('Запись не найдена', 'error'); return; }
+    var dateStr = new Date(record.sentAt).toLocaleString('ru-RU');
+    document.getElementById('playModalTitle').textContent = 'Прослушивание записи';
+    document.getElementById('playModalContent').innerHTML = '<div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Дата отправки</div><div style="font-size:14px;font-weight:600;">' + escapeHtml(dateStr) + '</div></div><div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Длительность: ' + (record.duration || 0) + ' сек</div><audio controls style="width:100%;" src="' + record.audioBase64 + '"></audio></div><div class="modal-actions"><button class="btn btn-primary" onclick="closePlayModal()">Закрыть</button></div>';
+    document.getElementById('playModal').classList.add('show');
+}
+window.playRecordFromList = playRecordFromList;
+
+function closePlayModal() { document.getElementById('playModal').classList.remove('show'); }
+window.closePlayModal = closePlayModal;
+
+function deleteRecord(recordId) {
+    if (!confirm('Удалить эту заявку из истории?')) return;
+    records = records.filter(function(r) { return r.id !== recordId; });
+    saveRecords(); renderRecords();
+    showToast('Заявка удалена', 'success');
+}
+window.deleteRecord = deleteRecord;
+
+function logout() {
+    if (recordingTimerInterval) clearInterval(recordingTimerInterval);
+    if (vizAnimationId) cancelAnimationFrame(vizAnimationId);
+    if (audioContext) { try { audioContext.close(); } catch(_) {} }
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    sessionStorage.removeItem('userSession');
+    window.location.href = '/login.html';
+}
+window.logout = logout;
+
+/* Startup — без авто-продвижения статусов */
+document.addEventListener('DOMContentLoaded', function() {
+    // Self-test
+    var required = ['escapeHtml', 'showToast', 'showTab', 'openATLBDetail', 'pilotSignCRS', 'submitTextRequest', 'analyzeRequest'];
+    var missing = required.filter(function(name) { return typeof window[name] !== 'function'; });
+    if (missing.length > 0) {
+        console.error('[SELF-TEST] Отсутствуют функции:', missing);
+    } else {
+        console.log('[SELF-TEST] Все функции на месте');
+    }
+
+    initDefectsForm();
+    records = loadRecords();
+    renderRecords();
+    atlbEntries = loadATLB();
+    renderATLB();
+
+    window.addEventListener('storage', function(e) {
+        if (e.key === ATLB_KEY) {
+            console.log('[storage] Изменения из другой вкладки — перечитываю ATLB');
+            atlbEntries = loadATLB();
+            renderATLB();
+        }
+    });
+
+    console.log('[InTrAvia Pilot] Init OK');
+});
+</script>
+</body>
+</html>

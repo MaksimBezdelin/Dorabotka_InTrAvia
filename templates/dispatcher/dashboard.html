@@ -1,0 +1,3883 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Диспетчер — InTrAvia Вектор</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --aero-blue: #003366;
+            --aero-blue-light: #0055aa;
+            --aero-blue-pale: #e8f0fe;
+            --aero-gold: #c9a84c;
+            --aero-red: #dc2626;
+            --aero-green: #16a34a;
+            --aero-orange: #f59e0b;
+            --aero-text: #1a2332;
+            --aero-text-light: #4a5a6a;
+            --aero-gray: #8a9bb5;
+            --aero-gray-light: #e8ecf0;
+            --aero-bg: #f0f2f5;
+            --transition: 0.15s ease;
+            --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--aero-bg);
+            color: var(--aero-text);
+            display: flex;
+            min-height: 100vh;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--aero-gray); border-radius: 4px; }
+
+        /* SIDEBAR */
+        .sidebar {
+            width: 260px;
+            background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%);
+            padding: 20px 16px;
+            height: 100vh;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #0f172a;
+        }
+        .sidebar-brand {
+            display: flex; align-items: center; gap: 12px;
+            padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 14px;
+        }
+        .sidebar-brand .brand-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%);
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 18px; flex-shrink: 0;
+        }
+        .sidebar-brand .brand-text { font-size: 15px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2; }
+        .sidebar-brand .brand-text .brand-vector {
+            background: linear-gradient(135deg, #4d9fff 0%, #0066cc 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            font-weight: 900;
+        }
+        .sidebar-brand .brand-text .brand-in { color: #ffffff; font-weight: 700; }
+        .sidebar-brand .brand-text .brand-tr { color: #0039A6; font-weight: 800; }
+        .sidebar-brand .brand-text .brand-avia { color: #D52B1E; font-weight: 800; }
+
+        .sidebar-user {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 14px;
+        }
+        .sidebar-user .avatar {
+            width: 42px; height: 42px; border-radius: 50%;
+            background: rgba(201, 168, 76, 0.2); border: 2px solid rgba(201, 168, 76, 0.4);
+            display: flex; align-items: center; justify-content: center; font-size: 18px;
+            color: #c9a84c;
+        }
+        .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #ffffff; }
+        .sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
+
+        .sidebar-nav { list-style: none; flex: 1; }
+        .sidebar-nav li { margin-bottom: 2px; }
+        .sidebar-nav li a {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 12px; border-radius: 6px;
+            color: #8899aa; text-decoration: none;
+            font-size: 13px; font-weight: 500; transition: all var(--transition); cursor: pointer;
+        }
+        .sidebar-nav li a:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
+        .sidebar-nav li.active a {
+            background: rgba(77, 159, 255, 0.12);
+            color: #ffffff; font-weight: 600; position: relative;
+        }
+        .sidebar-nav li.active a::before {
+            content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 18px; background: var(--aero-gold); border-radius: 0 2px 2px 0;
+        }
+        .sidebar-nav li a i { width: 18px; font-size: 14px; text-align: center; }
+
+        .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+        .btn-logout {
+            width: 100%; padding: 9px; background: rgba(255, 255, 255, 0.05); color: #8899aa;
+            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px;
+            font-size: 12px; cursor: pointer; transition: all var(--transition);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            font-family: inherit;
+        }
+        .btn-logout:hover { background: rgba(220, 38, 38, 0.15); color: #fca5a5; border-color: rgba(220, 38, 38, 0.3); }
+
+        /* MAIN */
+        .main { flex: 1; padding: 24px 32px; overflow-y: auto; height: 100vh; display: flex; flex-direction: column; gap: 16px; }
+
+        .page-header { display: flex; justify-content: space-between; align-items: flex-end; flex-shrink: 0; }
+        .page-header h1 { font-size: 22px; font-weight: 700; color: var(--aero-text); letter-spacing: -0.3px; }
+        .page-header .page-sub { font-size: 12px; color: var(--aero-gray); margin-top: 4px; }
+
+        /* STATS */
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-shrink: 0; }
+
+        .stat-card {
+            background: #ffffff;
+            padding: 16px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            transition: border-color var(--transition);
+        }
+        .stat-card:hover { border-color: #c8d2de; }
+
+        .stat-card .stat-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--aero-blue);
+            letter-spacing: -0.5px;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-card .stat-label {
+            font-size: 12px;
+            color: var(--aero-gray);
+            margin-top: 6px;
+            font-weight: 500;
+        }
+
+        /* MAP */
+        .map-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            min-height: 380px;
+            border: 1px solid var(--aero-gray-light);
+            background: #ffffff;
+        }
+        #map { width: 100%; height: 100%; min-height: 380px; }
+
+        .map-legend {
+            position: absolute; bottom: 12px; right: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            border: 1px solid var(--aero-gray-light);
+            pointer-events: none;
+            line-height: 1.8;
+            color: var(--aero-text-light);
+            z-index: 1000;
+        }
+        .map-legend .dot {
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 6px;
+            vertical-align: middle; border: 1px solid rgba(0,0,0,0.08);
+        }
+        .map-legend .dot.free { background: #2ecc71; }
+        .map-legend .dot.busy { background: #e74c3c; }
+        .map-legend .dot.transport { background: #f39c12; }
+        .map-legend .dot.gold { background: var(--aero-gold); }
+        .map-legend .dot.parking { background: #1e40af; }
+        .map-legend .legend-row { display: flex; align-items: center; gap: 4px; }
+
+        .map-hint {
+            position: absolute; bottom: 12px; left: 12px;
+            background: rgba(255, 255, 255, 0.92);
+            padding: 5px 10px; border-radius: 6px;
+            font-size: 10px; color: var(--aero-text-light);
+            border: 1px solid var(--aero-gray-light);
+            pointer-events: none; z-index: 1000;
+        }
+
+        /* MAP MARKERS */
+        .employee-marker {
+            border-radius: 50%; text-align: center; font-weight: 700;
+            font-size: 14px; color: #1a1a1a; background: #ffffff;
+            border: 2px solid #1a1a1a; box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            cursor: pointer; transition: transform 0.15s; user-select: none;
+            width: 36px !important; height: 36px !important;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; line-height: 1;
+        }
+        .employee-marker:hover { transform: scale(1.12); z-index: 1000; }
+        .employee-marker .marker-icon { font-size: 14px; display: block; line-height: 1; }
+        .employee-marker .marker-id { font-size: 6px; font-weight: 600; display: block; line-height: 1; margin-top: 1px; }
+        .employee-marker.status-free { border-color: #2ecc71; }
+        .employee-marker.status-busy { border-color: #e74c3c; }
+        .employee-marker.status-free .marker-icon { color: #2ecc71; }
+        .employee-marker.status-busy .marker-icon { color: #e74c3c; }
+
+        .car-marker {
+            border-radius: 4px; text-align: center; font-weight: 700;
+            font-size: 10px; color: #ffffff; background: #f39c12;
+            border: 2px solid #e67e22; box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            cursor: pointer; transition: transform 0.15s; user-select: none;
+            width: 44px !important; height: 44px !important;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; line-height: 1;
+        }
+        .car-marker:hover { transform: scale(1.12); z-index: 1000; }
+        .car-marker .car-icon { font-size: 14px; display: block; line-height: 1; color: #fff; }
+        .car-marker .car-id { font-size: 6px; font-weight: 600; display: block; line-height: 1; margin-top: 1px; color: #fff; }
+        .car-marker .car-speed { font-size: 7px; font-weight: 500; display: block; line-height: 1; color: #fff; }
+
+        .parking-marker { background: transparent; border: none; text-align: center; font-size: 14px; cursor: default; }
+        .parking-marker .parking-icon { display: block; font-size: 18px; line-height: 1; color: var(--aero-blue); }
+        .parking-marker .parking-label { font-size: 8px; font-weight: 600; color: #1a2332; display: block; margin-top: -1px; }
+        .aircraft-parking-marker { background: transparent; border: none; }
+
+        .route-label-marker {
+            background: rgba(201, 168, 76, 0.95);
+            border: 1px solid #c9a84c; border-radius: 6px;
+            padding: 3px 12px; font-size: 11px; font-weight: 600;
+            color: #1a2332; white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2); text-align: center;
+        }
+
+        .leaflet-popup-content { font-family: 'Inter', sans-serif; font-size: 12px; min-width: 220px; max-width: 340px; }
+        .leaflet-popup-content strong { color: var(--aero-blue); }
+        .leaflet-popup-content .popup-row {
+            display: flex; justify-content: space-between;
+            padding: 3px 0; border-bottom: 1px solid #eee; font-size: 11px;
+        }
+        .leaflet-popup-content .popup-row:last-child { border-bottom: none; }
+        .leaflet-popup-content .popup-actions { margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap; }
+        .leaflet-popup-content .popup-actions .btn-sm {
+            font-size: 9px; padding: 3px 10px; flex: 1; min-width: 60px;
+            justify-content: center; border-radius: 4px; cursor: pointer;
+            border: none; font-family: inherit; font-weight: 500; transition: all 0.15s;
+        }
+        .leaflet-popup-content-wrapper { border-radius: 6px; }
+
+        .emp-status { font-size: 10px; padding: 1px 8px; border-radius: 4px; font-weight: 500; }
+        .emp-status.free { background: #e6f4ea; color: #1a7a3a; }
+        .emp-status.busy { background: #fce8e6; color: #b33a3a; }
+
+        /* SECTIONS / CARDS */
+        .section-content { display: none; flex-direction: column; gap: 16px; flex: 1; }
+        .section-content.active { display: flex; }
+
+        .card {
+            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            padding: 20px 24px;
+        }
+        .card .card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--aero-gray-light);
+        }
+        .card .card-header h3 { font-size: 14px; font-weight: 600; color: var(--aero-text); }
+
+        /* FORMS */
+        .form-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+        .form-group { margin-bottom: 0; }
+        .form-group label {
+            display: block; font-size: 11px; font-weight: 600;
+            color: var(--aero-text-light); margin-bottom: 5px;
+            letter-spacing: 0.2px;
+        }
+        .form-control, .form-group input {
+            width: 100%; padding: 9px 12px;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; font-size: 13px;
+            font-family: inherit; color: var(--aero-text);
+            background: #fff; transition: border-color var(--transition);
+        }
+        .form-control:focus, .form-group input:focus {
+            outline: none; border-color: var(--aero-blue);
+        }
+        select.form-control, .form-group select {
+            appearance: none; -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a9bb5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 12px center;
+            padding-right: 32px;
+            width: 100%; padding: 9px 12px;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; font-size: 13px;
+            font-family: inherit; color: var(--aero-text);
+            background-color: #fff; transition: border-color var(--transition);
+            cursor: pointer;
+        }
+        .form-group select:focus { outline: none; border-color: var(--aero-blue); }
+
+        /* BUTTONS */
+        .btn {
+            padding: 8px 14px; border: none; border-radius: 6px;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all var(--transition);
+            display: inline-flex; align-items: center; gap: 6px;
+            font-family: inherit;
+        }
+        .btn-primary { background: var(--aero-blue); color: white; }
+        .btn-primary:hover { background: var(--aero-blue-light); }
+        .btn-success { background: var(--aero-green); color: white; }
+        .btn-success:hover { background: #15803d; }
+        .btn-secondary { background: #e8ecf0; color: var(--aero-text); }
+        .btn-secondary:hover { background: #d8dfe6; }
+        .btn-danger { background: var(--aero-red); color: white; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-warning { background: var(--aero-orange); color: white; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-sm { padding: 5px 10px; font-size: 11px; }
+        .btn-full { width: 100%; justify-content: center; padding: 9px 14px; font-size: 13px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-clear {
+            background: #ffffff;
+            border: 1px solid var(--aero-gray-light);
+            color: var(--aero-text-light);
+        }
+        .btn-clear:hover {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: var(--aero-red);
+        }
+
+        .badge-ai {
+            padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
+            background: var(--aero-blue-pale); color: var(--aero-blue);
+        }
+
+        /* NOTIFICATION */
+        .notification {
+            background: #f0fdf4; border: 1px solid #bbf7d0;
+            border-radius: 8px; padding: 12px 16px;
+            display: flex; align-items: center; gap: 14px;
+            animation: slideDown 0.4s ease;
+        }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .notification .notif-icon { font-size: 22px; color: var(--aero-green); }
+        .notification .notif-content { flex: 1; }
+        .notification .notif-title { font-weight: 600; font-size: 13px; }
+        .notification .notif-text { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
+        .notification .notif-time { font-size: 14px; font-weight: 700; color: var(--aero-green); }
+
+        .toast {
+            position: fixed; top: 24px; right: 24px;
+            padding: 12px 18px; background: #1e293b;
+            color: white; border-radius: 6px;
+            font-weight: 500; font-size: 13px;
+            z-index: 99999; box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            display: flex; align-items: center; gap: 10px;
+            max-width: 400px;
+        }
+        .toast.success { border-left: 3px solid var(--aero-green); }
+        .toast.error { border-left: 3px solid var(--aero-red); }
+        .toast.warning { border-left: 3px solid var(--aero-orange); }
+
+        /* REQUEST ITEMS */
+        .request-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 14px; border-bottom: 1px solid var(--aero-gray-light);
+            cursor: pointer; transition: background var(--transition);
+        }
+        .request-item:hover { background: #f8fafc; }
+        .request-item:last-child { border-bottom: none; }
+        .request-item .req-title { font-weight: 600; font-size: 13px; }
+        .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
+        .request-item .req-status { font-size: 12px; font-weight: 500; }
+
+        .report-badge {
+            display: inline-block;
+            background: #dcfce7;
+            color: var(--aero-green);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+
+        /* TOOLBARS */
+        .reports-toolbar, .flights-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+        }
+        .reports-toolbar .search-box, .flights-toolbar .search-box {
+            flex: 1; min-width: 220px; position: relative;
+        }
+        .reports-toolbar .search-box input, .flights-toolbar .search-box input {
+            width: 100%; padding: 9px 12px 9px 34px;
+            border: 1px solid var(--aero-gray-light); border-radius: 6px;
+            font-size: 13px; font-family: inherit;
+            background: #fff; color: var(--aero-text);
+            transition: border-color var(--transition);
+        }
+        .reports-toolbar .search-box input:focus, .flights-toolbar .search-box input:focus {
+            outline: none; border-color: var(--aero-blue);
+        }
+        .reports-toolbar .search-box i, .flights-toolbar .search-box i {
+            position: absolute; left: 12px; top: 50%;
+            transform: translateY(-50%); color: var(--aero-gray); font-size: 13px;
+        }
+        .reports-toolbar select, .flights-toolbar select {
+            padding: 9px 32px 9px 12px; border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; font-size: 13px; font-family: inherit;
+            background-color: #fff; color: var(--aero-text);
+            cursor: pointer; appearance: none; -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a9bb5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 12px center;
+        }
+        .reports-toolbar select:focus, .flights-toolbar select:focus {
+            outline: none; border-color: var(--aero-blue);
+        }
+
+        .reports-list { display: grid; gap: 12px; }
+
+        /* REPORT CARDS */
+        .report-card {
+            background: #ffffff; border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            padding: 16px 20px; cursor: pointer;
+            transition: border-color var(--transition);
+            border-left: 3px solid var(--aero-green);
+        }
+        .report-card:hover {
+            border-color: #c8d2de;
+            border-left-color: var(--aero-green);
+        }
+        .report-card-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; margin-bottom: 8px;
+            gap: 12px; flex-wrap: wrap;
+        }
+        .report-card-title {
+            font-size: 14px; font-weight: 600; color: var(--aero-text);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .report-card-meta {
+            font-size: 12px; color: var(--aero-gray);
+            display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px;
+        }
+        .report-card-meta span { display: flex; align-items: center; gap: 4px; }
+        .report-card-body {
+            font-size: 13px; color: var(--aero-text-light); line-height: 1.6;
+            display: -webkit-box; -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .report-card-tags { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        .report-tag {
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 500;
+        }
+        .report-tag.condition-repaired { background: #dcfce7; color: var(--aero-green); }
+        .report-tag.condition-needs_parts { background: #fef3c7; color: #b45309; }
+        .report-tag.condition-needs_service { background: #fce8e6; color: #b33a3a; }
+        .report-tag.condition-no_fault { background: var(--aero-gray-light); color: var(--aero-text-light); }
+        .report-tag.category { background: var(--aero-blue-pale); color: var(--aero-blue); }
+        .report-tag.parts { background: #fee2e2; color: var(--aero-red); }
+
+        .report-detail-section { margin-bottom: 14px; }
+        .report-detail-section h4 {
+            font-size: 12px; font-weight: 600; color: var(--aero-blue);
+            margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+        }
+        .report-detail-section .detail-content {
+            font-size: 13px; color: var(--aero-text); line-height: 1.6;
+            background: #f8fafc; border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; padding: 10px 14px; white-space: pre-wrap;
+        }
+        .report-detail-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 10px; margin-bottom: 14px;
+        }
+        .report-detail-item {
+            background: #f8fafc; border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; padding: 10px 14px;
+        }
+        .report-detail-item .label { font-size: 10px; color: var(--aero-gray); margin-bottom: 3px; }
+        .report-detail-item .value { font-size: 13px; font-weight: 600; color: var(--aero-text); }
+
+        /* EMPTY */
+        .empty-state { text-align: center; padding: 40px; color: var(--aero-gray); }
+        .empty-state i { font-size: 40px; margin-bottom: 10px; opacity: 0.4; display: block; }
+        .empty-state p { font-size: 14px; margin-bottom: 4px; }
+        .empty-state small { font-size: 12px; }
+
+        /* TABLES */
+        .table-wrapper {
+            background: #ffffff; border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            overflow: hidden;
+        }
+        .flights-table, .pilot-table { width: 100%; border-collapse: collapse; font-size: 13px; font-family: inherit; }
+        .flights-table thead, .pilot-table thead { background: #f8fafc; border-bottom: 1px solid var(--aero-gray-light); }
+        .flights-table thead th, .pilot-table thead th {
+            text-align: left; padding: 12px 16px;
+            font-weight: 600; color: var(--aero-text-light);
+            font-size: 11px; letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .flights-table tbody td, .pilot-table tbody td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--aero-gray-light);
+            color: var(--aero-text); vertical-align: middle;
+        }
+        .flights-table tbody tr, .pilot-table tbody tr { transition: background var(--transition); }
+        .flights-table tbody tr:hover, .pilot-table tbody tr:hover { background: #f8fafc; }
+        .flights-table tbody tr:last-child td, .pilot-table tbody tr:last-child td { border-bottom: none; }
+
+        .flights-table tr.row-delay-short { background: #f0fdf4; }
+        .flights-table tr.row-delay-medium { background: #fffbeb; }
+        .flights-table tr.row-delay-critical { background: #fef2f2; border-left: 3px solid var(--aero-red); }
+        .flights-table tr.row-completed { background: #f8fafc; opacity: 0.9; }
+        .flights-table tr.row-cancelled { background: #f8fafc; opacity: 0.75; }
+        .flights-table tr.row-queued td { font-weight: 600; }
+        .flights-table tr.row-all-rejected { background: #fef2f2; border-left: 3px solid var(--aero-red); }
+
+        .flight-status {
+            display: inline-block; padding: 3px 9px;
+            border-radius: 4px; font-size: 11px; font-weight: 600;
+            white-space: nowrap;
+        }
+        .flight-status.assigned { background: #dbeafe; color: var(--aero-blue); }
+        .flight-status.queued-short { background: #dcfce7; color: var(--aero-green); }
+        .flight-status.queued-medium { background: #fef3c7; color: #b45309; }
+        .flight-status.queued-critical { background: #fee2e2; color: var(--aero-red); }
+        .flight-status.queued-all-rejected { background: #fecaca; color: #7f1d1d; }
+        .flight-status.completed { background: #dcfce7; color: var(--aero-green); }
+        .flight-status.cancelled { background: var(--aero-gray-light); color: var(--aero-text-light); }
+        .flight-status.new { background: #fef3c7; color: #b45309; }
+
+        .flight-delay-timer {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600; font-size: 13px;
+        }
+        .flight-delay-timer.short { color: var(--aero-green); }
+        .flight-delay-timer.medium { color: var(--aero-orange); }
+        .flight-delay-timer.critical { color: var(--aero-red); }
+
+        .flight-time {
+            font-variant-numeric: tabular-nums;
+            color: #6a7a8a;
+            font-size: 12px;
+        }
+        .flight-aircraft { font-weight: 600; color: var(--aero-blue); font-size: 13px; }
+
+        .pilot-table .pilot-action-btn {
+            width: 30px; height: 30px; border-radius: 6px;
+            border: 1px solid var(--aero-gray-light);
+            background: #ffffff; color: var(--aero-text-light);
+            cursor: pointer; display: inline-flex;
+            align-items: center; justify-content: center;
+            font-size: 12px; transition: all var(--transition);
+            margin-left: 4px;
+        }
+        .pilot-table .pilot-action-btn:hover { background: var(--aero-blue); color: white; border-color: var(--aero-blue); }
+        .pilot-table .pilot-action-btn.danger:hover { background: var(--aero-red); border-color: var(--aero-red); }
+
+        .pilot-table .pilot-badge {
+            display: inline-block; padding: 2px 8px;
+            border-radius: 4px; font-size: 11px; font-weight: 600;
+            background: var(--aero-blue-pale); color: var(--aero-blue);
+        }
+        .pilot-table .pilot-duration {
+            font-weight: 600; color: var(--aero-blue);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pilot-details-row td {
+            background: #f8fafc !important;
+            border-bottom: 2px solid var(--aero-gray-light) !important;
+            padding: 0 !important;
+        }
+        .pilot-details {
+            padding: 14px 20px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .pilot-details .pilot-details-section {
+            background: #ffffff;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 6px;
+            padding: 12px 16px;
+        }
+        .pilot-details .pilot-details-section h4 {
+            font-size: 12px; font-weight: 600; color: var(--aero-blue);
+            margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+        }
+        .pilot-details .pilot-details-section audio { width: 100%; height: 38px; }
+
+        .pilot-transcript {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-left: 3px solid var(--aero-green);
+            border-radius: 6px;
+            padding: 10px 14px;
+        }
+        .pilot-transcript-label {
+            font-size: 11px; font-weight: 600; color: var(--aero-green);
+            margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+        }
+        .pilot-transcript-body {
+            font-size: 13px; color: var(--aero-text);
+            line-height: 1.6; white-space: pre-wrap;
+        }
+        .pilot-transcript-pending {
+            background: #fffbeb;
+            border-color: #fde68a;
+            border-left-color: var(--aero-orange);
+        }
+        .pilot-transcript-pending .pilot-transcript-label { color: var(--aero-orange); }
+        .pilot-transcript-pending .pilot-transcript-body { color: #78350f; font-style: italic; }
+
+        .pilot-params-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+        .pilot-param { display: flex; flex-direction: column; gap: 4px; }
+        .pilot-param label {
+            font-size: 10px; font-weight: 600;
+            color: var(--aero-text-light); letter-spacing: 0.2px;
+        }
+        .pilot-param .pilot-input {
+            width: 100%; padding: 7px 10px;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; font-size: 13px;
+            font-family: inherit; background: #fff;
+            color: var(--aero-text);
+            appearance: none; -webkit-appearance: none;
+            transition: border-color var(--transition);
+        }
+        .pilot-param select.pilot-input {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a9bb5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 26px; cursor: pointer;
+        }
+        .pilot-param .pilot-input:focus { outline: none; border-color: var(--aero-blue); }
+        .pilot-param-actions { display: flex; align-items: end; }
+        .pilot-param-actions .btn { height: 34px; white-space: nowrap; }
+
+        .pilot-empty-row {
+            text-align: center; padding: 40px 20px !important;
+            color: var(--aero-gray);
+        }
+        .pilot-empty-row i { font-size: 40px; opacity: 0.4; display: block; margin-bottom: 10px; }
+
+        /* CANCELLED CARDS */
+        .cancelled-card {
+            background: #ffffff; border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            padding: 16px 20px;
+            border-left: 3px solid var(--aero-red);
+        }
+        .cancelled-card-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; margin-bottom: 8px;
+            gap: 12px; flex-wrap: wrap;
+        }
+        .cancelled-card-title {
+            font-size: 14px; font-weight: 600; color: var(--aero-text);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .cancelled-card-meta {
+            font-size: 12px; color: var(--aero-gray);
+            display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px;
+        }
+        .cancelled-card-meta span { display: flex; align-items: center; gap: 4px; }
+        .cancelled-reason {
+            background: #fef2f2; border: 1px solid #fecaca;
+            border-radius: 6px; padding: 10px 14px;
+            font-size: 13px; color: #7f1d1d; line-height: 1.6;
+            margin-top: 10px;
+        }
+        .cancelled-reason strong { color: #7f1d1d; }
+
+        .cancelled-replacement {
+            background: #f0fdf4; border: 1px solid #bbf7d0;
+            border-radius: 6px; padding: 8px 14px; margin-top: 8px;
+            font-size: 12px; color: var(--aero-green);
+        }
+        .cancelled-replacement strong { color: #15803d; }
+
+        /* DELAY CARDS */
+        .delay-card {
+            background: #ffffff; border-radius: 8px;
+            border: 1px solid var(--aero-gray-light);
+            padding: 16px 20px;
+            border-left: 3px solid var(--aero-orange);
+        }
+        .delay-card.critical { border-left-color: var(--aero-red); }
+        .delay-card.short { border-left-color: var(--aero-green); }
+        .delay-card-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; margin-bottom: 8px;
+            gap: 12px; flex-wrap: wrap;
+        }
+        .delay-card-title {
+            font-size: 14px; font-weight: 600; color: var(--aero-text);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .delay-card-meta {
+            font-size: 12px; color: var(--aero-gray);
+            display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px;
+        }
+        .delay-card-meta span { display: flex; align-items: center; gap: 4px; }
+
+        .delay-timer {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 18px; font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .delay-timer.short { color: var(--aero-green); }
+        .delay-timer.medium { color: var(--aero-orange); }
+        .delay-timer.critical { color: var(--aero-red); }
+
+        .delay-actions {
+            display: flex; gap: 8px; margin-top: 12px;
+            padding-top: 12px; border-top: 1px solid var(--aero-gray-light);
+            flex-wrap: wrap;
+        }
+        .delay-actions .btn { flex: 1; min-width: 140px; justify-content: center; }
+
+        .delay-block {
+            background: #fffbeb; border: 1px solid #fde68a;
+            border-radius: 6px; padding: 10px 14px; margin-top: 10px;
+            font-size: 12px; color: #78350f; line-height: 1.6;
+        }
+        .delay-block strong { color: #78350f; }
+
+        .delay-quick-btn {
+            padding: 7px 12px; border: 1px solid var(--aero-gray-light);
+            background: #f8fafc; border-radius: 6px;
+            font-size: 12px; cursor: pointer;
+            font-family: inherit; color: var(--aero-text);
+            transition: all var(--transition); font-weight: 500;
+        }
+        .delay-quick-btn:hover {
+            background: var(--aero-orange); color: #fff; border-color: var(--aero-orange);
+        }
+
+        /* MODALS */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.55);
+            z-index: 20000; justify-content: center; align-items: center;
+            padding: 20px;
+        }
+        .modal-overlay.show { display: flex; }
+
+        .modal {
+            background: #ffffff; border-radius: 10px;
+            max-width: 560px; width: 100%; max-height: 92vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalIn 0.2s ease;
+        }
+        @keyframes modalIn {
+            from { transform: translateY(12px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            padding: 18px 24px 14px;
+            border-bottom: 1px solid var(--aero-gray-light);
+            flex-shrink: 0;
+        }
+        .modal-header h2 { font-size: 16px; font-weight: 600; color: var(--aero-text); }
+        .modal-close {
+            background: none; border: none; font-size: 22px;
+            cursor: pointer; color: var(--aero-gray);
+            padding: 0; line-height: 1; margin-top: -4px;
+        }
+        .modal-close:hover { color: var(--aero-text); }
+
+        .modal-body { padding: 18px 24px; overflow-y: auto; flex: 1; }
+        .modal-body .form-group { margin-bottom: 12px; }
+        .modal-body .form-group label {
+            font-size: 11px; font-weight: 600;
+            color: var(--aero-text-light); margin-bottom: 5px; display: block;
+        }
+        .modal-body .form-group select,
+        .modal-body .form-group input,
+        .modal-body .form-group textarea {
+            width: 100%; padding: 9px 12px;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 6px; font-size: 13px;
+            font-family: inherit; background: #fff;
+            color: var(--aero-text);
+            transition: border-color var(--transition);
+        }
+        .modal-body .form-group select:focus,
+        .modal-body .form-group input:focus,
+        .modal-body .form-group textarea:focus {
+            outline: none; border-color: var(--aero-blue);
+        }
+        .modal-body .form-group textarea { resize: vertical; min-height: 66px; }
+
+        .modal-actions {
+            display: flex; gap: 8px; margin-top: 14px;
+            padding-top: 14px; border-top: 1px solid var(--aero-gray-light);
+        }
+        .modal-actions .btn { flex: 1; justify-content: center; }
+
+        .report-block {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+        }
+        .report-block .report-label {
+            color: var(--aero-green); font-weight: 600; font-size: 11px;
+            display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+        }
+        .report-block .report-body {
+            font-size: 12px; color: var(--aero-text);
+            line-height: 1.7; white-space: pre-wrap;
+        }
+
+        .leaflet-control-attribution { display: none !important; }
+        .leaflet-control-zoom { margin-bottom: 0 !important; }
+        .leaflet-control-zoom a {
+            border-radius: 4px !important;
+            color: var(--aero-text) !important;
+            border: 1px solid var(--aero-gray-light) !important;
+        }
+
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .form-row { grid-template-columns: 1fr 1fr; }
+            .pilot-params-grid { grid-template-columns: 1fr 1fr; }
+            .pilot-param-actions { grid-column: 1 / -1; }
+        }
+        @media (max-width: 768px) {
+            .sidebar { width: 68px; padding: 16px 12px; }
+            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span { display: none; }
+            .sidebar-nav li a { justify-content: center; padding: 12px; }
+            .main { padding: 16px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .form-row { grid-template-columns: 1fr; }
+            .page-header h1 { font-size: 18px; }
+            .report-detail-grid { grid-template-columns: 1fr; }
+            .pilot-table thead th, .pilot-table tbody td { padding: 10px; font-size: 12px; }
+            .modal-header, .modal-body, .modal-actions { padding-left: 16px; padding-right: 16px; }
+        }
+        @media (max-width: 480px) {
+            .sidebar { display: none; }
+            .main { padding: 12px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .page-header h1 { font-size: 16px; }
+            .card { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-icon"><i class="fas fa-plane"></i></div>
+        <div class="brand-text">
+            <span class="brand-vector">Вектор</span> <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
+        </div>
+    </div>
+    <div class="sidebar-user">
+        <div class="avatar" id="userAvatar"><i class="fas fa-user-tie"></i></div>
+        <div class="user-info">
+            <div class="name" id="userName">Диспетчер</div>
+            <div class="role" id="userRole">Диспетчер ОТО</div>
+        </div>
+    </div>
+    <ul class="sidebar-nav">
+        <li class="active" id="navDispatch" onclick="switchTab('dispatch')">
+            <a><i class="fas fa-tower-broadcast"></i><span>Диспетчерская</span></a>
+        </li>
+        <li id="navDelays" onclick="switchTab('delays')">
+            <a><i class="fas fa-hourglass-half"></i><span>Задержки рейсов</span></a>
+        </li>
+        <li id="navFlights" onclick="switchTab('flights')">
+            <a><i class="fas fa-plane"></i><span>Рейсы</span></a>
+        </li>
+        <li id="navReports" onclick="switchTab('reports')">
+            <a><i class="fas fa-clipboard-list"></i><span>Отчёты</span></a>
+        </li>
+        <li id="navPilot" onclick="switchTab('pilot')">
+            <a><i class="fas fa-headset"></i><span>Заявки от КВС</span></a>
+        </li>
+        <li id="navCancelled" onclick="switchTab('cancelled')">
+            <a><i class="fas fa-ban"></i><span>Отменённые</span></a>
+        </li>
+    </ul>
+    <div class="sidebar-footer">
+        <button class="btn-logout" onclick="logout()">
+            <i class="fas fa-sign-out-alt"></i><span>Выйти</span>
+        </button>
+    </div>
+</nav>
+
+<div class="main">
+
+    <div class="section-content active" id="tab-dispatch">
+        <div class="page-header">
+            <div>
+                <h1>Диспетчерская</h1>
+                <div class="page-sub" id="currentDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="activeCount">0</div>
+                <div class="stat-label">Активных заявок</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="busyCount">0</div>
+                <div class="stat-label">Инженеров в работе</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avgAssignTime">2.4 сек</div>
+                <div class="stat-label">Ср. время назначения</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="queueCount">0</div>
+                <div class="stat-label">В очереди</div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="map-legend">
+                <div class="legend-row"><span class="dot free"></span> Свободен</div>
+                <div class="legend-row"><span class="dot busy"></span> Занят</div>
+                <div class="legend-row"><span class="dot transport"></span> Спецтранспорт</div>
+                <div class="legend-row"><span class="dot gold"></span> Маршрут</div>
+                <div class="legend-row"><span class="dot parking"></span> Стоянка ВС</div>
+            </div>
+            <div class="map-hint">SVO · B, C, D, E, F · спецтранспорт</div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3>Новая заявка</h3>
+            </div>
+            <form id="dispatchForm" onsubmit="createRequest(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Терминал</label>
+                        <select id="terminalSelect" onchange="updateParkingList()">
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D" selected>D</option>
+                            <option value="E">E</option>
+                            <option value="F">F</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Выход / стоянка</label>
+                        <select id="parkingSelect"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Тип неисправности</label>
+                        <select id="faultType">
+                            <optgroup label="Двигатель">
+                                <option value="engine_failure">Отказ двигателя</option>
+                                <option value="engine_oil">Утечка масла в двигателе</option>
+                                <option value="engine_overheat">Перегрев двигателя</option>
+                                <option value="engine_vibration">Повышенная вибрация двигателя</option>
+                                <option value="engine_start">Проблема с запуском двигателя</option>
+                                <option value="fuel_leak">Утечка топлива</option>
+                                <option value="fuel_system">Отказ топливной системы</option>
+                            </optgroup>
+                            <optgroup label="Авионика">
+                                <option value="avionics_nav">Отказ навигационной системы</option>
+                                <option value="avionics_radio">Отказ радиосвязи</option>
+                                <option value="avionics_autopilot">Отказ автопилота</option>
+                                <option value="avionics_transponder">Отказ транспондера</option>
+                                <option value="avionics_display">Отказ дисплея / экрана</option>
+                                <option value="avionics_gps">Отказ GPS</option>
+                            </optgroup>
+                            <optgroup label="Гидравлика">
+                                <option value="hydraulic">Отказ гидравлики</option>
+                                <option value="hydraulic_leak">Утечка гидравлической жидкости</option>
+                                <option value="hydraulic_pressure">Падение давления в гидросистеме</option>
+                            </optgroup>
+                            <optgroup label="Электрика">
+                                <option value="electrical">Отказ электроснабжения</option>
+                                <option value="electrical_generator">Отказ генератора</option>
+                                <option value="electrical_battery">Отказ аккумулятора</option>
+                                <option value="electrical_short">Короткое замыкание</option>
+                                <option value="electrical_lighting">Отказ освещения</option>
+                            </optgroup>
+                            <optgroup label="Механика">
+                                <option value="landing_gear">Неисправность шасси</option>
+                                <option value="pneumatic">Отказ пневматики</option>
+                                <option value="brake_system">Неисправность тормозной системы</option>
+                                <option value="flap_issue">Проблема с закрылками</option>
+                                <option value="aileron_issue">Проблема с элеронами</option>
+                                <option value="rudder_issue">Проблема с рулём направления</option>
+                                <option value="wing_damage">Повреждение крыла</option>
+                                <option value="fuselage_damage">Повреждение фюзеляжа</option>
+                                <option value="door_issue">Неисправность двери</option>
+                            </optgroup>
+                            <optgroup label="Прочее">
+                                <option value="air_condition">Неисправность кондиционирования</option>
+                                <option value="pressurization">Разгерметизация кабины</option>
+                                <option value="oxygen_system">Отказ кислородной системы</option>
+                                <option value="fire_system">Неисправность пожарной системы</option>
+                                <option value="deicing_system">Отказ противообледенительной системы</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Серьёзность</label>
+                        <select id="faultSeverity">
+                            <option value="high">Высокая</option>
+                            <option value="medium" selected>Средняя</option>
+                            <option value="low">Низкая</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Номер рейса</label>
+                        <input type="text" id="flightNumber" placeholder="SU-1234" required>
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:flex-end;">
+                        <button type="submit" class="btn btn-primary btn-full">
+                            <i class="fas fa-paper-plane"></i> Отправить заявку
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div id="notificationContainer"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3>Активные заявки</h3>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <span class="badge-ai" id="activeBadge">0</span>
+                    <button class="btn btn-clear btn-sm" onclick="clearAllRequests()">
+                        <i class="fas fa-trash"></i> Очистить все
+                    </button>
+                </div>
+            </div>
+            <div id="activeRequests">
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>Нет активных заявок</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="tab-delays">
+        <div class="page-header">
+            <div>
+                <h1>Задержки рейсов</h1>
+                <div class="page-sub" id="delaysDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="stat-card">
+                <div class="stat-value" id="delaysTotal">0</div>
+                <div class="stat-label">Задержанных рейсов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="delaysCritical">0</div>
+                <div class="stat-label">Критических (&gt; 4 ч)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="delaysAvg">0 мин</div>
+                <div class="stat-label">Среднее время задержки</div>
+            </div>
+        </div>
+
+        <div class="reports-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="delaysSearch" placeholder="Поиск по рейсу, причине..." oninput="filterDelays()">
+            </div>
+            <select id="delaysSeverityFilter" onchange="filterDelays()">
+                <option value="">Все задержки</option>
+                <option value="short">До 1 часа</option>
+                <option value="medium">1–4 часа</option>
+                <option value="critical">Более 4 часов</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearDelaysFilters()">
+                <i class="fas fa-times"></i> Сбросить
+            </button>
+        </div>
+
+        <div class="reports-list" id="delaysList">
+            <div class="empty-state">
+                <i class="fas fa-hourglass-half"></i>
+                <p>Нет задержанных рейсов</p>
+                <small>Задержки появятся, если нет свободных инженеров</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="tab-flights">
+        <div class="page-header">
+            <div>
+                <h1>Рейсы</h1>
+                <div class="page-sub" id="flightsDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="flightsTotal">0</div>
+                <div class="stat-label">Всего рейсов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="flightsDelayed">0</div>
+                <div class="stat-label">С задержкой</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="flightsCompleted">0</div>
+                <div class="stat-label">Выполнено</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="flightsAllRejected">0</div>
+                <div class="stat-label">Все отказались</div>
+            </div>
+        </div>
+
+        <div class="flights-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="flightsSearch" placeholder="Поиск по рейсу, инженеру, стоянке..." oninput="renderFlights()">
+            </div>
+            <select id="flightsStatusFilter" onchange="renderFlights()">
+                <option value="">Все статусы</option>
+                <option value="assigned">Назначен</option>
+                <option value="queued">В очереди / задержан</option>
+                <option value="all_rejected">Все отказались</option>
+                <option value="completed">Выполнен</option>
+                <option value="cancelled">Отменён инженером</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearFlightsFilters()">
+                <i class="fas fa-times"></i> Сбросить
+            </button>
+        </div>
+
+        <div class="table-wrapper">
+            <div style="overflow-x: auto;">
+                <table class="flights-table">
+                    <thead>
+                        <tr>
+                            <th>Рейс</th>
+                            <th>Неисправность</th>
+                            <th>Стоянка</th>
+                            <th>Инженер</th>
+                            <th>Создан</th>
+                            <th>Статус</th>
+                            <th>Время / задержка</th>
+                        </tr>
+                    </thead>
+                    <tbody id="flightsTableBody">
+                        <tr>
+                            <td colspan="7" class="pilot-empty-row">
+                                <i class="fas fa-plane"></i>
+                                <p>Пока нет рейсов</p>
+                                <small>Создайте первую заявку</small>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="tab-reports">
+        <div class="page-header">
+            <div>
+                <h1>Отчёты инженеров</h1>
+                <div class="page-sub" id="reportsDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="stat-card">
+                <div class="stat-value" id="reportsTotal">0</div>
+                <div class="stat-label">Всего отчётов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="reportsToday">0</div>
+                <div class="stat-label">Отчётов сегодня</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="reportsEngineers">0</div>
+                <div class="stat-label">Инженеров с отчётами</div>
+            </div>
+        </div>
+
+        <div class="reports-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="reportsSearch" placeholder="Поиск по рейсу, инженеру, неисправности..." oninput="filterReports()">
+            </div>
+            <select id="reportsEngineerFilter" onchange="filterReports()">
+                <option value="">Все инженеры</option>
+            </select>
+            <select id="reportsConditionFilter" onchange="filterReports()">
+                <option value="">Все состояния</option>
+                <option value="repaired">Устранено</option>
+                <option value="needs_parts">Нужны детали</option>
+                <option value="needs_service">Заводской ремонт</option>
+                <option value="no_fault">Не подтверждено</option>
+            </select>
+            <select id="reportsPeriodFilter" onchange="filterReports()">
+                <option value="all">Всё время</option>
+                <option value="today">Сегодня</option>
+                <option value="week">7 дней</option>
+                <option value="month">30 дней</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearReportsFilters()">
+                <i class="fas fa-times"></i> Сбросить
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="restoreDeletedReports()" id="restoreBtn" style="display:none;">
+                <i class="fas fa-undo"></i> Восстановить удалённые
+            </button>
+            <button class="btn btn-clear btn-sm" onclick="clearAllReports()">
+                <i class="fas fa-trash"></i> Очистить все
+            </button>
+        </div>
+
+        <div class="reports-list" id="reportsList">
+            <div class="empty-state">
+                <i class="fas fa-clipboard-list"></i>
+                <p>Пока нет отчётов</p>
+                <small>Отчёты появятся здесь после завершения задач инженерами</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="tab-pilot">
+        <div class="page-header">
+            <div>
+                <h1>Заявки от командира ВС</h1>
+                <div class="page-sub" id="pilotDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="stat-card">
+                <div class="stat-value" id="pilotTotal">0</div>
+                <div class="stat-label">Всего заявок</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="pilotToday">0</div>
+                <div class="stat-label">Заявок сегодня</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="pilotDuration">0 сек</div>
+                <div class="stat-label">Суммарная длительность</div>
+            </div>
+        </div>
+
+        <div class="reports-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="pilotSearch" placeholder="Поиск по рейсу, званию, имени пилота, тексту..." oninput="filterPilotRequests()">
+            </div>
+            <select id="pilotPeriodFilter" onchange="filterPilotRequests()">
+                <option value="all">Всё время</option>
+                <option value="today">Сегодня</option>
+                <option value="week">7 дней</option>
+                <option value="month">30 дней</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearPilotFilters()">
+                <i class="fas fa-times"></i> Сбросить
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="exportPilotRequests()">
+                <i class="fas fa-file-export"></i> Экспорт JSON
+            </button>
+            <button class="btn btn-clear btn-sm" onclick="clearAllPilotRequests()">
+                <i class="fas fa-trash"></i> Очистить все
+            </button>
+        </div>
+
+        <div class="table-wrapper">
+            <div style="overflow-x: auto;">
+                <table class="pilot-table">
+                    <thead>
+                        <tr>
+                            <th>Дата и время</th>
+                            <th>Пилот</th>
+                            <th>Звание</th>
+                            <th>Борт</th>
+                            <th>Длительность</th>
+                            <th>Request ID</th>
+                            <th style="text-align:right;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pilotTableBody">
+                        <tr>
+                            <td colspan="7" class="pilot-empty-row">
+                                <i class="fas fa-headset"></i>
+                                <p>Пока нет заявок от командиров ВС</p>
+                                <small>Заявки появятся после отправки голосового сообщения пилотом</small>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-content" id="tab-cancelled">
+        <div class="page-header">
+            <div>
+                <h1>Отменённые заявки</h1>
+                <div class="page-sub" id="cancelledDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="stat-card">
+                <div class="stat-value" id="cancelledTotal">0</div>
+                <div class="stat-label">Всего отменено</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="cancelledToday">0</div>
+                <div class="stat-label">Отменено сегодня</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="cancelledEngineers">0</div>
+                <div class="stat-label">Инженеров отменяло</div>
+            </div>
+        </div>
+
+        <div class="reports-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="cancelledSearch" placeholder="Поиск по рейсу, инженеру, причине..." oninput="filterCancelledRequests()">
+            </div>
+            <select id="cancelledPeriodFilter" onchange="filterCancelledRequests()">
+                <option value="all">Всё время</option>
+                <option value="today">Сегодня</option>
+                <option value="week">7 дней</option>
+                <option value="month">30 дней</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearCancelledFilters()">
+                <i class="fas fa-times"></i> Сбросить
+            </button>
+            <button class="btn btn-clear btn-sm" onclick="clearAllCancelled()">
+                <i class="fas fa-trash"></i> Очистить все
+            </button>
+        </div>
+
+        <div class="reports-list" id="cancelledList">
+            <div class="empty-state">
+                <i class="fas fa-ban"></i>
+                <p>Пока нет отменённых заявок</p>
+                <small>Отменённые инженерами заявки появятся здесь</small>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="modal-overlay" id="requestModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="requestModalTitle">Управление заявкой</h2>
+            <button class="modal-close" onclick="closeRequestModal()">×</button>
+        </div>
+        <div class="modal-body" id="requestModalContent"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="reportModal">
+    <div class="modal" style="max-width: 720px;">
+        <div class="modal-header">
+            <h2 id="reportModalTitle">Отчёт о диагностике</h2>
+            <button class="modal-close" onclick="closeReportModal()">×</button>
+        </div>
+        <div class="modal-body" id="reportModalContent"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var API_URL = '/api';
+
+var CONFIG = {
+    REGULATION_MINUTES: 15,
+    WALK_SPEED_KMH: 5,
+    CAR_SPEED_DEFAULT: 30,
+    PARKING_BY_TERMINAL: {
+        B: ['101','102','103','104','105','106','107','108','109','110','111','112','113','114','115','116','117','118','119','120','121','122'],
+        C: ['124','125','126','127','128','129','130','131','132','134','135','136','137','138','139','140','141','142','143','144','145','146'],
+        D: ['11','12','13','14','15','16','17','19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35'],
+        E: ['36','37','38','39','40','41'],
+        F: ['46','47','48','49','50','51','52','53','54','55','57','58','59','60']
+    },
+    MAP_POINTS: {
+        '101': { lat: 55.9807, lng: 37.4171 }, '102': { lat: 55.9806, lng: 37.4171 },
+        '103': { lat: 55.9801, lng: 37.4173 }, '104': { lat: 55.9800, lng: 37.4174 },
+        '105': { lat: 55.9808, lng: 37.4163 }, '106': { lat: 55.9807, lng: 37.4164 },
+        '107': { lat: 55.9804, lng: 37.4172 }, '108': { lat: 55.9803, lng: 37.4173 },
+        '109': { lat: 55.9801, lng: 37.4166 }, '110': { lat: 55.9800, lng: 37.4167 },
+        '111': { lat: 55.9797, lng: 37.4175 }, '112': { lat: 55.9796, lng: 37.4176 },
+        '113': { lat: 55.9794, lng: 37.4170 }, '114': { lat: 55.9793, lng: 37.4170 },
+        '115': { lat: 55.9790, lng: 37.4179 }, '116': { lat: 55.9789, lng: 37.4179 },
+        '117': { lat: 55.9785, lng: 37.4183 }, '118': { lat: 55.9782, lng: 37.4176 },
+        '119': { lat: 55.9783, lng: 37.4172 }, '120': { lat: 55.9784, lng: 37.4172 },
+        '121': { lat: 55.9785, lng: 37.4171 }, '122': { lat: 55.9783, lng: 37.4181 },
+        '124': { lat: 55.9799, lng: 37.4095 }, '125': { lat: 55.9797, lng: 37.4097 },
+        '126': { lat: 55.9796, lng: 37.4113 }, '127': { lat: 55.9796, lng: 37.4115 },
+        '128': { lat: 55.9792, lng: 37.4100 }, '129': { lat: 55.9790, lng: 37.4102 },
+        '130': { lat: 55.9796, lng: 37.4111 }, '131': { lat: 55.9791, lng: 37.4111 },
+        '132': { lat: 55.9790, lng: 37.4112 }, '134': { lat: 55.9789, lng: 37.4115 },
+        '135': { lat: 55.9788, lng: 37.4116 }, '136': { lat: 55.9784, lng: 37.4105 },
+        '137': { lat: 55.9782, lng: 37.4106 }, '138': { lat: 55.9781, lng: 37.4118 },
+        '139': { lat: 55.9780, lng: 37.4120 }, '140': { lat: 55.9775, lng: 37.4125 },
+        '141': { lat: 55.9771, lng: 37.4119 }, '142': { lat: 55.9771, lng: 37.4110 },
+        '143': { lat: 55.9772, lng: 37.4104 }, '144': { lat: 55.9774, lng: 37.4103 },
+        '145': { lat: 55.9774, lng: 37.4121 }, '146': { lat: 55.9772, lng: 37.4121 },
+        '11': { lat: 55.9624, lng: 37.4013 }, '12': { lat: 55.9624, lng: 37.4004 },
+        '13': { lat: 55.9625, lng: 37.4017 }, '14': { lat: 55.9627, lng: 37.4027 },
+        '15': { lat: 55.9627, lng: 37.4030 }, '16': { lat: 55.9630, lng: 37.4043 },
+        '17': { lat: 55.9632, lng: 37.4047 }, '19': { lat: 55.9643, lng: 37.4047 },
+        '20': { lat: 55.9645, lng: 37.4046 }, '21': { lat: 55.9650, lng: 37.4043 },
+        '22': { lat: 55.9652, lng: 37.4042 }, '23': { lat: 55.9655, lng: 37.4043 },
+        '24': { lat: 55.9656, lng: 37.4046 }, '25': { lat: 55.9656, lng: 37.4050 },
+        '26': { lat: 55.9650, lng: 37.4055 }, '27': { lat: 55.9648, lng: 37.4056 },
+        '28': { lat: 55.9642, lng: 37.4058 }, '29': { lat: 55.9640, lng: 37.4060 },
+        '30': { lat: 55.9635, lng: 37.4074 }, '31': { lat: 55.9636, lng: 37.4087 },
+        '32': { lat: 55.9636, lng: 37.4092 }, '33': { lat: 55.9637, lng: 37.4107 },
+        '34': { lat: 55.9638, lng: 37.4108 }, '35': { lat: 55.9639, lng: 37.4118 },
+        '36': { lat: 55.9644, lng: 37.4128 }, '37': { lat: 55.9644, lng: 37.4128 },
+        '38': { lat: 55.9648, lng: 37.4130 }, '39': { lat: 55.9652, lng: 37.4132 },
+        '40': { lat: 55.9656, lng: 37.4134 }, '41': { lat: 55.9659, lng: 37.4135 },
+        '46': { lat: 55.9664, lng: 37.4134 }, '47': { lat: 55.9667, lng: 37.4135 },
+        '48': { lat: 55.9669, lng: 37.4137 }, '49': { lat: 55.9669, lng: 37.4138 },
+        '50': { lat: 55.9670, lng: 37.4146 }, '51': { lat: 55.9671, lng: 37.4155 },
+        '52': { lat: 55.9672, lng: 37.4163 }, '53': { lat: 55.9674, lng: 37.4171 },
+        '54': { lat: 55.9674, lng: 37.4172 }, '55': { lat: 55.9671, lng: 37.4180 },
+        '57': { lat: 55.9669, lng: 37.4181 }, '58': { lat: 55.9668, lng: 37.4181 },
+        '59': { lat: 55.9664, lng: 37.4179 }, '60': { lat: 55.9661, lng: 37.4175 }
+    },
+    FAULT_TYPES: {
+        engine_failure: { name: 'Отказ двигателя', skill: 'engine' },
+        engine_oil: { name: 'Утечка масла в двигателе', skill: 'engine' },
+        engine_overheat: { name: 'Перегрев двигателя', skill: 'engine' },
+        engine_vibration: { name: 'Повышенная вибрация двигателя', skill: 'engine' },
+        engine_start: { name: 'Проблема с запуском двигателя', skill: 'engine' },
+        fuel_leak: { name: 'Утечка топлива', skill: 'engine' },
+        fuel_system: { name: 'Отказ топливной системы', skill: 'engine' },
+        avionics_nav: { name: 'Отказ навигационной системы', skill: 'avionics' },
+        avionics_radio: { name: 'Отказ радиосвязи', skill: 'avionics' },
+        avionics_autopilot: { name: 'Отказ автопилота', skill: 'avionics' },
+        avionics_transponder: { name: 'Отказ транспондера', skill: 'avionics' },
+        avionics_display: { name: 'Отказ дисплея / экрана', skill: 'avionics' },
+        avionics_gps: { name: 'Отказ GPS', skill: 'avionics' },
+        hydraulic: { name: 'Отказ гидравлики', skill: 'hydraulics' },
+        hydraulic_leak: { name: 'Утечка гидравлической жидкости', skill: 'hydraulics' },
+        hydraulic_pressure: { name: 'Падение давления в гидросистеме', skill: 'hydraulics' },
+        electrical: { name: 'Отказ электроснабжения', skill: 'electrical' },
+        electrical_generator: { name: 'Отказ генератора', skill: 'electrical' },
+        electrical_battery: { name: 'Отказ аккумулятора', skill: 'electrical' },
+        electrical_short: { name: 'Короткое замыкание', skill: 'electrical' },
+        electrical_lighting: { name: 'Отказ освещения', skill: 'electrical' },
+        landing_gear: { name: 'Неисправность шасси', skill: 'mechanical' },
+        pneumatic: { name: 'Отказ пневматики', skill: 'mechanical' },
+        brake_system: { name: 'Неисправность тормозной системы', skill: 'mechanical' },
+        flap_issue: { name: 'Проблема с закрылками', skill: 'mechanical' },
+        aileron_issue: { name: 'Проблема с элеронами', skill: 'mechanical' },
+        rudder_issue: { name: 'Проблема с рулём направления', skill: 'mechanical' },
+        wing_damage: { name: 'Повреждение крыла', skill: 'mechanical' },
+        fuselage_damage: { name: 'Повреждение фюзеляжа', skill: 'mechanical' },
+        door_issue: { name: 'Неисправность двери', skill: 'mechanical' },
+        air_condition: { name: 'Неисправность кондиционирования', skill: 'general' },
+        pressurization: { name: 'Разгерметизация кабины', skill: 'general' },
+        oxygen_system: { name: 'Отказ кислородной системы', skill: 'general' },
+        fire_system: { name: 'Неисправность пожарной системы', skill: 'general' },
+        deicing_system: { name: 'Отказ противообледенительной системы', skill: 'general' },
+        pilot_voice: { name: 'Голосовая заявка от КВС', skill: 'general' }
+    },
+    SKILL_NAMES: {
+        engine: 'Двигатель', avionics: 'Авионика', hydraulics: 'Гидравлика',
+        electrical: 'Электрика', mechanical: 'Механика', general: 'Общая'
+    },
+    CONDITION_LABELS: {
+        repaired: 'Устранено на месте',
+        needs_parts: 'Требуется замена деталей',
+        needs_service: 'Требуется заводской ремонт',
+        no_fault: 'Неисправность не подтверждена'
+    },
+    CATEGORY_LABELS: {
+        engine: 'Двигатель', avionics: 'Авионика', hydraulics: 'Гидравлика',
+        electrical: 'Электрика', mechanical: 'Механика', other: 'Другое'
+    },
+    DELAY_THRESHOLDS: { short: 60, medium: 240, critical: 240 }
+};
+
+var state = {
+    employees: [], transport: [], tickets: [], activeRequests: [],
+    reports: [], deletedReports: [], pilotRequests: [],
+    cancelledRequests: [], delays: [], flights: [],
+    recognizingPilotId: null,
+    loadInterval: null, coordsInterval: null, map: null,
+    routeData: {}, transportLoaded: false, isUpdating: false,
+    dataLoaded: false, mapMarkers: {},
+    roadsLayer: null, aircraftLayer: null, parkingLayer: null,
+    currentTab: 'dispatch'
+};
+
+var STORAGE_KEY = 'dispatcherState_v19';
+var REPORTS_KEY = 'dispatcherReports_v2';
+var DELETED_REPORTS_KEY = 'dispatcherDeletedReports_v1';
+var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
+
+var pilotTableSignature = '';
+var pilotAudioState = {};
+
+var transcriptionQueue = [];
+var transcriptionInProgress = false;
+var transcriptionAttempted = {};
+var whisperDisabled = false;
+
+function round1(v) { return Math.round(v * 10) / 10; }
+
+function distanceKm(lat1, lng1, lat2, lng2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function getCurrentDispatcherName() {
+    try {
+        var s = sessionStorage.getItem('userSession');
+        if (s) { var u = JSON.parse(s); return u.name || 'Диспетчер'; }
+    } catch (_) {}
+    return 'Диспетчер';
+}
+
+function formatDuration(mins) {
+    if (mins < 60) return mins + ' мин';
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    if (m === 0) return h + ' ч';
+    return h + ' ч ' + m + ' мин';
+}
+
+function delayClass(elapsedMin) {
+    if (elapsedMin <= CONFIG.DELAY_THRESHOLDS.short) return 'short';
+    if (elapsedMin <= CONFIG.DELAY_THRESHOLDS.medium) return 'medium';
+    return 'critical';
+}
+
+function extractReportFromComment(comment) {
+    if (!comment) return '';
+    if (comment.indexOf('ROUTE:') === 0) {
+        var rest = comment.substring(6);
+        var depth = 0, endIdx = -1;
+        for (var i = 0; i < rest.length; i++) {
+            if (rest[i] === '{') depth++;
+            else if (rest[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+        }
+        if (endIdx > 0) return rest.substring(endIdx).trim();
+        return '';
+    }
+    return comment;
+}
+
+function hasReport(comment) {
+    var report = extractReportFromComment(comment);
+    return report && report.indexOf('ОТЧЁТ') !== -1;
+}
+
+function parseReportFields(text) {
+    var parsed = { engineer: '—', condition: '', conditionLabel: '', category: '', categoryLabel: '',
+        findings: '', actions: '', duration: '', realDuration: '', materials: '',
+        needParts: false, comment: '', raw: text };
+    if (!text) return parsed;
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        var m;
+        if ((m = line.match(/^📋?\s*ОТЧЁТ О ДИАГНОСТИКЕ от (.+)$/i))) parsed.engineer = m[1].trim();
+        else if ((m = line.match(/^ОТЧЁТ О ДИАГНОСТИКЕ от (.+)$/i))) parsed.engineer = m[1].trim();
+        else if ((m = line.match(/^Состояние ВС:\s*(.+)$/i))) {
+            var cv = m[1].trim(); parsed.conditionLabel = cv;
+            for (var k in CONFIG.CONDITION_LABELS) if (CONFIG.CONDITION_LABELS[k] === cv) parsed.condition = k;
+        }
+        else if ((m = line.match(/^Категория:\s*(.+)$/i))) {
+            var catV = m[1].trim(); parsed.categoryLabel = catV;
+            for (var k2 in CONFIG.CATEGORY_LABELS) if (CONFIG.CATEGORY_LABELS[k2] === catV) parsed.category = k2;
+        }
+        else if ((m = line.match(/^Обнаружено:\s*(.+)$/i))) parsed.findings = m[1].trim();
+        else if ((m = line.match(/^Выполненные работы:\s*(.+)$/i))) parsed.actions = m[1].trim();
+        else if ((m = line.match(/^Время диагностики:\s*(.+)$/i))) {
+            parsed.duration = m[1].trim();
+            var rm;
+            if ((rm = parsed.duration.match(/реально:\s*(\d+)/i))) parsed.realDuration = rm[1];
+        }
+        else if ((m = line.match(/^Материалы:\s*(.+)$/i))) parsed.materials = m[1].trim();
+        else if ((m = line.match(/^Нужны детали:\s*(.+)$/i))) parsed.needParts = m[1].trim().toLowerCase() === 'да';
+        else if ((m = line.match(/^Комментарий:\s*(.+)$/i))) parsed.comment = m[1].trim();
+    }
+    return parsed;
+}
+
+function loadReportsFromStorage() {
+    try { var s = localStorage.getItem(REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
+    catch(e) { return []; }
+}
+function saveReportsToStorage() {
+    try { localStorage.setItem(REPORTS_KEY, JSON.stringify(state.reports)); updateReportsBadge(); return true; }
+    catch(e) { return false; }
+}
+function loadDeletedReportsFromStorage() {
+    try { var s = localStorage.getItem(DELETED_REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
+    catch(e) { return []; }
+}
+function saveDeletedReportsToStorage() {
+    try { localStorage.setItem(DELETED_REPORTS_KEY, JSON.stringify(state.deletedReports)); return true; }
+    catch(e) { return false; }
+}
+function isReportDeleted(requestId) {
+    if (!requestId) return false;
+    return state.deletedReports.indexOf(requestId) !== -1;
+}
+
+function addReportFromRequest(request) {
+    if (!request) return false;
+    if (isReportDeleted(request.id)) return false;
+    var reportText = extractReportFromComment(request.engineer_comment || '');
+    if (!reportText || reportText.indexOf('ОТЧЁТ') === -1) return false;
+    for (var i = 0; i < state.reports.length; i++) if (state.reports[i].requestId === request.id) return false;
+    var parsed = parseReportFields(reportText);
+    var report = {
+        id: 'rep_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        requestId: request.id,
+        aircraft: request.aircraft || request.flightNumber || 'ВС',
+        faultType: request.fault_type || '',
+        faultName: CONFIG.FAULT_TYPES[request.fault_type] ? CONFIG.FAULT_TYPES[request.fault_type].name : (request.fault_type || '—'),
+        parkingId: request.parking_id || '',
+        engineer: parsed.engineer !== '—' ? parsed.engineer : (request.engineer_name || 'Инженер'),
+        engineerId: request.engineer_id || null,
+        criticality: request.criticality || 'medium',
+        condition: parsed.condition,
+        conditionLabel: parsed.conditionLabel,
+        category: parsed.category,
+        categoryLabel: parsed.categoryLabel,
+        findings: parsed.findings,
+        actions: parsed.actions,
+        duration: parsed.duration,
+        realDuration: parsed.realDuration,
+        materials: parsed.materials,
+        needParts: parsed.needParts,
+        comment: parsed.comment,
+        raw: reportText,
+        completedAt: new Date().toISOString()
+    };
+    state.reports.unshift(report);
+    saveReportsToStorage();
+    return true;
+}
+
+function syncReportsFromTickets() {
+    var added = 0;
+    for (var i = 0; i < state.tickets.length; i++) if (addReportFromRequest(state.tickets[i])) added++;
+    if (added > 0) updateReportsBadge();
+}
+
+function getRandomLatLng() {
+    return { lat: 55.970 + Math.random() * 0.015, lng: 37.400 + Math.random() * 0.03 };
+}
+function getRandomSpeed() {
+    var speeds = [20, 30, 40, 50, 60, 70, 80];
+    return speeds[Math.floor(Math.random() * speeds.length)];
+}
+
+function Employee(data) {
+    this.id = data.id;
+    this.realId = data.id;
+    this.number = data.number || 0;
+    this.name = data.name || 'Техник';
+    this.deviceId = data.device_id || ('EN-' + String(data.number || 0).padStart(3, '0'));
+    this.skill = data.specialization || 'general';
+    this.lat = data.coords_lat || 55.975;
+    this.lng = data.coords_lng || 37.410;
+    this.status = data.status || 'free';
+    this.busy = this.status !== 'free' && this.status !== 'offline';
+    this.task = data.task || '';
+}
+Employee.prototype.isFree = function() { return !this.busy; };
+Employee.prototype.distanceTo = function(lat, lng) { return distanceKm(this.lat, this.lng, lat, lng); };
+
+function Transport(deviceId, lat, lng, speed, id) {
+    this.id = id || Math.floor(Math.random() * 1000) + 100;
+    this.deviceId = deviceId || 'CAR-' + String(this.id).padStart(3, '0');
+    this.lat = lat || 55.975;
+    this.lng = lng || 37.410;
+    this.assignedTo = null;
+    this.speed = speed || getRandomSpeed();
+}
+
+function initTransport() {
+    state.transport = [];
+    for (var i = 0; i < 5; i++) {
+        var coords = getRandomLatLng();
+        state.transport.push(new Transport('CAR-' + String(i + 1).padStart(3, '0'), coords.lat, coords.lng));
+    }
+    state.transportLoaded = true;
+}
+
+function saveStateToLocalStorage() {
+    try {
+        var data = { routeData: {}, employees: [], transport: [], timestamp: Date.now() };
+        for (var key in state.routeData) {
+            if (state.routeData.hasOwnProperty(key)) {
+                var r = state.routeData[key];
+                data.routeData[key] = {
+                    from: r.from, to: r.to, empId: r.empId,
+                    totalTime: r.totalTime, walkTime: r.walkTime,
+                    bestCar: r.bestCar ? { id: r.bestCar.id, deviceId: r.bestCar.deviceId, lat: r.bestCar.lat, lng: r.bestCar.lng, speed: r.bestCar.speed } : null,
+                    bestCarTime: r.bestCarTime, walkToCar: r.walkToCar,
+                    usingCar: r.usingCar, path: r.path || null
+                };
+            }
+        }
+        for (var i = 0; i < state.employees.length; i++) {
+            var e = state.employees[i];
+            data.employees.push({ realId: e.realId, lat: e.lat, lng: e.lng, status: e.status, busy: e.busy, task: e.task });
+        }
+        for (var j = 0; j < state.transport.length; j++) {
+            var c = state.transport[j];
+            data.transport.push({ id: c.id, deviceId: c.deviceId, lat: c.lat, lng: c.lng, speed: c.speed, assignedTo: c.assignedTo });
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        return true;
+    } catch(e) { return false; }
+}
+
+function loadStateFromLocalStorage() {
+    try {
+        var saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return false;
+        var data = JSON.parse(saved);
+        if (data.timestamp && (Date.now() - data.timestamp > 24*60*60*1000)) { localStorage.removeItem(STORAGE_KEY); return false; }
+        if (data.routeData) {
+            for (var key in data.routeData) {
+                if (data.routeData.hasOwnProperty(key)) {
+                    var r = data.routeData[key];
+                    var bestCar = null;
+                    if (r.bestCar) {
+                        for (var i = 0; i < state.transport.length; i++) if (state.transport[i].id === r.bestCar.id) { bestCar = state.transport[i]; break; }
+                    }
+                    state.routeData[key] = {
+                        from: r.from, to: r.to, empId: r.empId,
+                        totalTime: r.totalTime, walkTime: r.walkTime,
+                        bestCar: bestCar, bestCarTime: r.bestCarTime,
+                        walkToCar: r.walkToCar, usingCar: r.usingCar,
+                        path: r.path || null
+                    };
+                }
+            }
+        }
+        if (data.employees) {
+            for (var i2 = 0; i2 < state.employees.length; i2++) {
+                for (var j2 = 0; j2 < data.employees.length; j2++) {
+                    if (state.employees[i2].realId === data.employees[j2].realId) {
+                        state.employees[i2].lat = data.employees[j2].lat;
+                        state.employees[i2].lng = data.employees[j2].lng;
+                        state.employees[i2].busy = data.employees[j2].busy;
+                        state.employees[i2].status = data.employees[j2].status;
+                        state.employees[i2].task = data.employees[j2].task;
+                        break;
+                    }
+                }
+            }
+        }
+        if (data.transport) {
+            for (var i3 = 0; i3 < state.transport.length; i3++) {
+                for (var j3 = 0; j3 < data.transport.length; j3++) {
+                    if (state.transport[i3].id === data.transport[j3].id) {
+                        state.transport[i3].lat = data.transport[j3].lat;
+                        state.transport[i3].lng = data.transport[j3].lng;
+                        state.transport[i3].speed = data.transport[j3].speed;
+                        state.transport[i3].assignedTo = data.transport[j3].assignedTo || null;
+                        break;
+                    }
+                }
+            }
+        }
+        return true;
+    } catch(e) { return false; }
+}
+
+function switchTab(tab) {
+    state.currentTab = tab;
+    document.querySelectorAll('.section-content').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.sidebar-nav li').forEach(function(el) { el.classList.remove('active'); });
+
+    document.getElementById('tab-' + tab).classList.add('active');
+    var navMap = { dispatch: 'navDispatch', delays: 'navDelays', flights: 'navFlights', reports: 'navReports', pilot: 'navPilot', cancelled: 'navCancelled' };
+    var navId = navMap[tab];
+    if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
+
+    if (tab === 'dispatch' && state.map) setTimeout(function() { state.map.invalidateSize(); }, 100);
+    if (tab === 'delays') { updateDelaysBadge(); renderDelays(); }
+    if (tab === 'flights') renderFlights();
+    if (tab === 'reports') renderReports();
+    if (tab === 'pilot') { pilotTableSignature = ''; loadPilotRequests(); renderPilotRequests(); processTranscriptionQueue(); }
+    if (tab === 'cancelled') { updateCancelledBadge(); renderCancelledRequests(); }
+}
+
+function init() {
+    var session = sessionStorage.getItem('userSession');
+    if (!session) { window.location.href = '/login.html'; return; }
+    var user;
+    try {
+        user = JSON.parse(session);
+        if (user.role !== 'dispatcher') { window.location.href = '/login.html'; return; }
+        document.getElementById('userName').textContent = user.name || 'Диспетчер';
+    } catch (_) { window.location.href = '/login.html'; return; }
+
+    var now = new Date();
+    var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    var dateStr = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+    document.getElementById('currentDate').textContent = dateStr;
+    document.getElementById('reportsDate').textContent = dateStr;
+    document.getElementById('pilotDate').textContent = dateStr;
+    if (document.getElementById('cancelledDate')) document.getElementById('cancelledDate').textContent = dateStr;
+    if (document.getElementById('delaysDate')) document.getElementById('delaysDate').textContent = dateStr;
+    if (document.getElementById('flightsDate')) document.getElementById('flightsDate').textContent = dateStr;
+
+    state.reports = loadReportsFromStorage();
+    state.deletedReports = loadDeletedReportsFromStorage();
+    state.pilotRequests = loadPilotRequestsFromStorage();
+    updatePilotBadge();
+    updateCancelledBadge();
+    updateDelaysBadge();
+
+    initTransport();
+    initMap();
+    updateParkingList();
+    loadDataOnce();
+
+    if (state.loadInterval) clearInterval(state.loadInterval);
+    state.loadInterval = setInterval(function() {
+        if (!state.isUpdating) {
+            loadRequestsOnly();
+            updateActiveRequests();
+            updateStats();
+            renderMapMarkers();
+            saveStateToLocalStorage();
+        }
+    }, 2000);
+
+    if (state.coordsInterval) clearInterval(state.coordsInterval);
+    state.coordsInterval = setInterval(function() {
+        if (!state.isUpdating) refreshCoordsOnly();
+    }, 1000);
+}
+
+function loadDataOnce() {
+    var promises = [];
+
+    promises.push(fetch(API_URL + '/engineers')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            state.employees = [];
+            for (var i = 0; i < data.length; i++) state.employees.push(new Employee(data[i]));
+        })
+        .catch(function(err) { console.error(err); }));
+
+    promises.push(fetch(API_URL + '/transport')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data && data.length > 0) {
+                state.transport = [];
+                for (var i = 0; i < data.length; i++) {
+                    var item = data[i];
+                    state.transport.push(new Transport(item.device_id, item.lat, item.lng, item.speed, item.id));
+                }
+                state.transportLoaded = true;
+            }
+        })
+        .catch(function(err) { if (!state.transportLoaded) initTransport(); }));
+
+    promises.push(fetch(API_URL + '/requests')
+        .then(function(res) { return res.json(); })
+        .then(function(data) { processRequestsData(data); })
+        .catch(function(err) { console.error(err); }));
+
+    Promise.all(promises).then(function() {
+        loadStateFromLocalStorage();
+        state.dataLoaded = true;
+        renderMapMarkers();
+        updateActiveRequests();
+        updateStats();
+        updateReportsBadge();
+        updateCancelledBadge();
+        updateDelaysBadge();
+        updateFlightsBadge();
+        for (var i = 0; i < state.employees.length; i++) {
+            if (!state.employees[i].isFree()) updateRouteForEngineer(state.employees[i].realId);
+        }
+        if (state.currentTab === 'pilot') { pilotTableSignature = ''; renderPilotRequests(); }
+    });
+}
+
+function processRequestsData(data) {
+    state.tickets = data || [];
+    state.activeRequests = [];
+    state.cancelledRequests = [];
+    state.delays = [];
+    var pilotReqs = [];
+
+    var replacements = {};
+    for (var k = 0; k < data.length; k++) {
+        var tk = data[k];
+        if (tk.replaces_request_id) {
+            replacements[tk.replaces_request_id] = {
+                requestId: tk.id, engineerName: tk.engineer_name || null,
+                travelTime: tk.travel_time || 0, status: tk.status || 'assigned'
+            };
+        }
+    }
+
+    for (var i = 0; i < data.length; i++) {
+        var t = data[i];
+
+        if (t.source === 'pilot' || t.pilot_audio) {
+            pilotReqs.push({
+                id: t.id, source: 'pilot',
+                pilotName: t.pilot_name || t.engineer_name || 'Пилот',
+                pilotRank: t.pilot_rank || t.rank || 'КВС',
+                aircraft: t.aircraft || '',
+                audioBase64: t.pilot_audio || null,
+                audioMime: t.pilot_audio_mime || 'audio/webm',
+                duration: t.pilot_audio_duration || 0,
+                audioText: t.pilot_audio_text || '',
+                sentAt: t.created_at || t.sent_at || new Date().toISOString(),
+                requestId: t.id, status: t.status || 'new',
+                faultType: t.fault_type || 'pilot_voice',
+                terminal: t.terminal || '', parkingId: t.parking_id || ''
+            });
+            if (!t.pilot_audio_text && t.pilot_audio && !transcriptionAttempted[t.id] && !whisperDisabled) {
+                enqueueTranscription(t.id);
+            }
+            continue;
+        }
+
+        var isCancelled = (t.status === 'cancelled');
+        var isAllRejected = (t.status === 'queued' && t.all_rejected === 1);
+
+        if (isCancelled || isAllRejected) {
+            var repl = replacements[t.id] || null;
+            state.cancelledRequests.push({
+                id: t.id, aircraft: t.aircraft || 'ВС',
+                faultType: t.fault_type || '',
+                faultName: (CONFIG.FAULT_TYPES[t.fault_type] || {}).name || t.fault_type || '—',
+                parking: t.parking_id || '—',
+                engineerId: t.engineer_id || null,
+                engineerName: t.engineer_name || '—',
+                cancelledByName: t.cancelled_by_name || t.engineer_name || '—',
+                reason: t.cancel_reason || (isAllRejected ? 'Все инженеры отказались' : '—'),
+                criticality: t.criticality || 'medium',
+                cancelledAt: t.cancelled_at || t.created_at || new Date().toISOString(),
+                replacedBy: repl ? repl.engineerName : null,
+                replacedRequestId: repl ? repl.requestId : null,
+                replacedTravelTime: repl ? repl.travelTime : null,
+                replacedStatus: repl ? repl.status : null,
+                allRejected: isAllRejected
+            });
+            continue;
+        }
+
+        if (t.status === 'completed') continue;
+
+        var fd = CONFIG.FAULT_TYPES[t.fault_type];
+        state.activeRequests.push({
+            id: t.id, aircraft: t.aircraft || 'ВС-' + t.id,
+            fault: fd ? fd.name : t.fault_type || '—',
+            parking: t.parking_id || '—',
+            engineer: t.engineer_name || '—',
+            engineerId: t.engineer_id || null,
+            time: t.travel_time || 0,
+            status: t.status || 'assigned',
+            criticality: t.criticality || 'medium',
+            comment: t.engineer_comment || '',
+            isReplacement: !!t.replaces_request_id,
+            replacesId: t.replaces_request_id || null,
+            createdAt: t.created_at || null
+        });
+    }
+
+    for (var i2 = 0; i2 < data.length; i2++) {
+        var t2 = data[i2];
+        if (t2.status !== 'queued') continue;
+        if (!t2.delay_started_at) continue;
+        if (t2.flight_cancelled) continue;
+        var delayStart = new Date(t2.delay_started_at).getTime();
+        var elapsedMin = Math.floor((Date.now() - delayStart) / 60000);
+        var fd2 = CONFIG.FAULT_TYPES[t2.fault_type];
+        state.delays.push({
+            id: t2.id, aircraft: t2.aircraft || 'ВС',
+            faultType: t2.fault_type || '',
+            faultName: fd2 ? fd2.name : (t2.fault_type || '—'),
+            parking: t2.parking_id || '—',
+            criticality: t2.criticality || 'medium',
+            delayStartedAt: t2.delay_started_at,
+            delayElapsedMin: elapsedMin,
+            delayMinutes: t2.delay_minutes || 0,
+            delayReason: t2.delay_reason || 'Ожидание инженера',
+            delayApprovedBy: t2.delay_approved_by || '',
+            rejectedBy: t2.rejected_by || '',
+            createdAt: t2.created_at || null,
+            allRejected: t2.all_rejected === 1
+        });
+    }
+
+    state.flights = [];
+    for (var i3 = 0; i3 < data.length; i3++) {
+        var t3 = data[i3];
+        if (t3.source === 'pilot' || t3.pilot_audio) continue;
+        if (t3.flight_cancelled) continue;
+        var fd3 = CONFIG.FAULT_TYPES[t3.fault_type];
+        var delayElapsed = 0;
+        if (t3.status === 'queued' && t3.delay_started_at) {
+            delayElapsed = Math.floor((Date.now() - new Date(t3.delay_started_at).getTime()) / 60000);
+        }
+        state.flights.push({
+            id: t3.id, aircraft: t3.aircraft || '—',
+            faultType: t3.fault_type || '',
+            faultName: fd3 ? fd3.name : (t3.fault_type || '—'),
+            parking: t3.parking_id || '—',
+            engineer: t3.engineer_name || '—',
+            engineerId: t3.engineer_id || null,
+            status: t3.status || 'assigned',
+            criticality: t3.criticality || 'medium',
+            travelTime: t3.travel_time || 0,
+            createdAt: t3.created_at || null,
+            delayStartedAt: t3.delay_started_at || null,
+            delayElapsedMin: delayElapsed,
+            delayMinutes: t3.delay_minutes || 0,
+            delayReason: t3.delay_reason || '',
+            delayApprovedBy: t3.delay_approved_by || '',
+            cancelledAt: t3.cancelled_at || null,
+            cancelledByName: t3.cancelled_by_name || '',
+            cancelReason: t3.cancel_reason || '',
+            allRejected: t3.all_rejected === 1
+        });
+    }
+
+    state.pilotRequests = pilotReqs;
+    savePilotRequestsToStorage();
+    updatePilotBadge();
+    updateCancelledBadge();
+    updateDelaysBadge();
+    updateFlightsBadge();
+    syncReportsFromTickets();
+}
+
+function loadRequestsOnly() {
+    fetch(API_URL + '/requests')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            processRequestsData(data);
+            updateActiveRequests();
+            updateStats();
+            if (state.currentTab === 'pilot') renderPilotRequests();
+            if (state.currentTab === 'cancelled') renderCancelledRequests();
+            if (state.currentTab === 'delays') renderDelays();
+            if (state.currentTab === 'flights') renderFlights();
+        })
+        .catch(function(err) { console.error(err); });
+}
+
+function enqueueTranscription(requestId) {
+    if (!requestId) return;
+    if (whisperDisabled) return;
+    if (transcriptionAttempted[requestId]) return;
+    transcriptionAttempted[requestId] = true;
+    if (transcriptionQueue.indexOf(requestId) === -1) transcriptionQueue.push(requestId);
+    processTranscriptionQueue();
+}
+
+function processTranscriptionQueue() {
+    if (transcriptionInProgress) return;
+    if (transcriptionQueue.length === 0) return;
+    if (whisperDisabled) return;
+    transcriptionInProgress = true;
+    var requestId = transcriptionQueue.shift();
+    state.recognizingPilotId = requestId;
+    if (state.currentTab === 'pilot') renderPilotRequests();
+
+    fetch(API_URL + '/requests/' + requestId + '/transcribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data && data.success && data.text) {
+            var r = findPilotRequest(requestId);
+            if (r) {
+                r.audioText = data.text;
+                if (data.parsed) {
+                    if (data.parsed.aircraft) r.aircraft = data.parsed.aircraft;
+                    if (data.parsed.fault_type) r.faultType = data.parsed.fault_type;
+                    if (data.parsed.terminal) r.terminal = data.parsed.terminal;
+                    if (data.parsed.parking_id) r.parkingId = data.parsed.parking_id;
+                }
+                savePilotRequestsToStorage();
+            }
+        } else if (data && data.error === 'whisper_unavailable') {
+            whisperDisabled = true;
+            transcriptionQueue = [];
+        }
+    })
+    .catch(function(err) { console.warn('[AUTO-TRANSCRIBE]', err); })
+    .finally(function() {
+        state.recognizingPilotId = null;
+        transcriptionInProgress = false;
+        if (state.currentTab === 'pilot') renderPilotRequests();
+        setTimeout(processTranscriptionQueue, 300);
+    });
+}
+
+function refreshCoordsOnly() {
+    fetch(API_URL + '/engineers')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            var changed = false;
+            for (var i = 0; i < data.length; i++) {
+                var e = data[i];
+                for (var j = 0; j < state.employees.length; j++) {
+                    if (state.employees[j].realId === e.id) {
+                        var newLat = e.coords_lat || state.employees[j].lat;
+                        var newLng = e.coords_lng || state.employees[j].lng;
+                        if (Math.abs(state.employees[j].lat - newLat) > 0.00001 || Math.abs(state.employees[j].lng - newLng) > 0.00001) {
+                            state.employees[j].lat = newLat;
+                            state.employees[j].lng = newLng;
+                            changed = true;
+                        }
+                        var newStatus = e.status || 'free';
+                        var newTask = e.task || '';
+                        if (state.employees[j].status !== newStatus || state.employees[j].task !== newTask) {
+                            state.employees[j].status = newStatus;
+                            state.employees[j].busy = newStatus !== 'free' && newStatus !== 'offline';
+                            state.employees[j].task = newTask;
+                            changed = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (changed) {
+                renderMapMarkers();
+                for (var k = 0; k < state.employees.length; k++) {
+                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                }
+            }
+        })
+        .catch(function(err) { console.error(err); });
+
+    fetch(API_URL + '/transport')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (!data || !data.length) return;
+            var changed = false;
+            for (var i = 0; i < data.length; i++) {
+                var t = data[i];
+                for (var j = 0; j < state.transport.length; j++) {
+                    if (state.transport[j].id === t.id) {
+                        if (Math.abs(state.transport[j].lat - t.lat) > 0.00001 || Math.abs(state.transport[j].lng - t.lng) > 0.00001) {
+                            state.transport[j].lat = t.lat;
+                            state.transport[j].lng = t.lng;
+                            changed = true;
+                        }
+                        if (t.speed && state.transport[j].speed !== t.speed) { state.transport[j].speed = t.speed; changed = true; }
+                        break;
+                    }
+                }
+            }
+            if (changed) {
+                renderMapMarkers();
+                for (var k = 0; k < state.employees.length; k++) {
+                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                }
+            }
+        })
+        .catch(function(err) { console.error(err); });
+}
+
+function clearRouteForEngineer(engineerId) {
+    if (!engineerId) return;
+    var routeKey = 'route_' + engineerId;
+    if (state.routeData[routeKey]) delete state.routeData[routeKey];
+    if (state.mapMarkers[routeKey]) { try { map.removeLayer(state.mapMarkers[routeKey]); } catch(e) {} delete state.mapMarkers[routeKey]; }
+    if (state.mapMarkers[routeKey + '_label']) { try { map.removeLayer(state.mapMarkers[routeKey + '_label']); } catch(e) {} delete state.mapMarkers[routeKey + '_label']; }
+}
+
+var map;
+
+function initMap() {
+    map = L.map('map', {
+        center: [55.981349, 37.388359],
+        zoom: 14,
+        zoomControl: true,
+        attributionControl: false,
+        preferCanvas: true
+    });
+    state.map = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    fetch('/static/roads.geojson')
+        .then(function(res) { if (!res.ok) throw new Error('roads.geojson не найден'); return res.json(); })
+        .then(function(data) {
+            state.roadsLayer = L.geoJSON(data);
+            console.log('[GRAPH] roads.geojson загружен (' + data.features.length + ' фич, скрыт)');
+        })
+        .catch(function(e) { console.warn('[GRAPH] roads.geojson не загружен:', e.message); });
+
+    fetch('/static/aircraft_paths.geojson')
+        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson не найден'); return res.json(); })
+        .then(function(data) {
+            state.aircraftLayer = L.geoJSON(data);
+
+            var parkingOnly = {
+                type: 'FeatureCollection',
+                features: data.features.filter(function(f) {
+                    var p = f.properties || {};
+                    if (p.category !== 'parking') return false;
+                    var ref = String(p.ref || '').trim();
+                    var n = parseInt(ref, 10);
+                    if (isNaN(n)) return false;
+                    return (n >= 101 && n <= 146) || (n >= 11 && n <= 60);
+                })
+            };
+
+            state.parkingLayer = L.geoJSON(parkingOnly, {
+                pointToLayer: function(feature, latlng) {
+                    var p = feature.properties || {};
+                    var ref = p.ref || '';
+                    var marker = L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'aircraft-parking-marker',
+                            html:
+                                '<div style="background:#1e40af;color:#fff;border-radius:50%;' +
+                                'width:20px;height:20px;display:flex;flex-direction:column;' +
+                                'align-items:center;justify-content:center;' +
+                                'font-size:7px;font-weight:700;line-height:1;' +
+                                'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
+                                    '<i class="fas fa-plane" style="font-size:8px;"></i>' +
+                                    (ref ? '<span style="font-size:6px;margin-top:1px;">' + ref + '</span>' : '') +
+                                '</div>',
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        })
+                    });
+                    marker.on('click', function() {
+                        if (!ref) return;
+                        var parkingSel = document.getElementById('parkingSelect');
+                        if (!parkingSel) return;
+                        for (var i = 0; i < parkingSel.options.length; i++) {
+                            if (parkingSel.options[i].value === String(ref)) {
+                                parkingSel.selectedIndex = i;
+                                showToast('Выбрана стоянка ' + ref, 'info');
+                                break;
+                            }
+                        }
+                    });
+                    return marker;
+                },
+                onEachFeature: function(feature, layer) {
+                    var p = feature.properties || {};
+                    var html = '<strong>' + (p.name || p.ref || 'Стоянка') + '</strong>';
+                    if (p.ref)      html += '<br>Ref: ' + p.ref;
+                    if (p.aircraft) html += '<br>ВС: ' + p.aircraft;
+                    layer.bindPopup(html);
+                }
+            }).addTo(map);
+
+            console.log('[OSM] aircraft_paths.geojson загружен (стоянок: ' + parkingOnly.features.length + ')');
+        })
+        .catch(function(e) { console.warn('[OSM] aircraft_paths.geojson не загружен:', e.message); });
+
+    if (state.dataLoaded) renderMapMarkers();
+}
+
+function renderMapMarkers() {
+    var keysToRemove = [];
+    for (var key in state.mapMarkers) {
+        if (state.mapMarkers.hasOwnProperty(key) && (key.indexOf('emp_') === 0 || key.indexOf('car_') === 0)) {
+            keysToRemove.push(key);
+        }
+    }
+    for (var i = 0; i < keysToRemove.length; i++) {
+        try { map.removeLayer(state.mapMarkers[keysToRemove[i]]); } catch(e) {}
+        delete state.mapMarkers[keysToRemove[i]];
+    }
+
+    var coordIndex = {};
+    for (var iE = 0; iE < state.employees.length; iE++) {
+        var emp = state.employees[iE];
+        var lat = emp.lat, lng = emp.lng;
+        var coordKey = lat.toFixed(5) + ',' + lng.toFixed(5);
+        if (coordIndex[coordKey] === undefined) coordIndex[coordKey] = 0;
+        else {
+            coordIndex[coordKey]++;
+            var idx = coordIndex[coordKey];
+            var angle = idx * (Math.PI / 3);
+            var radius = 0.00012 * idx;
+            lat += Math.sin(angle) * radius;
+            lng += Math.cos(angle) * radius;
+        }
+
+        var statusClass = emp.isFree() ? 'free' : 'busy';
+        var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + emp.deviceId + '</span>';
+        var icon = L.divIcon({
+            className: 'employee-marker status-' + statusClass,
+            html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18]
+        });
+        var marker = L.marker([lat, lng], { icon: icon }).addTo(map).bindPopup(createEmployeePopup(emp));
+        enableDragging(marker, emp.realId, 'employee');
+        state.mapMarkers['emp_' + emp.realId] = marker;
+    }
+
+    for (var iC = 0; iC < state.transport.length; iC++) {
+        var car = state.transport[iC];
+        var iconHtmlC = '<span class="car-icon"><i class="fas fa-car"></i></span><span class="car-id">' + car.deviceId +
+                        '</span><span class="car-speed">' + car.speed + ' км/ч</span>';
+        var iconC = L.divIcon({ className: 'car-marker', html: iconHtmlC, iconSize: [44, 44], iconAnchor: [22, 22] });
+        var markerC = L.marker([car.lat, car.lng], { icon: iconC }).addTo(map).bindPopup(createCarPopup(car));
+        enableDragging(markerC, car.id, 'transport');
+        state.mapMarkers['car_' + car.id] = markerC;
+    }
+
+    for (var routeKey in state.routeData) {
+        if (state.routeData.hasOwnProperty(routeKey)) drawRoute(state.routeData[routeKey]);
+    }
+}
+
+function createEmployeePopup(emp) {
+    var statusText = emp.isFree() ? 'Свободен' : 'Занят';
+    var statusClass = emp.isFree() ? 'free' : 'busy';
+    return '<div data-emp-id="' + emp.realId + '">' +
+        '<strong>' + emp.name + '</strong><br>' +
+        '<div class="popup-row"><span>ID устройства</span><span>' + emp.deviceId + '</span></div>' +
+        '<div class="popup-row"><span>Квалификация</span><span>' + CONFIG.SKILL_NAMES[emp.skill] + '</span></div>' +
+        '<div class="popup-row"><span>Статус</span><span class="emp-status ' + statusClass + '">' + statusText + '</span></div>' +
+        '<div class="popup-actions">' +
+        '<button class="btn btn-sm btn-primary" onclick="moveToClick(\'' + emp.realId + '\', \'employee\')"><i class="fas fa-map-pin"></i> Переместить</button>' +
+        '</div></div>';
+}
+
+function createCarPopup(car) {
+    var assignedText = car.assignedTo ? 'Занят: ' + car.assignedTo : 'Свободен';
+    return '<div data-car-id="' + car.id + '">' +
+        '<strong>' + car.deviceId + '</strong><br>' +
+        '<div class="popup-row"><span>Статус</span><span>' + assignedText + '</span></div>' +
+        '<div class="popup-row"><span>Скорость</span><span>' + car.speed + ' км/ч</span></div>' +
+        '<div class="popup-actions">' +
+        '<button class="btn btn-sm btn-primary" onclick="moveToClick(' + car.id + ', \'transport\')"><i class="fas fa-map-pin"></i> Переместить</button>' +
+        '</div></div>';
+}
+
+function calculateOptimalRoute(emp, targetLat, targetLng) {
+    var WALK_SPEED = CONFIG.WALK_SPEED_KMH;
+    var walkTime = emp.distanceTo(targetLat, targetLng) / WALK_SPEED * 60;
+    var bestCar = null, bestTotalTime = walkTime, bestCarTime = 0, bestWalkToCar = 0;
+
+    for (var i = 0; i < state.transport.length; i++) {
+        var car = state.transport[i];
+        if (car.assignedTo) continue;
+        var walkToCar = emp.distanceTo(car.lat, car.lng) / WALK_SPEED * 60;
+        var carSpeed = car.speed && car.speed > 0 ? Math.min(car.speed, 20) : 20;
+        var driveDist = distanceKm(car.lat, car.lng, targetLat, targetLng);
+        var driveTime = driveDist / carSpeed * 60;
+        var totalTime = walkToCar + 1.5 + driveTime + 1.0;
+        if (totalTime < bestTotalTime) {
+            bestTotalTime = totalTime;
+            bestCar = car;
+            bestCarTime = driveTime;
+            bestWalkToCar = walkToCar;
+        }
+    }
+
+    return {
+        totalTime: round1(bestTotalTime), walkTime: round1(walkTime),
+        bestCar: bestCar, bestCarTime: round1(bestCarTime), walkToCar: round1(bestWalkToCar),
+        usingCar: bestCar !== null && bestTotalTime < walkTime,
+        from: { lat: emp.lat, lng: emp.lng }, to: { lat: targetLat, lng: targetLng },
+        empId: emp.realId
+    };
+}
+
+function fetchExactPath(routeData) {
+    return new Promise(function(resolve) {
+        var payload = {
+            start_lat: routeData.from.lat,
+            start_lng: routeData.from.lng,
+            end_lat: routeData.to.lat,
+            end_lng: routeData.to.lng
+        };
+        if (routeData.usingCar && routeData.bestCar) {
+            payload.car_lat = routeData.bestCar.lat;
+            payload.car_lng = routeData.bestCar.lng;
+        }
+        fetch(API_URL + '/route', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.path && data.path.length > 0) resolve(data.path);
+            else resolve(null);
+        })
+        .catch(function() { resolve(null); });
+    });
+}
+
+function updateRouteForEngineer(engineerId) {
+    var emp = null;
+    for (var i = 0; i < state.employees.length; i++) if (state.employees[i].realId === engineerId) { emp = state.employees[i]; break; }
+    if (!emp) return;
+
+    var activeRequest = null;
+    for (var i2 = 0; i2 < state.activeRequests.length; i2++) {
+        if (state.activeRequests[i2].engineerId === engineerId) { activeRequest = state.activeRequests[i2]; break; }
+    }
+
+    var routeKey = 'route_' + engineerId;
+    if (!activeRequest) { clearRouteForEngineer(engineerId); return; }
+
+    var parkingCoords = CONFIG.MAP_POINTS[activeRequest.parking];
+    if (!parkingCoords) return;
+
+    var route = calculateOptimalRoute(emp, parkingCoords.lat, parkingCoords.lng);
+    var routeData = {
+        from: { lat: emp.lat, lng: emp.lng },
+        to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
+        empId: engineerId,
+        totalTime: route.totalTime,
+        walkTime: route.walkTime,
+        bestCar: route.bestCar,
+        bestCarTime: route.bestCarTime,
+        walkToCar: route.walkToCar,
+        usingCar: route.usingCar,
+        path: null
+    };
+
+    state.routeData[routeKey] = routeData;
+    drawRoute(routeData);
+
+    fetchExactPath(routeData).then(function(path) {
+        if (path && path.length > 0) {
+            routeData.path = path;
+            state.routeData[routeKey] = routeData;
+            drawRoute(routeData);
+        }
+    });
+
+    for (var i3 = 0; i3 < state.activeRequests.length; i3++) {
+        if (state.activeRequests[i3].engineerId === engineerId) { state.activeRequests[i3].time = route.totalTime; break; }
+    }
+    updateActiveRequests();
+}
+
+function drawRoute(route) {
+    if (!route) return;
+    var routeKey = 'route_' + route.empId;
+    if (state.mapMarkers[routeKey]) { try { map.removeLayer(state.mapMarkers[routeKey]); } catch(e) {} delete state.mapMarkers[routeKey]; }
+    if (state.mapMarkers[routeKey + '_label']) { try { map.removeLayer(state.mapMarkers[routeKey + '_label']); } catch(e) {} delete state.mapMarkers[routeKey + '_label']; }
+
+    var latlngs;
+    if (route.path && route.path.length > 0) latlngs = route.path;
+    else if (route.usingCar && route.bestCar) latlngs = [
+        [route.from.lat, route.from.lng],
+        [route.bestCar.lat, route.bestCar.lng],
+        [route.to.lat, route.to.lng]
+    ];
+    else latlngs = [[route.from.lat, route.from.lng], [route.to.lat, route.to.lng]];
+
+    var polyline = L.polyline(latlngs, {
+        color: '#c9a84c', weight: 4,
+        dashArray: '8, 6', opacity: 0.9,
+        lineCap: 'round', lineJoin: 'round'
+    }).addTo(map);
+    state.mapMarkers[routeKey] = polyline;
+
+    var labelText;
+    if (route.usingCar && route.bestCar) {
+        labelText = route.walkToCar + ' мин пешком → ' + route.bestCarTime + ' мин на машине = ' + route.totalTime + ' мин';
+    } else {
+        labelText = route.totalTime + ' мин пешком';
+    }
+
+    var midIdx = Math.floor(latlngs.length / 2);
+    var midPoint = latlngs[midIdx];
+    var labelIcon = L.divIcon({
+        className: 'route-label-marker', html: labelText,
+        iconSize: [280, 22], iconAnchor: [140, 11]
+    });
+    var labelMarker = L.marker(midPoint, { icon: labelIcon }).addTo(map);
+    state.mapMarkers[routeKey + '_label'] = labelMarker;
+}
+
+function enableDragging(marker, id, type) {
+    var isDragging = false, dragStartLatLng = null, startTime = 0, hasMoved = false, updateTimeout = null;
+
+    marker.on('mousedown', function(e) {
+        if (e.originalEvent.button === 0) {
+            isDragging = false; hasMoved = false;
+            dragStartLatLng = e.latlng; startTime = Date.now();
+            map.dragging.disable(); marker.setOpacity(0.7);
+        }
+    });
+
+    marker.on('mousemove', function(e) {
+        if (dragStartLatLng) {
+            var dist = dragStartLatLng.distanceTo(e.latlng);
+            if (dist > 3) { isDragging = true; hasMoved = true; }
+            if (isDragging) {
+                marker.setLatLng(e.latlng);
+                if (type === 'employee') {
+                    for (var i = 0; i < state.employees.length; i++) {
+                        if (state.employees[i].realId === id) {
+                            state.employees[i].lat = e.latlng.lat;
+                            state.employees[i].lng = e.latlng.lng; break;
+                        }
+                    }
+                    if (updateTimeout) clearTimeout(updateTimeout);
+                    updateTimeout = setTimeout(function() { updateRouteForEngineer(id); updateTimeout = null; }, 100);
+                } else {
+                    for (var j = 0; j < state.transport.length; j++) {
+                        if (state.transport[j].id === id) {
+                            state.transport[j].lat = e.latlng.lat;
+                            state.transport[j].lng = e.latlng.lng; break;
+                        }
+                    }
+                    if (updateTimeout) clearTimeout(updateTimeout);
+                    updateTimeout = setTimeout(function() {
+                        for (var k = 0; k < state.employees.length; k++) {
+                            if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                        }
+                        updateTimeout = null;
+                    }, 100);
+                }
+            }
+        }
+    });
+
+    var onUp = function() {
+        if (dragStartLatLng) {
+            var elapsed = Date.now() - startTime;
+            if (!isDragging && elapsed < 300) {
+                marker.setOpacity(1); map.dragging.enable();
+                dragStartLatLng = null; isDragging = false; return;
+            }
+            if (hasMoved) {
+                var name = '', url = '', objId = null;
+                if (type === 'employee') {
+                    for (var i = 0; i < state.employees.length; i++) {
+                        if (state.employees[i].realId === id) { name = state.employees[i].name; objId = id; url = API_URL + '/engineers/' + id + '/coords'; break; }
+                    }
+                } else {
+                    for (var j = 0; j < state.transport.length; j++) {
+                        if (state.transport[j].id === id) { name = state.transport[j].deviceId; objId = id; url = API_URL + '/transport/' + id + '/coords'; break; }
+                    }
+                }
+                if (objId && url) {
+                    var obj = null;
+                    if (type === 'employee') obj = state.employees.find(function(e) { return e.realId === objId; });
+                    else obj = state.transport.find(function(c) { return c.id === objId; });
+                    if (obj) {
+                        var data = { lat: obj.lat, lng: obj.lng };
+                        if (type === 'transport') data.speed = obj.speed;
+                        fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                            .then(function(res) { return res.json(); })
+                            .then(function() {
+                                showToast(name + ' перемещён', 'success');
+                                if (type === 'employee') updateRouteForEngineer(id);
+                                else {
+                                    for (var i2 = 0; i2 < state.employees.length; i2++) {
+                                        if (!state.employees[i2].isFree()) updateRouteForEngineer(state.employees[i2].realId);
+                                    }
+                                }
+                                saveStateToLocalStorage();
+                            })
+                            .catch(function(err) { console.error(err); });
+                    }
+                }
+            }
+            marker.setOpacity(1); map.dragging.enable();
+            dragStartLatLng = null; isDragging = false; hasMoved = false;
+            if (updateTimeout) { clearTimeout(updateTimeout); updateTimeout = null; }
+        }
+    };
+
+    marker.on('mouseup', onUp);
+    marker.on('mouseleave', function() {
+        if (dragStartLatLng) {
+            marker.setOpacity(1); map.dragging.enable();
+            dragStartLatLng = null; isDragging = false; hasMoved = false;
+            if (updateTimeout) { clearTimeout(updateTimeout); updateTimeout = null; }
+        }
+    });
+}
+
+function updateParkingList() {
+    var terminal = document.getElementById('terminalSelect').value;
+    var parkingSelect = document.getElementById('parkingSelect');
+    var parkings = CONFIG.PARKING_BY_TERMINAL[terminal] || [];
+    parkingSelect.innerHTML = '';
+    for (var i = 0; i < parkings.length; i++) {
+        var option = document.createElement('option');
+        option.value = parkings[i];
+        option.textContent = 'Выход ' + parkings[i];
+        parkingSelect.appendChild(option);
+    }
+}
+
+function showNotification(engineer, route, flightNumber) {
+    var container = document.getElementById('notificationContainer');
+    var routeInfo = '';
+    if (route && route.usingCar && route.bestCar) {
+        routeInfo = route.walkToCar + ' мин пешком до ' + route.bestCar.deviceId + ' + ' + route.bestCarTime + ' мин на машине';
+    } else {
+        routeInfo = 'Пешком: ' + (route ? route.totalTime : 0) + ' мин';
+    }
+    container.innerHTML = '<div class="notification">' +
+        '<div class="notif-icon"><i class="fas fa-circle-check"></i></div>' +
+        '<div class="notif-content">' +
+        '<div class="notif-title">Инженер назначен</div>' +
+        '<div class="notif-text">' + engineer.name + ' → рейс ' + flightNumber + ' • ' + routeInfo + '</div>' +
+        '</div>' +
+        '<div class="notif-time">' + (route ? route.totalTime : 0) + ' мин</div>' +
+        '</div>';
+    setTimeout(function() { container.innerHTML = ''; }, 8000);
+}
+
+function createRequest(e) {
+    e.preventDefault();
+    var terminal = document.getElementById('terminalSelect').value;
+    var parking = document.getElementById('parkingSelect').value;
+    var fault = document.getElementById('faultType').value;
+    var severity = document.getElementById('faultSeverity').value;
+    var flightNumber = document.getElementById('flightNumber').value.trim();
+
+    if (!parking || !flightNumber) { showToast('Заполните все поля', 'error'); return; }
+
+    var btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Поиск...';
+
+    var parkingCoords = CONFIG.MAP_POINTS[parking];
+    if (!parkingCoords) {
+        showToast('Координаты стоянки не найдены', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить заявку';
+        return;
+    }
+
+    fetch(API_URL + '/dispatch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            aircraft: flightNumber, fault_type: fault, severity: severity,
+            terminal: terminal, parking_id: parking
+        })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(result) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить заявку';
+
+        if (!result.success) { showToast(result.error || 'Ошибка назначения', 'error'); return; }
+        if (result.queued) { showToast(result.message || 'Заявка в очереди', 'warning'); loadRequestsOnly(); return; }
+
+        var engineer = result.selected.engineer;
+        var engineerId = engineer.id;
+        var requestId = result.request_id || result.requestId || result.id || null;
+
+        for (var i = 0; i < state.employees.length; i++) {
+            if (state.employees[i].realId === engineerId) {
+                state.employees[i].busy = true;
+                state.employees[i].status = 'busy';
+                state.employees[i].task = 'ВС ' + flightNumber;
+                break;
+            }
+        }
+
+        var routeData = {
+            from: { lat: engineer.coords_lat || 55.975, lng: engineer.coords_lng || 37.410 },
+            to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
+            empId: engineerId,
+            totalTime: result.selected.travel_time || 0,
+            walkTime: result.selected.walk_time || 0,
+            bestCar: result.selected.best_car_obj || null,
+            bestCarTime: result.selected.car_time || 0,
+            walkToCar: result.selected.walk_to_car || 0,
+            usingCar: result.selected.using_car || false,
+            path: result.selected.path || null
+        };
+
+        state.routeData['route_' + engineerId] = routeData;
+        drawRoute(routeData);
+        showNotification(engineer, routeData, flightNumber);
+
+        if (!routeData.path) {
+            fetchExactPath(routeData).then(function(path) {
+                if (path && path.length > 0) {
+                    routeData.path = path;
+                    state.routeData['route_' + engineerId] = routeData;
+                    drawRoute(routeData);
+                }
+            });
+        }
+
+        if (requestId) {
+            var routeJSON = JSON.stringify({
+                tt: routeData.totalTime, uc: routeData.usingCar,
+                wc: routeData.walkToCar, ct: routeData.bestCarTime,
+                bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
+                bclat: routeData.bestCar ? routeData.bestCar.lat : null,
+                bclng: routeData.bestCar ? routeData.bestCar.lng : null,
+                flat: routeData.from.lat, flng: routeData.from.lng,
+                tlat: routeData.to.lat, tlng: routeData.to.lng, pid: parking
+            });
+            fetch(API_URL + '/requests/' + requestId, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: 'assigned',
+                    criticality: severity === 'high' ? 'high' : (severity === 'low' ? 'low' : 'medium'),
+                    engineer_comment: 'ROUTE:' + routeJSON
+                })
+            }).catch(function(err) { console.warn('Не удалось сохранить маршрут:', err); });
+        }
+
+        loadRequestsOnly();
+        setTimeout(function() { renderAll(); updateStats(); saveStateToLocalStorage(); }, 500);
+        document.getElementById('flightNumber').value = '';
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить заявку';
+        showToast('Ошибка соединения', 'error');
+        console.error(err);
+    });
+}
+
+function clearAllRequests() {
+    if (!confirm('Удалить ВСЕ заявки?')) return;
+    if (!confirm('Подтвердите ещё раз!')) return;
+    fetch(API_URL + '/clear_all_requests', { method: 'POST' })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('Все заявки удалены', 'success');
+                state.activeRequests = [];
+                state.tickets = [];
+                state.routeData = {};
+                for (var key in state.mapMarkers) {
+                    if (state.mapMarkers.hasOwnProperty(key) && key.indexOf('route_') === 0) {
+                        try { map.removeLayer(state.mapMarkers[key]); } catch(e) {}
+                        delete state.mapMarkers[key];
+                    }
+                }
+                localStorage.removeItem(STORAGE_KEY);
+                loadRequestsOnly();
+                renderAll();
+            } else showToast('Ошибка', 'error');
+        })
+        .catch(function() { showToast('Ошибка соединения', 'error'); });
+}
+
+function updateActiveRequests() {
+    var list = document.getElementById('activeRequests');
+    var badge = document.getElementById('activeBadge');
+
+    if (state.activeRequests.length === 0) {
+        list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Нет активных заявок</p></div>';
+        badge.textContent = '0';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        var req = state.activeRequests[i];
+        var critIcon = req.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
+                       req.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
+                       '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
+        var statusText = req.status === 'assigned' ? 'Назначен' :
+                         req.status === 'arriving' ? 'В пути' :
+                         req.status === 'in_progress' ? 'В работе' :
+                         req.status === 'working' ? 'Диагностика' :
+                         req.status === 'queued' ? 'В очереди' : 'Назначен';
+        var statusClass = req.status === 'assigned' ? 'free' : 'busy';
+
+        var routeInfo = '';
+        var routeKey = 'route_' + req.engineerId;
+        if (state.routeData[routeKey]) {
+            var route = state.routeData[routeKey];
+            if (route.usingCar && route.bestCar) routeInfo = route.walkToCar + ' + ' + route.bestCarTime + ' мин';
+            else routeInfo = route.totalTime + ' мин';
+        }
+
+        var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
+        var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
+
+        html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
+            '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
+            '<div class="req-detail">' + req.fault + ' • Стоянка ' + req.parking + '</div>' +
+            '</div>' +
+            '<div style="text-align:right;">' +
+            '<div style="font-weight:600;font-size:13px;">' + req.engineer + '</div>' +
+            '<div class="req-status" style="color:' + (statusClass === 'free' ? 'var(--aero-green)' : 'var(--aero-orange)') + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
+            '<div style="font-size:10px;color:var(--aero-gray);margin-top:2px;">' + routeInfo + '</div>' +
+            '</div></div>';
+    }
+    list.innerHTML = html;
+    badge.textContent = state.activeRequests.length;
+}
+
+function updateStats() {
+    var busy = 0;
+    for (var i = 0; i < state.employees.length; i++) if (!state.employees[i].isFree()) busy++;
+    var ac = document.getElementById('activeCount');
+    var qc = document.getElementById('queueCount');
+    var bc = document.getElementById('busyCount');
+    if (ac) ac.textContent = state.activeRequests.length;
+    if (qc) { var q = 0; for (var j = 0; j < state.activeRequests.length; j++) if (state.activeRequests[j].status === 'queued') q++; qc.textContent = q; }
+    if (bc) bc.textContent = busy;
+}
+
+function renderAll() {
+    renderMapMarkers(); updateStats(); updateActiveRequests(); saveStateToLocalStorage();
+}
+
+function showToast(message, type) {
+    type = type || 'info';
+    var existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    var iconClass = type === 'error' ? 'fa-circle-xmark' : type === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-check';
+    toast.innerHTML = '<i class="fas ' + iconClass + '"></i> ' + escapeHtml(message);
+    document.body.appendChild(toast);
+    setTimeout(function() {
+        toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s';
+        setTimeout(function() { toast.remove(); }, 300);
+    }, 3500);
+}
+
+function openRequestModal(ticketId) {
+    var ticket = null;
+    for (var i = 0; i < state.tickets.length; i++) if (state.tickets[i].id === ticketId) { ticket = state.tickets[i]; break; }
+    if (!ticket) { showToast('Заявка не найдена', 'error'); return; }
+
+    var activeReq = null;
+    for (var j = 0; j < state.activeRequests.length; j++) if (state.activeRequests[j].id === ticketId) { activeReq = state.activeRequests[j]; break; }
+
+    var routeBreakdown = '—';
+    if (activeReq) {
+        var routeKey = 'route_' + activeReq.engineerId;
+        if (state.routeData[routeKey]) {
+            var route = state.routeData[routeKey];
+            if (route.usingCar && route.bestCar) routeBreakdown = route.walkToCar + ' мин пешком + ' + route.bestCarTime + ' мин на машине = ' + route.totalTime + ' мин';
+            else routeBreakdown = route.totalTime + ' мин пешком';
+        }
+    }
+
+    var reportText = extractReportFromComment(ticket.engineer_comment || '');
+    var reportBlock = '';
+    if (reportText) {
+        reportBlock = '<div class="report-block"><div class="report-label"><i class="fas fa-clipboard-check"></i> Отчёт инженера</div><div class="report-body">' + reportText + '</div></div>';
+    }
+
+    document.getElementById('requestModalTitle').textContent = 'Заявка: ' + (ticket.aircraft || ticket.id);
+    document.getElementById('requestModalContent').innerHTML =
+        '<div class="form-group"><label>Рейс</label><input type="text" value="' + (ticket.aircraft || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Неисправность</label><input type="text" value="' + (ticket.fault_type || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Стоянка</label><input type="text" value="' + (ticket.parking_id || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Инженер</label><input type="text" value="' + (activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + routeBreakdown + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
+        reportBlock +
+        '<div class="form-group"><label>Статус</label><select id="statusSelect">' +
+        '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
+        '<option value="arriving" ' + (ticket.status === 'arriving' ? 'selected' : '') + '>В пути</option>' +
+        '<option value="in_progress" ' + (ticket.status === 'in_progress' ? 'selected' : '') + '>В работе</option>' +
+        '<option value="completed" ' + (ticket.status === 'completed' ? 'selected' : '') + '>Завершён</option>' +
+        '</select></div>' +
+        '<div class="form-group"><label>Критичность</label><select id="criticalitySelect">' +
+        '<option value="low" ' + (ticket.criticality === 'low' ? 'selected' : '') + '>Низкая</option>' +
+        '<option value="medium" ' + (ticket.criticality === 'medium' ? 'selected' : '') + '>Средняя</option>' +
+        '<option value="high" ' + (ticket.criticality === 'high' ? 'selected' : '') + '>Высокая</option>' +
+        '</select></div>' +
+        '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + ticket.id + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
+    document.getElementById('requestModal').classList.add('show');
+}
+
+function saveTicketChanges(ticketId) {
+    var status = document.getElementById('statusSelect').value;
+    var criticality = document.getElementById('criticalitySelect').value;
+    var ticket = null;
+    for (var i = 0; i < state.tickets.length; i++) if (state.tickets[i].id === ticketId) { ticket = state.tickets[i]; break; }
+    if (!ticket) return;
+
+    var originalComment = ticket.engineer_comment || '';
+    var routePrefix = '', reportPart = '';
+    if (originalComment.indexOf('ROUTE:') === 0) {
+        var rest = originalComment.substring(6);
+        var depth = 0, endIdx = -1;
+        for (var i2 = 0; i2 < rest.length; i2++) {
+            if (rest[i2] === '{') depth++;
+            else if (rest[i2] === '}') { depth--; if (depth === 0) { endIdx = i2 + 1; break; } }
+        }
+        if (endIdx > 0) { routePrefix = 'ROUTE:' + rest.substring(0, endIdx) + '\n'; reportPart = rest.substring(endIdx).trim(); }
+    } else reportPart = originalComment;
+
+    var finalComment = routePrefix + reportPart;
+
+    if (status === 'completed' && ticket.engineer_id) {
+        var completedEngineerId = ticket.engineer_id;
+        fetch(API_URL + '/requests/' + ticketId, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: status, criticality: criticality, engineer_comment: finalComment })
+        })
+        .then(function() { return fetch(API_URL + '/complete/' + completedEngineerId, { method: 'POST' }); })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data && data.success) clearRouteForEngineer(completedEngineerId);
+            showToast('Заявка обновлена', 'success');
+            loadRequestsOnly(); renderAll(); closeRequestModal();
+        })
+        .catch(function() { showToast('Ошибка', 'error'); });
+        return;
+    }
+
+    fetch(API_URL + '/requests/' + ticketId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: status, criticality: criticality, engineer_comment: finalComment })
+    })
+    .then(function() { showToast('Заявка обновлена', 'success'); loadRequestsOnly(); renderAll(); closeRequestModal(); })
+    .catch(function() { showToast('Ошибка', 'error'); });
+}
+
+function closeRequestModal() { document.getElementById('requestModal').classList.remove('show'); }
+
+function updateDelaysBadge() {
+    /* Бейдж убран — оставлено для совместимости */
+}
+function filterDelays() { renderDelays(); }
+function clearDelaysFilters() {
+    var s = document.getElementById('delaysSearch');
+    var f = document.getElementById('delaysSeverityFilter');
+    if (s) s.value = ''; if (f) f.value = ''; renderDelays();
+}
+function applyDelaysFilters() {
+    var search = (document.getElementById('delaysSearch').value || '').toLowerCase().trim();
+    var sev = document.getElementById('delaysSeverityFilter').value;
+    var filtered = [];
+    for (var i = 0; i < state.delays.length; i++) {
+        var d = state.delays[i];
+        if (search) {
+            var hay = ((d.aircraft || '') + ' ' + (d.faultName || '') + ' ' + (d.parking || '') + ' ' + (d.delayReason || '')).toLowerCase();
+            if (hay.indexOf(search) === -1) continue;
+        }
+        if (sev === 'short' && d.delayElapsedMin > 60) continue;
+        if (sev === 'medium' && (d.delayElapsedMin < 60 || d.delayElapsedMin > 240)) continue;
+        if (sev === 'critical' && d.delayElapsedMin <= 240) continue;
+        filtered.push(d);
+    }
+    return filtered;
+}
+function renderDelays() {
+    var list = document.getElementById('delaysList');
+    if (!list) return;
+    var total = state.delays.length, critical = 0, sumDelay = 0;
+    for (var i = 0; i < state.delays.length; i++) {
+        if (state.delays[i].delayElapsedMin > 240) critical++;
+        sumDelay += state.delays[i].delayElapsedMin;
+    }
+    var avg = total > 0 ? Math.round(sumDelay / total) : 0;
+    if (document.getElementById('delaysTotal')) document.getElementById('delaysTotal').textContent = total;
+    if (document.getElementById('delaysCritical')) document.getElementById('delaysCritical').textContent = critical;
+    if (document.getElementById('delaysAvg')) document.getElementById('delaysAvg').textContent = avg + ' мин';
+
+    var filtered = applyDelaysFilters();
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state"><i class="fas fa-hourglass-half"></i><p>' +
+            (state.delays.length === 0 ? 'Нет задержанных рейсов' : 'Ничего не найдено') + '</p><small>' +
+            (state.delays.length === 0 ? 'Задержки появятся, если нет свободных инженеров' : 'Попробуйте изменить фильтры') + '</small></div>';
+        return;
+    }
+    var html = '';
+    for (var j = 0; j < filtered.length; j++) {
+        var d = filtered[j];
+        var cls = d.allRejected ? 'critical' : delayClass(d.delayElapsedMin);
+        var critIcon = d.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
+                       d.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
+                       '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
+        var approvedBlock = '';
+        if (d.allRejected) {
+            approvedBlock = '<div class="delay-block" style="background:#fef2f2;border-color:#fecaca;color:#7f1d1d;"><i class="fas fa-user-slash"></i> <strong>Все специалисты отказались.</strong> Рейс в очереди.</div>';
+        } else if (d.delayMinutes > 0) {
+            approvedBlock = '<div class="delay-block"><strong>Утверждённая задержка:</strong> ' + formatDuration(d.delayMinutes) + (d.delayApprovedBy ? ' • диспетчер ' + escapeHtml(d.delayApprovedBy) : '') + '<br><strong>Причина:</strong> ' + escapeHtml(d.delayReason) + '</div>';
+        } else {
+            approvedBlock = '<div class="delay-block" style="background:#fef2f2;border-color:#fecaca;color:#7f1d1d;"><i class="fas fa-exclamation-triangle"></i> <strong>Задержка не утверждена.</strong> Нужно решение диспетчера.</div>';
+        }
+        html += '<div class="delay-card ' + cls + '">' +
+            '<div class="delay-card-header"><div>' +
+            '<div class="delay-card-title"><i class="fas fa-hourglass-half" style="color:' + (cls === 'critical' ? 'var(--aero-red)' : cls === 'medium' ? 'var(--aero-orange)' : 'var(--aero-green)') + ';"></i> ' + escapeHtml(d.aircraft) + ' ' + critIcon + '</div>' +
+            '<div class="delay-card-meta">' +
+            '<span><i class="fas fa-tools"></i> ' + escapeHtml(d.faultName) + '</span>' +
+            '<span><i class="fas fa-map-marker-alt"></i> Стоянка ' + escapeHtml(d.parking) + '</span>' +
+            (d.rejectedBy ? '<span><i class="fas fa-user-slash"></i> отказался: ' + escapeHtml(d.rejectedBy) + '</span>' : '') +
+            '</div></div>' +
+            '<div style="text-align:right;"><div class="delay-timer ' + cls + '"><i class="fas fa-hourglass-half"></i> ' + formatDuration(d.delayElapsedMin) + '</div>' +
+            '<div style="font-size:11px;color:var(--aero-gray);margin-top:4px;">с ' + formatDate(d.delayStartedAt) + '</div></div></div>' +
+            approvedBlock +
+            '<div class="delay-actions">' +
+            '<button class="btn btn-warning btn-sm" onclick="openDelayModal(\'' + escapeHtml(d.id) + '\')"><i class="fas fa-clock"></i> Указать задержку</button>' +
+            '<button class="btn btn-danger btn-sm" onclick="openCancelFlightModal(\'' + escapeHtml(d.id) + '\')"><i class="fas fa-plane-slash"></i> Отменить рейс</button>' +
+            '</div></div>';
+    }
+    list.innerHTML = html;
+}
+
+function openDelayModal(requestId) {
+    var d = null;
+    for (var i = 0; i < state.delays.length; i++) if (state.delays[i].id === requestId) { d = state.delays[i]; break; }
+    if (!d) { showToast('Заявка не найдена', 'error'); return; }
+    var dispatcherName = getCurrentDispatcherName();
+    var old = document.getElementById('delayModal');
+    if (old) old.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'delayModal';
+    overlay.className = 'modal-overlay show';
+    overlay.innerHTML =
+        '<div class="modal" style="max-width:500px;">' +
+        '<div class="modal-header"><div><h2>Задержка рейса ' + escapeHtml(d.aircraft) + '</h2></div>' +
+        '<button class="modal-close" id="delayModalClose">×</button></div>' +
+        '<div class="modal-body">' +
+        '<div style="margin-bottom:14px;font-size:13px;color:var(--aero-text-light);">Текущая задержка: <strong>' + formatDuration(d.delayElapsedMin) + '</strong></div>' +
+        '<div class="form-group"><label>Быстрый выбор</label>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button type="button" class="delay-quick-btn" data-min="15">15 мин</button>' +
+        '<button type="button" class="delay-quick-btn" data-min="30">30 мин</button>' +
+        '<button type="button" class="delay-quick-btn" data-min="60">1 час</button>' +
+        '<button type="button" class="delay-quick-btn" data-min="120">2 часа</button>' +
+        '<button type="button" class="delay-quick-btn" data-min="240">4 часа</button>' +
+        '<button type="button" class="delay-quick-btn" data-min="360">6 часов</button></div></div>' +
+        '<div class="form-group"><label>Свои минуты</label>' +
+        '<input type="number" id="delayMinutesInput" min="1" max="720" value="60"></div>' +
+        '<div class="form-group"><label>Причина *</label>' +
+        '<textarea id="delayReasonInput" rows="3" placeholder="Например: ожидание инженера-специалиста..." style="resize:vertical;min-height:66px;"></textarea></div>' +
+        '<div class="modal-actions">' +
+        '<button class="btn btn-warning" id="delayConfirmBtn">Утвердить задержку</button>' +
+        '<button class="btn btn-secondary" id="delayDismissBtn">Отмена</button></div>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+
+    var minutesInput = document.getElementById('delayMinutesInput');
+    var reasonInput = document.getElementById('delayReasonInput');
+    var confirmBtn = document.getElementById('delayConfirmBtn');
+    var dismissBtn = document.getElementById('delayDismissBtn');
+    var closeBtn = document.getElementById('delayModalClose');
+    var quickBtns = overlay.querySelectorAll('.delay-quick-btn');
+    for (var q = 0; q < quickBtns.length; q++) {
+        quickBtns[q].addEventListener('click', function() { minutesInput.value = this.getAttribute('data-min'); });
+    }
+    function closeModal() { if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    dismissBtn.addEventListener('click', closeModal);
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+
+    confirmBtn.addEventListener('click', function() {
+        var mins = parseInt(minutesInput.value, 10);
+        var reason = (reasonInput.value || '').trim();
+        if (!mins || mins < 1 || mins > 720) { showToast('Укажите длительность от 1 до 720 минут', 'error'); return; }
+        if (!reason) { showToast('Укажите причину задержки', 'error'); reasonInput.focus(); return; }
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Сохранение...';
+        fetch(API_URL + '/requests/' + requestId + '/approve_delay', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes: mins, reason: reason, dispatcher_name: dispatcherName })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (!data || !data.success) { showToast((data && data.error) || 'Ошибка', 'error'); confirmBtn.disabled = false; confirmBtn.textContent = 'Утвердить задержку'; return; }
+            closeModal();
+            showToast('Задержка утверждена: ' + formatDuration(mins), 'success');
+            loadRequestsOnly();
+        })
+        .catch(function(err) {
+            console.error(err); showToast('Ошибка соединения', 'error');
+            confirmBtn.disabled = false; confirmBtn.textContent = 'Утвердить задержку';
+        });
+    });
+    setTimeout(function() { minutesInput.focus(); }, 50);
+}
+
+function openCancelFlightModal(requestId) {
+    var d = null;
+    for (var i = 0; i < state.delays.length; i++) if (state.delays[i].id === requestId) { d = state.delays[i]; break; }
+    if (!d) for (var j = 0; j < state.flights.length; j++) if (state.flights[j].id === requestId) { d = state.flights[j]; break; }
+    if (!d) { showToast('Заявка не найдена', 'error'); return; }
+    var dispatcherName = getCurrentDispatcherName();
+    if (!confirm('Вы уверены, что хотите отменить рейс ' + d.aircraft + '?')) return;
+    if (!confirm('Заявка будет удалена из системы. Подтвердите.')) return;
+    var reason = prompt('Укажите причину отмены рейса:', 'Нет инженера, рейс отменён');
+    if (reason === null) return;
+    reason = (reason || '').trim();
+    if (!reason) { showToast('Причина обязательна', 'error'); return; }
+    fetch(API_URL + '/requests/' + requestId + '/cancel_flight', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason, dispatcher_name: dispatcherName })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (!data || !data.success) { showToast((data && data.error) || 'Ошибка', 'error'); return; }
+        showToast('Рейс ' + d.aircraft + ' отменён', 'warning');
+        state.delays = state.delays.filter(function(x) { return x.id !== requestId; });
+        state.flights = state.flights.filter(function(x) { return x.id !== requestId; });
+        state.activeRequests = state.activeRequests.filter(function(x) { return x.id !== requestId; });
+        state.tickets = state.tickets.filter(function(x) { return x.id !== requestId; });
+        if (d.engineerId) clearRouteForEngineer(d.engineerId);
+        updateDelaysBadge(); renderDelays(); renderFlights();
+        updateActiveRequests(); updateStats(); renderMapMarkers(); loadRequestsOnly();
+    })
+    .catch(function(err) { console.error(err); showToast('Ошибка соединения', 'error'); });
+}
+
+function updateFlightsBadge() {
+    /* Бейдж убран — оставлено для совместимости */
+}
+function clearFlightsFilters() {
+    var s = document.getElementById('flightsSearch'), f = document.getElementById('flightsStatusFilter');
+    if (s) s.value = ''; if (f) f.value = ''; renderFlights();
+}
+function applyFlightsFilters() {
+    var search = (document.getElementById('flightsSearch').value || '').toLowerCase().trim();
+    var statusFilter = document.getElementById('flightsStatusFilter').value;
+    var filtered = [];
+    for (var i = 0; i < state.flights.length; i++) {
+        var f = state.flights[i];
+        if (statusFilter) {
+            if (statusFilter === 'all_rejected') { if (!f.allRejected) continue; }
+            else if (f.status !== statusFilter) continue;
+        }
+        if (search) {
+            var hay = ((f.aircraft || '') + ' ' + (f.faultName || '') + ' ' + (f.parking || '') + ' ' + (f.engineer || '')).toLowerCase();
+            if (hay.indexOf(search) === -1) continue;
+        }
+        filtered.push(f);
+    }
+    return filtered;
+}
+function getFlightRowClass(f) {
+    if (f.allRejected) return 'row-all-rejected';
+    if (f.status === 'completed') return 'row-completed';
+    if (f.status === 'cancelled') return 'row-cancelled';
+    if (f.status === 'queued' && f.delayElapsedMin > 0) {
+        var cls = delayClass(f.delayElapsedMin);
+        if (cls === 'short') return 'row-delay-short';
+        if (cls === 'medium') return 'row-delay-medium';
+        return 'row-delay-critical';
+    }
+    if (f.status === 'queued') return 'row-queued';
+    return '';
+}
+function getFlightStatusHtml(f) {
+    if (f.status === 'completed') return '<span class="flight-status completed">Выполнен</span>';
+    if (f.status === 'cancelled') return '<span class="flight-status cancelled">Отменён</span>';
+    if (f.status === 'queued') {
+        if (f.allRejected) return '<span class="flight-status queued-all-rejected">Все отказались</span>';
+        var cls = delayClass(f.delayElapsedMin);
+        if (cls === 'short') return '<span class="flight-status queued-short">Задержка &lt; 1 ч</span>';
+        if (cls === 'medium') return '<span class="flight-status queued-medium">Задержка 1–4 ч</span>';
+        return '<span class="flight-status queued-critical">КРИТИЧЕСКАЯ</span>';
+    }
+    if (f.status === 'assigned') return '<span class="flight-status assigned">Назначен</span>';
+    if (f.status === 'new') return '<span class="flight-status new">Новая</span>';
+    return '<span class="flight-status assigned">' + escapeHtml(f.status) + '</span>';
+}
+function getFlightTimeHtml(f) {
+    if (f.status === 'queued' && f.delayElapsedMin > 0) {
+        var cls = f.allRejected ? 'critical' : delayClass(f.delayElapsedMin);
+        return '<span class="flight-delay-timer ' + cls + '"><i class="fas fa-hourglass-half"></i> ' + formatDuration(f.delayElapsedMin) + '</span>';
+    }
+    if (f.status === 'assigned' && f.travelTime > 0) return '<span class="flight-time">' + f.travelTime + ' мин</span>';
+    return '<span class="flight-time">—</span>';
+}
+function renderFlights() {
+    var tbody = document.getElementById('flightsTableBody');
+    if (!tbody) return;
+    var total = state.flights.length, delayed = 0, completed = 0, allRejected = 0;
+    for (var i = 0; i < state.flights.length; i++) {
+        var f = state.flights[i];
+        if (f.allRejected) allRejected++;
+        else if (f.status === 'queued' && f.delayElapsedMin > 0) delayed++;
+        else if (f.status === 'completed') completed++;
+    }
+    if (document.getElementById('flightsTotal')) document.getElementById('flightsTotal').textContent = total;
+    if (document.getElementById('flightsDelayed')) document.getElementById('flightsDelayed').textContent = delayed;
+    if (document.getElementById('flightsCompleted')) document.getElementById('flightsCompleted').textContent = completed;
+    if (document.getElementById('flightsAllRejected')) document.getElementById('flightsAllRejected').textContent = allRejected;
+
+    var filtered = applyFlightsFilters();
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="pilot-empty-row"><i class="fas fa-plane"></i><p>' +
+            (state.flights.length === 0 ? 'Пока нет рейсов' : 'Ничего не найдено') + '</p><small>' +
+            (state.flights.length === 0 ? 'Создайте первую заявку' : 'Попробуйте изменить фильтры') + '</small></td></tr>';
+        return;
+    }
+    var html = '';
+    for (var j = 0; j < filtered.length; j++) {
+        var fl = filtered[j];
+        var rowClass = getFlightRowClass(fl);
+        var critIcon = fl.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
+                       fl.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
+                       '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
+        var timeCell = getFlightTimeHtml(fl);
+        if (fl.status === 'queued' && fl.delayMinutes > 0) timeCell += '<div style="font-size:11px;color:var(--aero-gray);margin-top:4px;">утв. ' + formatDuration(fl.delayMinutes) + '</div>';
+        var engineerCell = (fl.status === 'queued' && !fl.engineerId) ? '<span style="color:var(--aero-red);font-weight:600;">нет</span>' : escapeHtml(fl.engineer);
+        html += '<tr class="' + rowClass + '">' +
+            '<td><span class="flight-aircraft">' + escapeHtml(fl.aircraft) + '</span> ' + critIcon + '</td>' +
+            '<td style="max-width:200px;">' + escapeHtml(fl.faultName) + '</td>' +
+            '<td>' + escapeHtml(fl.parking) + '</td>' +
+            '<td>' + engineerCell + '</td>' +
+            '<td><span class="flight-time">' + formatDate(fl.createdAt) + '</span></td>' +
+            '<td>' + getFlightStatusHtml(fl) + '</td>' +
+            '<td>' + timeCell + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function updateReportsBadge() {
+    /* Бейдж убран — оставлено для совместимости */
+}
+function renderReports() {
+    var list = document.getElementById('reportsList');
+    var total = state.reports.length;
+    var today = new Date().toDateString();
+    var todayCount = 0;
+    var engineersSet = {};
+    for (var i = 0; i < state.reports.length; i++) {
+        var r = state.reports[i];
+        if (new Date(r.completedAt).toDateString() === today) todayCount++;
+        if (r.engineer && r.engineer !== '—') engineersSet[r.engineer] = true;
+    }
+    if (document.getElementById('reportsTotal')) document.getElementById('reportsTotal').textContent = total;
+    if (document.getElementById('reportsToday')) document.getElementById('reportsToday').textContent = todayCount;
+    if (document.getElementById('reportsEngineers')) document.getElementById('reportsEngineers').textContent = Object.keys(engineersSet).length;
+
+    var engSelect = document.getElementById('reportsEngineerFilter');
+    var currentEngVal = engSelect.value;
+    var engOptions = '<option value="">Все инженеры</option>';
+    var engineersList = Object.keys(engineersSet).sort();
+    for (var e = 0; e < engineersList.length; e++) engOptions += '<option value="' + engineersList[e] + '">' + engineersList[e] + '</option>';
+    engSelect.innerHTML = engOptions;
+    engSelect.value = currentEngVal;
+
+    var restoreBtn = document.getElementById('restoreBtn');
+    if (restoreBtn) {
+        if (state.deletedReports.length > 0) {
+            restoreBtn.style.display = 'inline-flex';
+            restoreBtn.innerHTML = '<i class="fas fa-undo"></i> Восстановить (' + state.deletedReports.length + ')';
+        } else restoreBtn.style.display = 'none';
+    }
+
+    var filtered = applyReportsFilters();
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>' +
+            (state.reports.length === 0 ? 'Пока нет отчётов' : 'Ничего не найдено') + '</p><small>' +
+            (state.reports.length === 0 ? 'Отчёты появятся здесь после завершения задач инженерами' : 'Попробуйте изменить фильтры') + '</small></div>';
+        return;
+    }
+    var html = '';
+    for (var i2 = 0; i2 < filtered.length; i2++) html += renderReportCard(filtered[i2]);
+    list.innerHTML = html;
+}
+function applyReportsFilters() {
+    var search = (document.getElementById('reportsSearch').value || '').toLowerCase().trim();
+    var engFilter = document.getElementById('reportsEngineerFilter').value;
+    var condFilter = document.getElementById('reportsConditionFilter').value;
+    var periodFilter = document.getElementById('reportsPeriodFilter').value;
+    var now = Date.now();
+    var filtered = [];
+    for (var i = 0; i < state.reports.length; i++) {
+        var r = state.reports[i];
+        if (search) {
+            var hs = ((r.aircraft || '') + ' ' + (r.engineer || '') + ' ' + (r.faultName || '') + ' ' + (r.parkingId || '') + ' ' + (r.findings || '') + ' ' + (r.actions || '') + ' ' + (r.comment || '') + ' ' + (r.conditionLabel || '') + ' ' + (r.categoryLabel || '')).toLowerCase();
+            if (hs.indexOf(search) === -1) continue;
+        }
+        if (engFilter && r.engineer !== engFilter) continue;
+        if (condFilter && r.condition !== condFilter) continue;
+        if (periodFilter !== 'all') {
+            var ts = new Date(r.completedAt).getTime();
+            var diffDays = (now - ts) / (1000 * 60 * 60 * 24);
+            if (periodFilter === 'today') { if (new Date(r.completedAt).toDateString() !== new Date().toDateString()) continue; }
+            else if (periodFilter === 'week' && diffDays > 7) continue;
+            else if (periodFilter === 'month' && diffDays > 30) continue;
+        }
+        filtered.push(r);
+    }
+    return filtered;
+}
+function renderReportCard(r) {
+    var dateStr = formatDate(r.completedAt);
+    var condClass = 'condition-' + (r.condition || 'no_fault');
+    var condLabel = r.conditionLabel || '—';
+    var catLabel = r.categoryLabel || '—';
+    var tagsHtml = '';
+    if (condLabel) tagsHtml += '<span class="report-tag ' + condClass + '">' + condLabel + '</span>';
+    if (catLabel) tagsHtml += '<span class="report-tag category">' + catLabel + '</span>';
+    if (r.needParts) tagsHtml += '<span class="report-tag parts">Нужны детали</span>';
+    var preview = r.findings || r.raw || '';
+    if (preview.length > 220) preview = preview.substring(0, 220) + '...';
+    return '<div class="report-card" onclick="openReportModal(\'' + r.id + '\')">' +
+        '<div class="report-card-header"><div>' +
+        '<div class="report-card-title"><i class="fas fa-clipboard-check" style="color:var(--aero-green);"></i> ' + escapeHtml(r.aircraft || 'ВС') + '</div>' +
+        '<div class="report-card-meta">' +
+        '<span><i class="fas fa-user"></i> ' + escapeHtml(r.engineer || '—') + '</span>' +
+        '<span><i class="fas fa-map-marker-alt"></i> Стоянка ' + escapeHtml(r.parkingId || '—') + '</span>' +
+        '<span><i class="fas fa-clock"></i> ' + dateStr + '</span></div></div>' +
+        '<div style="text-align:right;font-size:12px;color:var(--aero-gray);">' +
+        (r.duration ? '<div style="font-weight:600;color:var(--aero-blue);">' + escapeHtml(r.duration) + '</div>' : '') +
+        '</div></div>' +
+        '<div class="report-card-body">' + escapeHtml(preview) + '</div>' +
+        '<div class="report-card-tags">' + tagsHtml + '</div></div>';
+}
+function formatDate(iso) {
+    if (!iso) return '—';
+    try {
+        var d = new Date(iso);
+        var day = String(d.getDate()).padStart(2, '0');
+        var mon = String(d.getMonth() + 1).padStart(2, '0');
+        var year = d.getFullYear();
+        var hh = String(d.getHours()).padStart(2, '0');
+        var mm = String(d.getMinutes()).padStart(2, '0');
+        return day + '.' + mon + '.' + year + ' ' + hh + ':' + mm;
+    } catch(e) { return iso; }
+}
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function filterReports() { renderReports(); }
+function clearReportsFilters() {
+    document.getElementById('reportsSearch').value = '';
+    document.getElementById('reportsEngineerFilter').value = '';
+    document.getElementById('reportsConditionFilter').value = '';
+    document.getElementById('reportsPeriodFilter').value = 'all';
+    renderReports();
+}
+function clearAllReports() {
+    if (state.reports.length === 0 && state.deletedReports.length === 0) { showToast('Отчётов и так нет', 'info'); return; }
+    if (!confirm('Удалить ВСЕ сохранённые отчёты?')) return;
+    if (!confirm('Подтвердите ещё раз!')) return;
+    for (var i = 0; i < state.reports.length; i++) {
+        var rid = state.reports[i].requestId;
+        if (rid && state.deletedReports.indexOf(rid) === -1) state.deletedReports.push(rid);
+    }
+    state.reports = [];
+    saveReportsToStorage(); saveDeletedReportsToStorage(); renderReports();
+    showToast('Все отчёты удалены', 'success');
+}
+function restoreDeletedReports() {
+    if (state.deletedReports.length === 0) { showToast('Нет удалённых отчётов', 'info'); return; }
+    if (!confirm('Восстановить ' + state.deletedReports.length + ' отчётов?')) return;
+    state.deletedReports = [];
+    saveDeletedReportsToStorage(); syncReportsFromTickets();
+    if (state.reports.length === 0) loadDataOnce();
+    renderReports();
+    showToast('Восстановлены', 'success');
+}
+function openReportModal(reportId) {
+    var r = null;
+    for (var i = 0; i < state.reports.length; i++) if (state.reports[i].id === reportId) { r = state.reports[i]; break; }
+    if (!r) { showToast('Отчёт не найден', 'error'); return; }
+    document.getElementById('reportModalTitle').textContent = 'Отчёт: ' + (r.aircraft || 'ВС') + ' — ' + (r.engineer || 'Инженер');
+    var condClass = 'condition-' + (r.condition || 'no_fault');
+    var condLabel = r.conditionLabel || '—';
+    var catLabel = r.categoryLabel || '—';
+    var html = '<div class="report-detail-grid">' +
+        '<div class="report-detail-item"><div class="label">Рейс</div><div class="value">' + escapeHtml(r.aircraft || '—') + '</div></div>' +
+        '<div class="report-detail-item"><div class="label">Инженер</div><div class="value">' + escapeHtml(r.engineer || '—') + '</div></div>' +
+        '<div class="report-detail-item"><div class="label">Стоянка</div><div class="value">' + escapeHtml(r.parkingId || '—') + '</div></div>' +
+        '<div class="report-detail-item"><div class="label">Неисправность</div><div class="value">' + escapeHtml(r.faultName || '—') + '</div></div>' +
+        '<div class="report-detail-item"><div class="label">Завершён</div><div class="value">' + formatDate(r.completedAt) + '</div></div>' +
+        '<div class="report-detail-item"><div class="label">Время</div><div class="value">' + escapeHtml(r.duration || '—') + '</div></div></div>' +
+        '<div class="report-detail-section"><h4><i class="fas fa-check-circle"></i> Состояние ВС</h4><div class="detail-content"><span class="report-tag ' + condClass + '">' + escapeHtml(condLabel) + '</span></div></div>' +
+        (r.categoryLabel ? '<div class="report-detail-section"><h4><i class="fas fa-tag"></i> Категория</h4><div class="detail-content"><span class="report-tag category">' + escapeHtml(catLabel) + '</span></div></div>' : '') +
+        (r.findings ? '<div class="report-detail-section"><h4><i class="fas fa-search"></i> Обнаружено</h4><div class="detail-content">' + escapeHtml(r.findings) + '</div></div>' : '') +
+        (r.actions ? '<div class="report-detail-section"><h4><i class="fas fa-tools"></i> Работы</h4><div class="detail-content">' + escapeHtml(r.actions) + '</div></div>' : '') +
+        (r.materials ? '<div class="report-detail-section"><h4><i class="fas fa-box"></i> Материалы</h4><div class="detail-content">' + escapeHtml(r.materials) + '</div></div>' : '') +
+        (r.comment ? '<div class="report-detail-section"><h4><i class="fas fa-comment"></i> Комментарий</h4><div class="detail-content">' + escapeHtml(r.comment) + '</div></div>' : '') +
+        '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeReportModal()">Закрыть</button></div>';
+    document.getElementById('reportModalContent').innerHTML = html;
+    document.getElementById('reportModal').classList.add('show');
+}
+function closeReportModal() { document.getElementById('reportModal').classList.remove('show'); }
+
+function moveToClick(id, type) {
+    showToast('Кликните на карте', 'info');
+    state.isUpdating = true;
+    var clickHandler = function(e) {
+        var lat = e.latlng.lat, lng = e.latlng.lng;
+        if (type === 'employee') {
+            for (var i = 0; i < state.employees.length; i++) {
+                if (state.employees[i].realId === id) {
+                    state.employees[i].lat = lat; state.employees[i].lng = lng;
+                    fetch(API_URL + '/engineers/' + id + '/coords', {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat: lat, lng: lng })
+                    }).then(function() {
+                        state.isUpdating = false;
+                        renderMapMarkers(); updateRouteForEngineer(id); saveStateToLocalStorage();
+                    });
+                    break;
+                }
+            }
+        } else {
+            for (var j = 0; j < state.transport.length; j++) {
+                if (state.transport[j].id === id) {
+                    state.transport[j].lat = lat; state.transport[j].lng = lng;
+                    fetch(API_URL + '/transport/' + id + '/coords', {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat: lat, lng: lng })
+                    }).then(function() {
+                        state.isUpdating = false;
+                        renderMapMarkers();
+                        for (var k = 0; k < state.employees.length; k++) {
+                            if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                        }
+                        saveStateToLocalStorage();
+                    });
+                    break;
+                }
+            }
+        }
+        map.off('click', clickHandler);
+    };
+    map.on('click', clickHandler);
+    setTimeout(function() { map.off('click', clickHandler); state.isUpdating = false; }, 30000);
+}
+
+function loadPilotRequestsFromStorage() {
+    try { var s = localStorage.getItem(PILOT_STORAGE_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
+    catch(e) { return []; }
+}
+function savePilotRequestsToStorage() {
+    try { localStorage.setItem(PILOT_STORAGE_KEY, JSON.stringify(state.pilotRequests)); } catch(e) {}
+}
+function updatePilotBadge() {
+    /* Бейдж убран — оставлено для совместимости */
+}
+function loadPilotRequests() { loadRequestsOnly(); renderPilotRequests(); }
+function applyPilotFilters() {
+    var search = (document.getElementById('pilotSearch').value || '').toLowerCase().trim();
+    var period = document.getElementById('pilotPeriodFilter').value;
+    var now = Date.now();
+    var filtered = [];
+    for (var i = 0; i < state.pilotRequests.length; i++) {
+        var r = state.pilotRequests[i];
+        if (search) {
+            var hs = ((r.pilotName || '') + ' ' + (r.pilotRank || '') + ' ' + (r.aircraft || '') + ' ' + (r.requestId || '') + ' ' + (r.audioText || '') + ' ' + formatDate(r.sentAt)).toLowerCase();
+            if (hs.indexOf(search) === -1) continue;
+        }
+        if (period !== 'all') {
+            var ts = new Date(r.sentAt).getTime();
+            var diffDays = (now - ts) / (1000 * 60 * 60 * 24);
+            if (period === 'today') { if (new Date(r.sentAt).toDateString() !== new Date().toDateString()) continue; }
+            else if (period === 'week' && diffDays > 7) continue;
+            else if (period === 'month' && diffDays > 30) continue;
+        }
+        filtered.push(r);
+    }
+    return filtered;
+}
+function capturePilotAudioState() {
+    pilotAudioState = {};
+    var audios = document.querySelectorAll('#pilotTableBody audio');
+    audios.forEach(function(a) {
+        var detailsRow = a.closest('tr.pilot-details-row');
+        if (!detailsRow) return;
+        var mainRow = detailsRow.previousElementSibling;
+        if (!mainRow || !mainRow.classList.contains('pilot-main-row')) return;
+        var id = mainRow.getAttribute('data-pilot-id');
+        if (!id) return;
+        pilotAudioState[id] = { currentTime: a.currentTime || 0, paused: a.paused, wasPlaying: !a.paused && !a.ended && a.currentTime > 0 };
+    });
+}
+function restorePilotAudioState() {
+    var audios = document.querySelectorAll('#pilotTableBody audio');
+    audios.forEach(function(a) {
+        var detailsRow = a.closest('tr.pilot-details-row');
+        if (!detailsRow) return;
+        var mainRow = detailsRow.previousElementSibling;
+        if (!mainRow || !mainRow.classList.contains('pilot-main-row')) return;
+        var id = mainRow.getAttribute('data-pilot-id');
+        if (!id) return;
+        var saved = pilotAudioState[id];
+        if (!saved) return;
+        if (saved.currentTime > 0.1) {
+            var setTime = function() { try { a.currentTime = saved.currentTime; } catch(e) {} };
+            if (a.readyState >= 1) setTime();
+            else a.addEventListener('loadedmetadata', function onMeta() { a.removeEventListener('loadedmetadata', onMeta); setTime(); });
+        }
+        if (saved.wasPlaying) a.play().catch(function() {});
+    });
+}
+function onPilotTerminalChange(id) {
+    var terminalSel = document.getElementById('pTerminal_' + id);
+    var parkingSel = document.getElementById('pParking_' + id);
+    if (!terminalSel || !parkingSel) return;
+    var terminal = terminalSel.value;
+    var parkings = (terminal && CONFIG.PARKING_BY_TERMINAL[terminal]) || [];
+    var current = parkingSel.value;
+    parkingSel.innerHTML = '<option value="">— выберите —</option>';
+    for (var i = 0; i < parkings.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = parkings[i]; opt.textContent = parkings[i];
+        if (String(current) === String(parkings[i])) opt.selected = true;
+        parkingSel.appendChild(opt);
+    }
+}
+function savePilotParams(id) {
+    var r = findPilotRequest(id);
+    if (!r) { showToast('Заявка не найдена', 'error'); return; }
+    var aircraftEl = document.getElementById('pAircraft_' + id);
+    var faultEl = document.getElementById('pFault_' + id);
+    var terminalEl = document.getElementById('pTerminal_' + id);
+    var parkingEl = document.getElementById('pParking_' + id);
+    var aircraft = aircraftEl ? aircraftEl.value.trim() : '';
+    var fault = faultEl ? faultEl.value : 'pilot_voice';
+    var terminal = terminalEl ? terminalEl.value : '';
+    var parking = parkingEl ? parkingEl.value : '';
+    if (!parking) { showToast('Укажите стоянку', 'warning'); return; }
+    var payload = { aircraft: aircraft || null, fault_type: fault, terminal: terminal || null, parking_id: parking };
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (!data || !data.success) { showToast('Не удалось сохранить', 'error'); return; }
+        r.aircraft = aircraft || ''; r.faultType = fault; r.terminal = terminal; r.parkingId = parking;
+        savePilotRequestsToStorage();
+        for (var i = 0; i < state.tickets.length; i++) {
+            if (state.tickets[i].id === id) {
+                state.tickets[i].aircraft = aircraft || null;
+                state.tickets[i].fault_type = fault;
+                state.tickets[i].terminal = terminal || null;
+                state.tickets[i].parking_id = parking;
+                break;
+            }
+        }
+        pilotTableSignature = '';
+        renderPilotRequests();
+        showToast('Параметры сохранены', 'success');
+    })
+    .catch(function(err) { console.error(err); showToast('Ошибка соединения', 'error'); });
+}
+function renderPilotRequests() {
+    var tbody = document.getElementById('pilotTableBody');
+    if (!tbody) return;
+    var total = state.pilotRequests.length;
+    var today = new Date().toDateString();
+    var todayCount = 0, totalDuration = 0;
+    for (var i = 0; i < state.pilotRequests.length; i++) {
+        var r0 = state.pilotRequests[i];
+        if (new Date(r0.sentAt).toDateString() === today) todayCount++;
+        totalDuration += Number(r0.duration) || 0;
+    }
+    if (document.getElementById('pilotTotal')) document.getElementById('pilotTotal').textContent = total;
+    if (document.getElementById('pilotToday')) document.getElementById('pilotToday').textContent = todayCount;
+    if (document.getElementById('pilotDuration')) document.getElementById('pilotDuration').textContent = totalDuration + ' сек';
+
+    var signature = state.pilotRequests.map(function(r) {
+        return r.id + '|' + (r.audioText || '') + '|' + (r.status || '') + '|' + (r.aircraft || '') + '|' + (r.faultType || '') + '|' + (r.terminal || '') + '|' + (r.parkingId || '');
+    }).join(';') + '|recog:' + (state.recognizingPilotId || '') + '|whisper:' + (whisperDisabled ? '1' : '0');
+
+    if (signature === pilotTableSignature && tbody.children.length > 0) return;
+    pilotTableSignature = signature;
+    capturePilotAudioState();
+
+    var filtered = applyPilotFilters();
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="pilot-empty-row"><i class="fas fa-headset"></i><p>' +
+            (state.pilotRequests.length === 0 ? 'Пока нет заявок от командиров ВС' : 'Ничего не найдено') + '</p><small>' +
+            (state.pilotRequests.length === 0 ? 'Заявки появятся после отправки голосового сообщения пилотом' : 'Попробуйте изменить фильтры') + '</small></td></tr>';
+        return;
+    }
+    var html = '';
+    for (var j = 0; j < filtered.length; j++) {
+        var r = filtered[j];
+        var dateStr = formatDate(r.sentAt);
+        var dur = Number(r.duration) || 0;
+        var durText = dur > 0 ? dur + ' сек' : '—';
+        var reqIdShort = r.requestId ? String(r.requestId).substring(0, 14) : '—';
+        var isRecognizing = state.recognizingPilotId === r.id;
+        var audioSrc = API_URL + '/requests/' + encodeURIComponent(r.id) + '/audio';
+
+        html += '<tr class="pilot-main-row" data-pilot-id="' + escapeHtml(r.id) + '">' +
+            '<td>' + escapeHtml(dateStr) + '</td>' +
+            '<td><strong>' + escapeHtml(r.pilotName || '—') + '</strong></td>' +
+            '<td><span class="pilot-badge">' + escapeHtml(r.pilotRank || 'КВС') + '</span></td>' +
+            '<td>' + escapeHtml(r.aircraft || '—') + '</td>' +
+            '<td><span class="pilot-duration">' + escapeHtml(durText) + '</span></td>' +
+            '<td style="font-size:11px;color:var(--aero-gray);">' + escapeHtml(reqIdShort) + '</td>' +
+            '<td style="text-align:right;white-space:nowrap;">' +
+            '<button class="pilot-action-btn danger" onclick="deletePilotRequest(\'' + escapeHtml(r.id) + '\')" title="Удалить"><i class="fas fa-trash"></i></button></td></tr>';
+
+        var transcriptBlock;
+        if (r.audioText) transcriptBlock = '<div class="pilot-transcript"><div class="pilot-transcript-label"><i class="fas fa-quote-left"></i> Распознанный текст</div><div class="pilot-transcript-body">' + escapeHtml(r.audioText) + '</div></div>';
+        else if (isRecognizing) transcriptBlock = '<div class="pilot-transcript pilot-transcript-pending"><div class="pilot-transcript-label"><i class="fas fa-circle-notch fa-spin"></i> Распознавание речи</div><div class="pilot-transcript-body">Подождите</div></div>';
+        else if (whisperDisabled) transcriptBlock = '<div class="pilot-transcript pilot-transcript-pending"><div class="pilot-transcript-label"><i class="fas fa-exclamation-triangle"></i> Автораспознавание недоступно</div><div class="pilot-transcript-body">Whisper не установлен.</div></div>';
+        else transcriptBlock = '<div class="pilot-transcript pilot-transcript-pending"><div class="pilot-transcript-label"><i class="fas fa-hourglass-half"></i> Текст ещё не распознан</div><div class="pilot-transcript-body">Ожидание</div></div>';
+
+        var currentFault = r.faultType || 'pilot_voice';
+        var currentTerminal = r.terminal || '';
+        var currentParking = String(r.parkingId || '');
+        var currentAircraft = r.aircraft && r.aircraft !== '—' ? r.aircraft : '';
+
+        var faultOptions = '<option value="pilot_voice"' + (currentFault === 'pilot_voice' ? ' selected' : '') + '>Голосовая заявка КВС</option>' +
+            '<optgroup label="Двигатель">' +
+            '<option value="engine_failure"' + (currentFault === 'engine_failure' ? ' selected' : '') + '>Отказ двигателя</option>' +
+            '<option value="engine_oil"' + (currentFault === 'engine_oil' ? ' selected' : '') + '>Утечка масла</option>' +
+            '<option value="avionics_nav"' + (currentFault === 'avionics_nav' ? ' selected' : '') + '>Навигация</option>' +
+            '<option value="hydraulic"' + (currentFault === 'hydraulic' ? ' selected' : '') + '>Гидравлика</option>' +
+            '<option value="electrical"' + (currentFault === 'electrical' ? ' selected' : '') + '>Электрика</option>' +
+            '</optgroup>';
+
+        var terminalOptions = '<option value="">— выберите —</option>';
+        ['B','C','D','E','F'].forEach(function(t) {
+            terminalOptions += '<option value="' + t + '"' + (currentTerminal === t ? ' selected' : '') + '>' + t + '</option>';
+        });
+        var parkings = [];
+        if (currentTerminal && CONFIG.PARKING_BY_TERMINAL[currentTerminal]) parkings = CONFIG.PARKING_BY_TERMINAL[currentTerminal];
+        var parkingOptions = '<option value="">— выберите —</option>';
+        for (var pi = 0; pi < parkings.length; pi++) {
+            parkingOptions += '<option value="' + parkings[pi] + '"' + (currentParking === String(parkings[pi]) ? ' selected' : '') + '>' + parkings[pi] + '</option>';
+        }
+
+        var formBlock = '<div class="pilot-details-section"><h4><i class="fas fa-clipboard-list"></i> Параметры заявки</h4>' +
+            '<div class="pilot-params-grid">' +
+            '<div class="pilot-param"><label>Судно (борт)</label><input type="text" class="pilot-input" id="pAircraft_' + escapeHtml(r.id) + '" value="' + escapeHtml(currentAircraft) + '" placeholder="SU-1234"></div>' +
+            '<div class="pilot-param"><label>Тип поломки</label><select class="pilot-input" id="pFault_' + escapeHtml(r.id) + '">' + faultOptions + '</select></div>' +
+            '<div class="pilot-param"><label>Терминал</label><select class="pilot-input" id="pTerminal_' + escapeHtml(r.id) + '" onchange="onPilotTerminalChange(\'' + escapeHtml(r.id) + '\')">' + terminalOptions + '</select></div>' +
+            '<div class="pilot-param"><label>Стоянка</label><select class="pilot-input" id="pParking_' + escapeHtml(r.id) + '">' + parkingOptions + '</select></div>' +
+            '<div class="pilot-param-actions"><button class="btn btn-success btn-sm" onclick="savePilotParams(\'' + escapeHtml(r.id) + '\')"><i class="fas fa-save"></i> Сохранить</button></div>' +
+            '</div></div>';
+
+        html += '<tr class="pilot-details-row"><td colspan="7"><div class="pilot-details">' +
+            '<div class="pilot-details-section"><h4><i class="fas fa-microphone"></i> Голосовое сообщение</h4><audio controls preload="auto" src="' + audioSrc + '"></audio></div>' +
+            transcriptBlock + formBlock + '</div></td></tr>';
+    }
+    tbody.innerHTML = html;
+    restorePilotAudioState();
+}
+function filterPilotRequests() { renderPilotRequests(); }
+function clearPilotFilters() {
+    var s = document.getElementById('pilotSearch'), p = document.getElementById('pilotPeriodFilter');
+    if (s) s.value = ''; if (p) p.value = 'all';
+    pilotTableSignature = ''; renderPilotRequests();
+}
+function findPilotRequest(id) {
+    for (var i = 0; i < state.pilotRequests.length; i++) if (state.pilotRequests[i].id === id) return state.pilotRequests[i];
+    return null;
+}
+function deletePilotRequest(id) {
+    if (!confirm('Удалить эту заявку КВС?')) return;
+    fetch(API_URL + '/requests/' + id, { method: 'DELETE' }).catch(function() {});
+    state.pilotRequests = state.pilotRequests.filter(function(r) { return r.id !== id; });
+    if (state.recognizingPilotId === id) state.recognizingPilotId = null;
+    savePilotRequestsToStorage(); pilotTableSignature = ''; renderPilotRequests();
+    showToast('Заявка удалена', 'success');
+}
+function clearAllPilotRequests() {
+    if (state.pilotRequests.length === 0) { showToast('Заявок и так нет', 'info'); return; }
+    if (!confirm('Удалить ВСЕ заявки от КВС?')) return;
+    if (!confirm('Подтвердите ещё раз!')) return;
+    fetch(API_URL + '/clear_all_pilot_requests', { method: 'POST' }).catch(function() {});
+    state.pilotRequests = [];
+    state.recognizingPilotId = null;
+    savePilotRequestsToStorage(); pilotTableSignature = ''; renderPilotRequests();
+    showToast('Все заявки КВС удалены', 'success');
+}
+function exportPilotRequests() {
+    if (state.pilotRequests.length === 0) { showToast('Нет данных для экспорта', 'info'); return; }
+    try {
+        var exportData = state.pilotRequests.map(function(r) {
+            return { id: r.id, requestId: r.requestId, pilotName: r.pilotName, pilotRank: r.pilotRank, aircraft: r.aircraft, faultType: r.faultType, terminal: r.terminal, parkingId: r.parkingId, duration: r.duration, sentAt: r.sentAt, status: r.status, audioText: r.audioText || '', hasAudio: !!r.audioBase64 };
+        });
+        var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'pilot_requests_' + new Date().toISOString().slice(0,10) + '.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Экспорт готов', 'success');
+    } catch(e) { console.error(e); showToast('Не удалось экспортировать', 'error'); }
+}
+
+function updateCancelledBadge() {
+    /* Бейдж убран — оставлено для совместимости */
+}
+function filterCancelledRequests() { renderCancelledRequests(); }
+function clearCancelledFilters() {
+    var s = document.getElementById('cancelledSearch'), p = document.getElementById('cancelledPeriodFilter');
+    if (s) s.value = ''; if (p) p.value = 'all'; renderCancelledRequests();
+}
+function applyCancelledFilters() {
+    var search = (document.getElementById('cancelledSearch').value || '').toLowerCase().trim();
+    var period = document.getElementById('cancelledPeriodFilter').value;
+    var now = Date.now();
+    var filtered = [];
+    for (var i = 0; i < state.cancelledRequests.length; i++) {
+        var r = state.cancelledRequests[i];
+        if (search) {
+            var hay = ((r.aircraft || '') + ' ' + (r.engineerName || '') + ' ' + (r.cancelledByName || '') + ' ' + (r.reason || '') + ' ' + (r.parking || '') + ' ' + (r.faultName || '') + ' ' + (r.replacedBy || '')).toLowerCase();
+            if (hay.indexOf(search) === -1) continue;
+        }
+        if (period !== 'all') {
+            var ts = new Date(r.cancelledAt).getTime();
+            var diffDays = (now - ts) / (1000 * 60 * 60 * 24);
+            if (period === 'today') { if (new Date(r.cancelledAt).toDateString() !== new Date().toDateString()) continue; }
+            else if (period === 'week' && diffDays > 7) continue;
+            else if (period === 'month' && diffDays > 30) continue;
+        }
+        filtered.push(r);
+    }
+    return filtered;
+}
+function renderCancelledRequests() {
+    var list = document.getElementById('cancelledList');
+    if (!list) return;
+    var total = state.cancelledRequests.length;
+    var today = new Date().toDateString();
+    var todayCount = 0, engineersSet = {};
+    for (var i = 0; i < state.cancelledRequests.length; i++) {
+        var r0 = state.cancelledRequests[i];
+        if (new Date(r0.cancelledAt).toDateString() === today) todayCount++;
+        if (r0.cancelledByName && r0.cancelledByName !== '—') engineersSet[r0.cancelledByName] = true;
+    }
+    if (document.getElementById('cancelledTotal')) document.getElementById('cancelledTotal').textContent = total;
+    if (document.getElementById('cancelledToday')) document.getElementById('cancelledToday').textContent = todayCount;
+    if (document.getElementById('cancelledEngineers')) document.getElementById('cancelledEngineers').textContent = Object.keys(engineersSet).length;
+
+    var filtered = applyCancelledFilters();
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state"><i class="fas fa-ban"></i><p>' +
+            (state.cancelledRequests.length === 0 ? 'Пока нет отменённых заявок' : 'Ничего не найдено') + '</p><small>' +
+            (state.cancelledRequests.length === 0 ? 'Отменённые инженерами заявки появятся здесь' : 'Попробуйте изменить фильтры') + '</small></div>';
+        return;
+    }
+    var html = '';
+    for (var j = 0; j < filtered.length; j++) {
+        var r = filtered[j];
+        var critIcon = r.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
+                       r.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
+                       '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
+        var replBlock = '';
+        if (r.replacedBy && r.replacedStatus && r.replacedStatus !== 'completed') {
+            replBlock = '<div class="cancelled-replacement"><i class="fas fa-user-check"></i> <strong>Переназначено на:</strong> ' + escapeHtml(r.replacedBy) + (r.replacedTravelTime != null ? ' • в пути ' + r.replacedTravelTime + ' мин' : '') + '</div>';
+        } else if (r.replacedBy && r.replacedStatus === 'completed') {
+            replBlock = '<div class="cancelled-replacement" style="background:#f3f4f6;border-color:#e5e7eb;color:#6b7280;"><i class="fas fa-user-check"></i> <strong>Было переназначено:</strong> ' + escapeHtml(r.replacedBy) + ' <em>(завершена)</em></div>';
+        }
+        var allRejBlock = r.allRejected ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 14px;margin-top:8px;font-size:12px;color:#78350f;"><i class="fas fa-hourglass-half"></i> Рейс в очереди — все специалисты отказались</div>' : '';
+        html += '<div class="cancelled-card">' +
+            '<div class="cancelled-card-header"><div>' +
+            '<div class="cancelled-card-title"><i class="fas fa-ban" style="color:var(--aero-red);"></i> ' + escapeHtml(r.aircraft) + ' ' + critIcon + '</div>' +
+            '<div class="cancelled-card-meta">' +
+            '<span><i class="fas fa-user-slash"></i> ' + escapeHtml(r.cancelledByName) + '</span>' +
+            '<span><i class="fas fa-map-marker-alt"></i> Стоянка ' + escapeHtml(r.parking) + '</span>' +
+            '<span><i class="fas fa-clock"></i> ' + formatDate(r.cancelledAt) + '</span>' +
+            '<span><i class="fas fa-tools"></i> ' + escapeHtml(r.faultName) + '</span></div></div></div>' +
+            '<div class="cancelled-reason"><strong>' + (r.allRejected ? 'Причина (все отказались):' : 'Причина отмены:') + '</strong> ' + escapeHtml(r.reason) + '</div>' +
+            replBlock + allRejBlock + '</div>';
+    }
+    list.innerHTML = html;
+}
+function clearAllCancelled() {
+    if (state.cancelledRequests.length === 0) { showToast('Отменённых заявок нет', 'info'); return; }
+    if (!confirm('Удалить ВСЕ отменённые заявки?')) return;
+    if (!confirm('Подтвердите ещё раз!')) return;
+    var ids = state.cancelledRequests.map(function(r) { return r.id; });
+    var chain = Promise.resolve();
+    ids.forEach(function(id) { chain = chain.then(function() { return fetch(API_URL + '/requests/' + id, { method: 'DELETE' }).catch(function() {}); }); });
+    chain.then(function() {
+        state.cancelledRequests = [];
+        updateCancelledBadge(); renderCancelledRequests(); loadRequestsOnly();
+        showToast('Отменённые заявки удалены', 'success');
+    });
+}
+
+function logout() {
+    if (state.loadInterval) clearInterval(state.loadInterval);
+    if (state.coordsInterval) clearInterval(state.coordsInterval);
+    saveStateToLocalStorage();
+    sessionStorage.removeItem('userSession');
+    window.location.href = '/login.html';
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+window.switchTab = switchTab;
+window.createRequest = createRequest;
+window.logout = logout;
+window.updateParkingList = updateParkingList;
+window.moveToClick = moveToClick;
+window.openRequestModal = openRequestModal;
+window.closeRequestModal = closeRequestModal;
+window.saveTicketChanges = saveTicketChanges;
+window.clearAllRequests = clearAllRequests;
+window.filterReports = filterReports;
+window.clearReportsFilters = clearReportsFilters;
+window.clearAllReports = clearAllReports;
+window.restoreDeletedReports = restoreDeletedReports;
+window.openReportModal = openReportModal;
+window.closeReportModal = closeReportModal;
+window.filterPilotRequests = filterPilotRequests;
+window.clearPilotFilters = clearPilotFilters;
+window.deletePilotRequest = deletePilotRequest;
+window.clearAllPilotRequests = clearAllPilotRequests;
+window.exportPilotRequests = exportPilotRequests;
+window.onPilotTerminalChange = onPilotTerminalChange;
+window.savePilotParams = savePilotParams;
+window.filterCancelledRequests = filterCancelledRequests;
+window.clearCancelledFilters = clearCancelledFilters;
+window.clearAllCancelled = clearAllCancelled;
+window.filterDelays = filterDelays;
+window.clearDelaysFilters = clearDelaysFilters;
+window.openDelayModal = openDelayModal;
+window.openCancelFlightModal = openCancelFlightModal;
+window.renderFlights = renderFlights;
+window.clearFlightsFilters = clearFlightsFilters;
+</script>
+</body>
+</html>
