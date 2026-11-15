@@ -10,7 +10,7 @@
 - Разработка: `.venv\Scripts\python.exe app.py` → http://127.0.0.1:5000/login.html
 - Продакшн: `.venv\Scripts\python.exe serve.py` (waitress) → http://127.0.0.1:8080
 - HTTPS: `INTRAVIA_HTTPS=1` + сертификат (см. README, раздел «HTTPS»)
-- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (137 проходит)
+- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (141 проходит)
 
 ## Важное про состояние репозитория
 
@@ -80,8 +80,15 @@
 - **Смена паролей и чистый старт**: `manage.py` (`list`, `passwd`,
   `create-admin`, `check-defaults`); `INTRAVIA_DEMO_SEED=0` не создаёт демо-учётки.
   Пароль инженера/пилота можно задать при создании через API.
-- 137 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`,
-  `test_backup.py`, `test_scoping.py`, `test_ownership.py`, `test_manage.py`).
+- **Проверки в браузере**: отчёты диспетчера (список, карточка, модалка,
+  создание из заявки) — работают; попутно исправлена миграция `reports.payload`
+  (старые базы падали на сохранении отчёта с 500). Голосовой тракт прогнан
+  синтезированной речью — распознавание и парсер работают.
+- **Боевой TLS**: `deploy/Caddyfile`, флаги `INTRAVIA_COOKIE_SECURE` и
+  `INTRAVIA_TRUSTED_PROXY`; тест настроек waitress.
+- 141 автотест в `tests/` (`test_passwords.py`, `test_roles.py`,
+  `test_backup.py`, `test_scoping.py`, `test_ownership.py`, `test_manage.py`,
+  `test_serve.py`).
 
 ## Что осталось до реальной эксплуатации
 
@@ -89,26 +96,34 @@
    и сменить демо-пароли (`passwd`), либо поднять чистую базу с
    `INTRAVIA_DEMO_SEED=0` и `create-admin`. В текущей базе демо-пароли не
    тронуты специально — они нужны для входа на демо.
-2. Боевой TLS: встроенный терминатор — для стенда. Для эксплуатации поставить
-   Caddy/IIS/nginx с настоящим сертификатом и указать `INTRAVIA_TRUSTED_PROXY`.
+2. Боевой TLS: для `serve.py` на этой машине не установлен Caddy — готовый
+   `deploy/Caddyfile` лежит в репозитории, порядок запуска в README
+   («HTTPS», боевой вариант). Осталось поставить Caddy и проверить домен.
 
 ## Хвосты, не связанные с безопасностью
 
-- **Проверить в браузере отчёты диспетчера** после перевода на `/api/reports`
-  (тесты покрывают только сервер).
-- **Голосовой ввод ни разу не запускался**: ffmpeg установлен и находится,
-  но модель Whisper (`small`, ~460 МБ) не скачана. Перед финалом прогнать
-  с реальным микрофоном; на площадке модели может не быть — прогреть кэш.
+- **Отчёты диспетчера проверены в браузере** (Playwright, 15.11.2026):
+  список, карточка, модалка, фильтр, создание отчёта из заявки — работают.
+  При проверке найден и исправлен баг: в старой базе `reports` не было колонки
+  `payload`, POST падал с 500 — добавлена миграция и регресс-тест.
+- **Голосовой тракт проверен без микрофона**: модель Whisper `small` уже в
+  кэше (`~/.cache/whisper/small.pt`, загружается за ~7 с), ffmpeg найден.
+  Синтезированная русская фраза прошла `POST /api/dispatch` →
+  `/transcribe`: текст распознан, `fault_type=hydraulic_leak`, `parking_id=101`.
+  Осталось один раз прогнать с настоящим микрофоном в браузере — сам захват
+  `MediaRecorder` машинно не проверить.
 - В `localStorage` остались зеркала: `dispatcherState_v19`,
   `dispatcherPilotRequests_v4`, `pilotRecords_v4`, `taskHistory`.
-  На данные не влияют, но это дубли — можно вычищать постепенно.
+  На данные не влияют (источник — сервер), но это дубли.
+  `taskHistory`, судя по коду, уже никто не пишет — читать его можно удалить.
 
 ## Полезные мелочи
 
 - Переменные окружения: `INTRAVIA_SECRET`, `INTRAVIA_DB`, `INTRAVIA_HOST`,
   `INTRAVIA_PORT`, `INTRAVIA_DEBUG=1`, `INTRAVIA_FFMPEG`, `WHISPER_MODEL`.
   Для `serve.py`: `INTRAVIA_HTTPS=1`, `INTRAVIA_TLS_CERT`, `INTRAVIA_TLS_KEY`,
-  `INTRAVIA_TRUSTED_PROXY`. База и бэкапы: `INTRAVIA_DATA_DIR`, `INTRAVIA_DB`,
+  `INTRAVIA_TRUSTED_PROXY`, `INTRAVIA_COOKIE_SECURE=1` (когда TLS на прокси).
+  База и бэкапы: `INTRAVIA_DATA_DIR`, `INTRAVIA_DB`,
   `INTRAVIA_BACKUP=0`, `INTRAVIA_BACKUP_DIR`, `INTRAVIA_BACKUP_KEEP`.
   Учётные записи: `INTRAVIA_DEMO_SEED=0` (без демо-учёток).
 - База по умолчанию: `%LOCALAPPDATA%\InTrAvia\database.db`, бэкапы в

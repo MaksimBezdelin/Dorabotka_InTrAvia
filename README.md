@@ -91,9 +91,24 @@ set INTRAVIA_TLS_KEY=certs\key.pem
 ```
 
 Открыть https://127.0.0.1:8080/login.html. Браузер предупредит о самоподписанном
-сертификате — это нормально для локального стенда. Для боевого контура TLS
-лучше терминировать на Caddy/IIS/nginx (`INTRAVIA_TRUSTED_PROXY` — адрес
-прокси, которому доверяем `X-Forwarded-*`).
+сертификате — это нормально для локального стенда.
+
+**Боевой вариант — TLS на Caddy** (нормальный сертификат, HTTP/2, автопродление).
+В репозитории лежит `deploy/Caddyfile`:
+
+```bat
+set INTRAVIA_HOST=127.0.0.1
+set INTRAVIA_PORT=8080
+set INTRAVIA_COOKIE_SECURE=1
+set INTRAVIA_TRUSTED_PROXY=127.0.0.1
+.venv\Scripts\python.exe serve.py
+caddy run --config deploy/Caddyfile
+```
+
+`INTRAVIA_COOKIE_SECURE=1` обязателен, когда TLS терминирует прокси: сам
+`serve.py` в этом режиме работает по HTTP и иначе не поставит `Secure` на
+cookie. `INTRAVIA_TRUSTED_PROXY` — адрес прокси, которому доверяем
+`X-Forwarded-*`.
 
 ### Тестовые учётные записи
 

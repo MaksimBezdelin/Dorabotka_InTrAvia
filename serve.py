@@ -125,6 +125,11 @@ def main():
         print('[SECURITY] ВНИМАНИЕ: используется ключ сессии по умолчанию.')
         print('[SECURITY] Задайте INTRAVIA_SECRET перед эксплуатацией.')
 
+    # за обратным прокси (Caddy/IIS/nginx) TLS terminates не нами,
+    # поэтому Secure включаем флагом
+    if _flag('INTRAVIA_COOKIE_SECURE'):
+        intravia.app.config['SESSION_COOKIE_SECURE'] = True
+
     if not use_https:
         print(f'[HTTP] http://{host}:{port}')
         serve(intravia.app, host=host, port=port, **_waitress_kwargs())
