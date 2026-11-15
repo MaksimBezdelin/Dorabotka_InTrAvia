@@ -66,7 +66,12 @@
   встроенный TLS-терминатор на loopback, а cookie получает `Secure`.
   Заголовки `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
   и `SameSite=Lax` + `HttpOnly` для cookie — на всех ответах.
-- 110 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`).
+- **База вынесена из проекта и копируется**: путь по умолчанию
+  `%LOCALAPPDATA%\InTrAvia\database.db`; старая `database.db` из проекта
+  переносится при первом запуске (копия, старый файл остаётся). Перед каждым
+  стартом снимается копия в `backups/` (хранятся 14 последних).
+- 117 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`,
+  `test_backup.py`).
 
 ## Что осталось до реальной эксплуатации
 
@@ -78,9 +83,7 @@
    `GET /api/pilot/atlb` (все рейсы, если не передан `?pilot=`) отдают лишнее.
 3. **Права на конкретные записи** — роль проверена, но не принадлежность:
    инженер может вынести вердикт по любой заявке, диспетчер — отменить любую.
-4. Резервные копии `database.db`, вынос файла базы из папки проекта
-   (путь настраивается через `INTRAVIA_DB`).
-5. Боевой TLS: встроенный терминатор — для стенда. Для эксплуатации поставить
+4. Боевой TLS: встроенный терминатор — для стенда. Для эксплуатации поставить
    Caddy/IIS/nginx с настоящим сертификатом и указать `INTRAVIA_TRUSTED_PROXY`.
 
 ## Хвосты, не связанные с безопасностью
@@ -99,7 +102,11 @@
 - Переменные окружения: `INTRAVIA_SECRET`, `INTRAVIA_DB`, `INTRAVIA_HOST`,
   `INTRAVIA_PORT`, `INTRAVIA_DEBUG=1`, `INTRAVIA_FFMPEG`, `WHISPER_MODEL`.
   Для `serve.py`: `INTRAVIA_HTTPS=1`, `INTRAVIA_TLS_CERT`, `INTRAVIA_TLS_KEY`,
-  `INTRAVIA_TRUSTED_PROXY`.
+  `INTRAVIA_TRUSTED_PROXY`. База и бэкапы: `INTRAVIA_DATA_DIR`, `INTRAVIA_DB`,
+  `INTRAVIA_BACKUP=0`, `INTRAVIA_BACKUP_DIR`, `INTRAVIA_BACKUP_KEEP`.
+- База по умолчанию: `%LOCALAPPDATA%\InTrAvia\database.db`, бэкапы в
+  `...\InTrAvia\backups`. Старая `database.db` в проекте больше не используется,
+  но и не удалена — можно оставить как точку отката.
 - `serve.py` при HTTPS держит waitress только на 127.0.0.1 и слушает снаружи
   TLS-терминатором; `server.effective_port` выбирается динамически, чтобы не
   занимать порт 8080 дважды.

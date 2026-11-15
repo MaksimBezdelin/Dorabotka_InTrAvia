@@ -24,7 +24,7 @@ import base64
 import sqlite3
 import io
 from functools import wraps
-from datetime import timedelta
+from datetime import datetime, timedelta
 import tempfile
 import subprocess
 import shutil
@@ -53,8 +53,23 @@ for _stream in (sys.stdout, sys.stderr):
 # Конфигурация
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# INTRAVIA_DB позволяет подменить файл базы (используется в автотестах)
-DB_PATH = os.environ.get('INTRAVIA_DB') or os.path.join(BASE_DIR, 'database.db')
+
+
+def _default_data_dir():
+    """Каталог данных вне папки проекта: код обновляется, база — нет."""
+    if os.name == 'nt':
+        root = os.environ.get('LOCALAPPDATA') or os.path.join(
+            os.path.expanduser('~'), 'AppData', 'Local')
+    else:
+        root = os.environ.get('XDG_DATA_HOME') or os.path.join(
+            os.path.expanduser('~'), '.local', 'share')
+    return os.path.join(root, 'InTrAvia')
+
+
+DATA_DIR = os.environ.get('INTRAVIA_DATA_DIR') or _default_data_dir()
+# INTRAVIA_DB подменяет файл базы целиком (тесты, стенд)
+DB_PATH = os.environ.get('INTRAVIA_DB') or os.path.join(DATA_DIR, 'database.db')
+LEGACY_DB_PATH = os.path.join(BASE_DIR, 'database.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
@@ -434,6 +449,66 @@ def get_db():
     return conn
 
 
+def migrate_legacy_database():
+    """Переносит database.db из папки проекта в DATA_DIR при первом запуске.
+
+    Копия делается через sqlite backup API, поэтому учитываются данные из WAL.
+    Старый файл не удаляем — его можно убрать вручную, когда всё проверено.
+    """
+    if os.environ.get('INTRAVIA_DB') or DB_PATH == LEGACY_DB_PATH:
+        return
+    if os.path.exists(DB_PATH) or not os.path.isfile(LEGACY_DB_PATH):
+        return
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    try:
+        src = sqlite3.connect(LEGACY_DB_PATH, timeout=30)
+        dst = sqlite3.connect(DB_PATH)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close(); src.close()
+        print(f'[DB] База перенесена в {DB_PATH}')
+    except sqlite3.Error as e:
+        print(f'[DB] Не удалось перенести базу: {e}')
+
+
+def backup_database(source_path=None, backup_dir=None, keep=None):
+    """Снимает резервную копию базы и чистит старые.
+
+    По умолчанию копии лежат в <папка базы>/backups, хранится последние
+    INTRAVIA_BACKUP_KEEP (14). Отключить: INTRAVIA_BACKUP=0.
+    """
+    if os.environ.get('INTRAVIA_BACKUP', '1').lower() in ('0', 'false', 'off', 'no'):
+        return None
+    source_path = source_path or DB_PATH
+    if not os.path.isfile(source_path):
+        return None
+    backup_dir = backup_dir or os.environ.get('INTRAVIA_BACKUP_DIR') or os.path.join(
+        os.path.dirname(source_path), 'backups')
+    keep = keep if keep is not None else int(os.environ.get('INTRAVIA_BACKUP_KEEP', '14'))
+    os.makedirs(backup_dir, exist_ok=True)
+
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    target = os.path.join(backup_dir, f'database-{stamp}.db')
+
+    src = sqlite3.connect(source_path, timeout=30)
+    dst = sqlite3.connect(target)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close(); src.close()
+
+    names = sorted(n for n in os.listdir(backup_dir)
+                   if n.startswith('database-') and n.endswith('.db'))
+    stale = names[:-keep] if keep > 0 else names
+    for name in stale:
+        try:
+            os.remove(os.path.join(backup_dir, name))
+        except OSError:
+            pass
+    return target
+
+
 def ensure_schema(conn):
     cur = conn.cursor()
 
@@ -770,7 +845,11 @@ def migrate_engineer_numbers():
 
 
 def init_db():
+    migrate_legacy_database()
     print(f'[DB] Используется база: {DB_PATH}')
+    backup = backup_database()
+    if backup:
+        print(f'[DB] Резервная копия: {backup}')
     conn = get_db()
     ensure_schema(conn)
     seed_initial_data(conn)
