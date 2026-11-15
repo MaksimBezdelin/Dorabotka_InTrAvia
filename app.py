@@ -3133,4 +3133,14 @@ if __name__ == '__main__':
         print(f'  [{methods}] {rule}')
     print()
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Отладчик по умолчанию ВЫКЛЮЧЕН: интерактивный debugger Werkzeug
+    # позволяет выполнить код на сервере. Включать только локально:
+    #   set INTRAVIA_DEBUG=1
+    debug = os.environ.get('INTRAVIA_DEBUG') == '1'
+    if not debug and app.secret_key == 'intravia-secret-key-change-in-production':
+        print('[SECURITY] ВНИМАНИЕ: используется ключ сессии по умолчанию.')
+        print('[SECURITY] Задайте INTRAVIA_SECRET перед эксплуатацией.')
+
+    app.run(host=os.environ.get('INTRAVIA_HOST', '127.0.0.1'),
+            port=int(os.environ.get('INTRAVIA_PORT', '5000')),
+            debug=debug)
