@@ -1145,6 +1145,45 @@ def roles(*allowed):
     return decorator
 
 
+def current_user():
+    return session.get('user') or {}
+
+
+def pilot_name_of_session(conn):
+    """Актуальное имя пилота: оно могло измениться в профиле."""
+    user = current_user()
+    row = conn.execute("SELECT name FROM users WHERE id=?",
+                       (user.get('id'),)).fetchone()
+    name = row['name'] if row else None
+    return (name or user.get('name') or '').strip()
+
+
+def _row_value(row, key, default=''):
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
+
+
+def owns_request(conn, row):
+    """Может ли текущий пользователь трогать эту заявку.
+
+    Диспетчер и admin работают со всеми заявками, инженер — только со своей,
+    пилот — только со своей (по имени).
+    """
+    role = current_user().get('role')
+    if role in ('admin', 'dispatcher', 'mcc'):
+        return True
+    if role == 'engineer':
+        return (str(_row_value(row, 'engineer_id'))
+                == str(current_user().get('id') or ''))
+    if role == 'pilot':
+        return (_row_value(row, 'pilot_name').strip()
+                == pilot_name_of_session(conn))
+    return False
+
+
 @app.before_request
 def require_session():
     """Без входа доступны только страница входа и /api/auth/*."""
@@ -1496,6 +1535,10 @@ def engineer_verdict():
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не найден'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому инженеру'}), 403
     if row['mcc_status'] != 'INSPECTION':
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не на инспекции'}), 400
 
@@ -1769,6 +1812,12 @@ def mcc_clear(clear_type):
 @roles('pilot')
 def confirm_pilot_request(rid):
     conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id, engineer_id, pilot_name FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close(); return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     cur.execute("UPDATE requests SET status='new', mcc_status='PENDING' WHERE id=?", (rid,))
     conn.commit(); conn.close()
     return jsonify({'success': True})
@@ -1896,6 +1945,9 @@ def delete_engineer(eng_id):
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])
 @roles('dispatcher', 'engineer')
 def update_engineer_coords(eng_id):
+    user = current_user()
+    if user.get('role') == 'engineer' and user.get('id') != eng_id:
+        return jsonify({'error': 'Это не ваш профиль'}), 403
     data = request.get_json() or {}
     lat = data.get('lat'); lng = data.get('lng')
     if lat is None or lng is None:
@@ -2084,9 +2136,12 @@ def get_requests():
 def update_request(rid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id FROM requests WHERE id=?", (rid,))
-    if not cur.fetchone():
+    cur.execute("SELECT id, engineer_id, pilot_name FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
         conn.close(); return jsonify({'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close(); return jsonify({'error': 'Это не ваша заявка'}), 403
     cur.execute("""UPDATE requests
         SET status=COALESCE(?,status), criticality=COALESCE(?,criticality),
             engineer_comment=COALESCE(?,engineer_comment),
@@ -2291,11 +2346,15 @@ def cancel_request(rid):
         return jsonify({'success': False, 'error': 'Укажите причину'}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,aircraft,fault_type,severity,terminal,parking_id,
-        description,engineer_id,engineer_name,status,rejected_by,created_at
+        description,engineer_id,engineer_name,status,rejected_by,created_at,
+        pilot_name,source
         FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     if row['status'] == 'completed':
         conn.close(); return jsonify({'success': False, 'error': 'Уже выполнена'}), 400
     if row['status'] == 'cancelled':
@@ -2410,8 +2469,14 @@ def reject_request(rid):
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     if row['status'] == 'completed':
         conn.close(); return jsonify({'success': False, 'error': 'Уже выполнена'}), 400
+    if current_user().get('role') == 'engineer':
+        # отказ засчитываем тому, кто его нажал, а не присланному id
+        rejected_by = str(current_user().get('id') or '')
     if not rejected_by:
         rejected_by = str(row['engineer_id'] or '')
 
@@ -2565,6 +2630,9 @@ def cancel_flight(rid):
 @app.route('/api/complete/<eng_id>', methods=['POST'])
 @roles('dispatcher', 'engineer')
 def complete_engineer(eng_id):
+    user = current_user()
+    if user.get('role') == 'engineer' and user.get('id') != eng_id:
+        return jsonify({'success': False, 'error': 'Это не ваш профиль'}), 403
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id FROM requests WHERE engineer_id=?
         AND status NOT IN ('completed','cancelled','flight_cancelled')""", (eng_id,))
@@ -2635,9 +2703,15 @@ def _decode_data_url(data_url):
 @roles('dispatcher', 'engineer', 'pilot')
 def stream_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone(); conn.close()
-    if not row or row['source'] != 'pilot' or not row['pilot_audio']:
+    cur.execute("""SELECT id,source,pilot_audio,pilot_audio_mime,
+                   engineer_id,pilot_name FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); abort(404)
+    if not owns_request(conn, row):
+        conn.close(); abort(403)
+    conn.close()
+    if row['source'] != 'pilot' or not row['pilot_audio']:
         abort(404)
     raw = _decode_data_url(row['pilot_audio'])
     if not raw:
@@ -2776,9 +2850,17 @@ def parse_pilot_text(text):
 @roles('dispatcher', 'engineer', 'pilot')
 def transcribe_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone(); conn.close()
-    if not row or row['source'] != 'pilot' or not row['pilot_audio']:
+    cur.execute("""SELECT id,source,pilot_audio,pilot_audio_mime,
+                   engineer_id,pilot_name FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нет аудиозаписи'}), 400
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
+    conn.close()
+    if row['source'] != 'pilot' or not row['pilot_audio']:
         return jsonify({'success': False, 'error': 'Нет аудиозаписи'}), 400
     model = get_whisper()
     if model is None:
@@ -3050,6 +3132,12 @@ def chain_assign_foreman(rid):
     row, err = _chain_take(conn, rid, 'shift')
     if err:
         conn.close(); return jsonify({'success': False, 'error': err}), 400
+    user = current_user()
+    if (user.get('role') == 'shift_supervisor'
+            and str(row.get('shift_supervisor_id') or '') != str(user.get('id') or '')):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому начальнику смены'}), 403
 
     cur = conn.cursor()
     cur.execute("SELECT id, name FROM staff WHERE id=? AND role='foreman'", (staff_id,))
@@ -3079,6 +3167,12 @@ def chain_assign_technician(rid):
     row, err = _chain_take(conn, rid, 'foreman')
     if err:
         conn.close(); return jsonify({'success': False, 'error': err}), 400
+    user = current_user()
+    if (user.get('role') == 'foreman'
+            and str(row.get('foreman_id') or '') != str(user.get('id') or '')):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому бригадиру'}), 403
 
     cur = conn.cursor()
     cur.execute("SELECT id, name, status FROM engineers WHERE id=?", (eng_id,))
@@ -3160,11 +3254,8 @@ def get_pilot_atlb():
     if user.get('role') == 'pilot':
         # пилот видит только свой журнал; имя берём из базы, а не из запроса:
         # его можно сменить в профиле, а ?pilot= подделать
-        cur.execute("SELECT name FROM users WHERE id=?", (user.get('id'),))
-        row = cur.fetchone()
-        pilot_name = (row['name'] if row else user.get('name')) or ''
         where.append('pilot_name = ?')
-        params.append(pilot_name)
+        params.append(pilot_name_of_session(conn))
     else:
         pilot = (request.args.get('pilot') or '').strip()
         if pilot:
@@ -3202,6 +3293,11 @@ def pilot_sign_crs():
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
+    if current_user().get('role') == 'pilot':
+        pilot = pilot_name_of_session(conn)
     if row['chain_stage'] != 'closed':
         conn.close()
         return jsonify({'success': False,
