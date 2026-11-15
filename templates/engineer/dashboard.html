@@ -1616,7 +1616,7 @@
             // [MAN] Logout — вручную: чистим таймер
             window.logout = function() {
                 if (diagnoseTimerInterval) clearInterval(diagnoseTimerInterval);
-                sessionStorage.removeItem('userSession');
+                try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
                 window.location.href = '/login.html';
             };
 

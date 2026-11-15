@@ -21,13 +21,24 @@ def app_module(tmp_path_factory):
 
 
 @pytest.fixture()
-def client(app_module):
+def anon_client(app_module):
+    """Клиент без авторизации."""
     return app_module.app.test_client()
 
 
 @pytest.fixture()
-def api(app_module):
-    """Хелпер: POST/GET JSON через тестовый клиент."""
+def client(app_module):
+    """Клиент, авторизованный как администратор (API закрыт сессией)."""
+    c = app_module.app.test_client()
+    resp = c.post('/api/auth/login',
+                  json={'email': 'admin@aeroflot.ru', 'password': 'admin123'})
+    assert resp.status_code == 200, 'не удалось войти под admin'
+    return c
+
+
+@pytest.fixture()
+def api(app_module, client):
+    """Хелпер: POST/GET JSON через авторизованный тестовый клиент."""
 
     class Api:
         def __init__(self, client):
@@ -41,7 +52,7 @@ def api(app_module):
             resp = self.client.get(path)
             return resp.status_code, resp.get_json()
 
-    return Api(app_module.app.test_client())
+    return Api(client)
 
 
 @pytest.fixture()

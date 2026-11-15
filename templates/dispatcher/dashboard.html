@@ -3841,7 +3841,7 @@ function logout() {
     if (state.loadInterval) clearInterval(state.loadInterval);
     if (state.coordsInterval) clearInterval(state.coordsInterval);
     saveStateToLocalStorage();
-    sessionStorage.removeItem('userSession');
+    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
 }
 

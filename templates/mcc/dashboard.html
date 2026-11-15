@@ -2314,7 +2314,7 @@ window.saveProfile = saveProfile;
 
 function logout() {
     if (pollInterval) clearInterval(pollInterval);
-    sessionStorage.removeItem('userSession');
+    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
 }
 window.logout = logout;

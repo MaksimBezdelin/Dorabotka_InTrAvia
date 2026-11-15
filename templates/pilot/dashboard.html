@@ -1815,7 +1815,7 @@ function logout() {
     if (vizAnimationId) cancelAnimationFrame(vizAnimationId);
     if (audioContext) { try { audioContext.close(); } catch(_) {} }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
-    sessionStorage.removeItem('userSession');
+    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
 }
 window.logout = logout;

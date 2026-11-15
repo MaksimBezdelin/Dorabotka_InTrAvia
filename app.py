@@ -22,6 +22,7 @@ import json
 import base64
 import sqlite3
 import io
+from datetime import timedelta
 import tempfile
 import subprocess
 import shutil
@@ -124,10 +125,13 @@ else:
     print('[FFMPEG] Либо задайте путь в переменной окружения INTRAVIA_FFMPEG.')
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-app.secret_key = 'intravia-secret-key-change-in-production'
+app.secret_key = os.environ.get('INTRAVIA_SECRET') or 'intravia-secret-key-change-in-production'
+app.permanent_session_lifetime = timedelta(hours=12)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 
-CORS(app, resources={r"/*": {"origins": "*"}})
+# CORS больше не открыт наружу: интерфейс и API отдаёт один сервер.
+# Раньше стояло origins="*" — любой сторонний сайт мог дёргать API.
+CORS(app, resources={r"/api/*": {"origins": []}})
 
 
 # ------------------------------------------------------------
@@ -939,6 +943,48 @@ def foreman_dashboard(): return render_template('supervisor/dashboard.html', rol
 # ============================================================
 # Авторизация
 # ============================================================
+PUBLIC_API = {'/api/auth/login', '/api/auth/logout', '/api/auth/session'}
+PUBLIC_PAGES = {'/login.html', '/', '/favicon.ico'}
+
+
+@app.before_request
+def require_session():
+    """Без входа доступны только страница входа и /api/auth/*."""
+    path = request.path
+    if request.method == 'OPTIONS':
+        return None
+
+    is_api = path.startswith('/api/')
+    is_page = path.endswith('.html') or path == '/'
+
+    if not (is_api or is_page):
+        return None
+    if is_api and path in PUBLIC_API:
+        return None
+    if path in PUBLIC_PAGES:
+        return None
+    if session.get('user'):
+        return None
+
+    if is_api:
+        return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+    return redirect(url_for('login_page'))
+
+
+@app.route('/api/auth/session', methods=['GET'])
+def auth_session():
+    user = session.get('user')
+    if not user:
+        return jsonify({'success': False}), 401
+    return jsonify({'success': True, 'user': user})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    session.clear()
+    return jsonify({'success': True})
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     data = request.get_json() or {}
@@ -959,6 +1005,9 @@ def auth_login():
         if s:
             cur.execute("UPDATE staff SET status='online' WHERE id=?", (s['id'],))
             conn.commit(); conn.close()
+            session['user'] = {
+                'id': s['id'], 'email': s['email'], 'name': s['name'],
+                'role': s['role'], 'avatar': '👤'}
             return jsonify({'success': True, 'user': {
                 'id': s['id'], 'email': s['email'], 'name': s['name'],
                 'role': s['role'], 'shift': s['shift'] or 'day',
@@ -980,6 +1029,8 @@ def auth_login():
     res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
            'role': u['role'], 'avatar': u['avatar'] or '👤'}
     res.update(extra)
+    session.permanent = True
+    session['user'] = res
     return jsonify({'success': True, 'user': res})
 
 
