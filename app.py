@@ -168,10 +168,23 @@ app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.secret_key = os.environ.get('INTRAVIA_SECRET') or 'intravia-secret-key-change-in-production'
 app.permanent_session_lifetime = timedelta(hours=12)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
+# cookie сессии недоступна из JS и не уходит на сторонние сайты;
+# флаг Secure включает serve.py при запуске с HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # CORS больше не открыт наружу: интерфейс и API отдаёт один сервер.
 # Раньше стояло origins="*" — любой сторонний сайт мог дёргать API.
 CORS(app, resources={r"/api/*": {"origins": []}})
+
+
+@app.after_request
+def security_headers(resp):
+    """Базовые заголовки: без сниффинга типов, без встраивания в чужие рамки."""
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'DENY')
+    resp.headers.setdefault('Referrer-Policy', 'same-origin')
+    return resp
 
 
 # ------------------------------------------------------------

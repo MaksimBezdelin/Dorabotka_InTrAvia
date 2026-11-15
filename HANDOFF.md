@@ -7,8 +7,10 @@
 - Репозиторий: `C:\Users\Вячеслав\PycharmProjects\Dorabotka_InTrAvia`
 - Ветка: `SlavasTest` (запушена в `origin`, upstream настроен)
 - Окружение: `.venv` (Python 3.13), ставится `pip install -r requirements-dev.txt`
-- Запуск: `.venv\Scripts\python.exe app.py` → http://127.0.0.1:5000/login.html
-- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (108 проходят)
+- Разработка: `.venv\Scripts\python.exe app.py` → http://127.0.0.1:5000/login.html
+- Продакшн: `.venv\Scripts\python.exe serve.py` (waitress) → http://127.0.0.1:8080
+- HTTPS: `INTRAVIA_HTTPS=1` + сертификат (см. README, раздел «HTTPS»)
+- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (110 проходят)
 
 ## Важное про состояние репозитория
 
@@ -59,7 +61,12 @@
   цепочки (его дашборд это умеет), остальные — только свой шаг.
 - **`/api/chain` фильтруется на сервере**: MCC и admin видят всю цепочку,
   ЦПУ — всё, что вышло из MCC, нач. смены и бригадир — только назначенное им.
-- 108 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`).
+- **Продакшн-сервер и HTTPS**: `serve.py` на waitress (порт 8080). Waitress
+  не умеет TLS, поэтому при `INTRAVIA_HTTPS=1` перед ним поднимается
+  встроенный TLS-терминатор на loopback, а cookie получает `Secure`.
+  Заголовки `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
+  и `SameSite=Lax` + `HttpOnly` для cookie — на всех ответах.
+- 110 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`).
 
 ## Что осталось до реальной эксплуатации
 
@@ -71,10 +78,10 @@
    `GET /api/pilot/atlb` (все рейсы, если не передан `?pilot=`) отдают лишнее.
 3. **Права на конкретные записи** — роль проверена, но не принадлежность:
    инженер может вынести вердикт по любой заявке, диспетчер — отменить любую.
-4. **HTTPS + продакшн-сервер** (`waitress` на Windows), cookie сейчас уходит
-   открытым текстом.
-5. Резервные копии `database.db`, вынос файла базы из папки проекта
+4. Резервные копии `database.db`, вынос файла базы из папки проекта
    (путь настраивается через `INTRAVIA_DB`).
+5. Боевой TLS: встроенный терминатор — для стенда. Для эксплуатации поставить
+   Caddy/IIS/nginx с настоящим сертификатом и указать `INTRAVIA_TRUSTED_PROXY`.
 
 ## Хвосты, не связанные с безопасностью
 
@@ -91,6 +98,11 @@
 
 - Переменные окружения: `INTRAVIA_SECRET`, `INTRAVIA_DB`, `INTRAVIA_HOST`,
   `INTRAVIA_PORT`, `INTRAVIA_DEBUG=1`, `INTRAVIA_FFMPEG`, `WHISPER_MODEL`.
+  Для `serve.py`: `INTRAVIA_HTTPS=1`, `INTRAVIA_TLS_CERT`, `INTRAVIA_TLS_KEY`,
+  `INTRAVIA_TRUSTED_PROXY`.
+- `serve.py` при HTTPS держит waitress только на 127.0.0.1 и слушает снаружи
+  TLS-терминатором; `server.effective_port` выбирается динамически, чтобы не
+  занимать порт 8080 дважды.
 - В `app.py` есть блоки, помеченные `[AI]` / `[MAN]` / `[MIX]` — так команда
   отмечала, что писал ассистент, а что человек. Ориентируйтесь на `[MAN]`.
 - `database.db` вне git (`.gitignore`), создаётся и наполняется при старте.

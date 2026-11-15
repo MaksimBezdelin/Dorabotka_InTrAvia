@@ -55,6 +55,22 @@ def test_session_after_login_and_logout(app_module):
     assert c.get('/api/chain').status_code == 401
 
 
+def test_security_headers_present(anon_client):
+    resp = anon_client.get('/login.html')
+    assert resp.headers['X-Content-Type-Options'] == 'nosniff'
+    assert resp.headers['X-Frame-Options'] == 'DENY'
+    assert resp.headers['Referrer-Policy'] == 'same-origin'
+
+
+def test_session_cookie_flags(app_module):
+    c = app_module.app.test_client()
+    resp = c.post('/api/auth/login',
+                  json={'email': 'admin@aeroflot.ru', 'password': 'admin123'})
+    cookie = resp.headers.get('Set-Cookie', '')
+    assert 'HttpOnly' in cookie
+    assert 'SameSite=Lax' in cookie or 'SameSite=lax' in cookie
+
+
 def test_tampered_cookie_rejected(anon_client):
     # подсунутая сессия без валидной подписи не даёт доступа
     anon_client.set_cookie('session',

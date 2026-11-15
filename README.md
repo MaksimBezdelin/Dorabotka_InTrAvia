@@ -31,6 +31,41 @@ python app.py
 При первом запуске `database.db` создаётся и заполняется демонстрационными
 данными автоматически.
 
+### Продакшн-запуск (waitress)
+
+`app.py` запускает отладочный сервер Flask — он годится только для разработки.
+Для работы «как на площадке» есть `serve.py` на waitress:
+
+```bat
+set INTRAVIA_SECRET=<длинная случайная строка>
+.venv\Scripts\python.exe serve.py
+```
+
+Открыть http://127.0.0.1:8080/login.html (порт меняется `INTRAVIA_PORT`).
+
+### HTTPS
+
+Waitress не умеет TLS, поэтому `serve.py` с `INTRAVIA_HTTPS=1` поднимает
+небольшой TLS-терминатор перед waitress и включает `Secure` у cookie сессии.
+Сертификат для локального стенда:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout certs/key.pem -out certs/cert.pem \
+  -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
+
+```bat
+set INTRAVIA_HTTPS=1
+set INTRAVIA_TLS_CERT=certs\cert.pem
+set INTRAVIA_TLS_KEY=certs\key.pem
+.venv\Scripts\python.exe serve.py
+```
+
+Открыть https://127.0.0.1:8080/login.html. Браузер предупредит о самоподписанном
+сертификате — это нормально для локального стенда. Для боевого контура TLS
+лучше терминировать на Caddy/IIS/nginx (`INTRAVIA_TRUSTED_PROXY` — адрес
+прокси, которому доверяем `X-Forwarded-*`).
+
 ### Тестовые учётные записи
 
 | Роль | Логин | Пароль |
@@ -270,6 +305,8 @@ data/*.json             устаревшие данные, кодом не ис�
   инженер может вынести вердикт по любой заявке, диспетчер — отменить любую.
 - `GET /api/requests` и `GET /api/pilot/atlb` отдают больше, чем нужно роли
   (`/api/chain` уже фильтруется на сервере).
+- Встроенный TLS-терминатор в `serve.py` — для стенда; боевой контур должен
+  стоять за Caddy/IIS/nginx с нормальным сертификатом.
 - Списки неисправностей и сопоставление «дефект → квалификация» захардкожены
   (`FAULT_TYPES` во фронтенде, `FAULT_SKILL` в `app.py`).
 - Сосуществуют две модели: серверная цепочка МЦЦ

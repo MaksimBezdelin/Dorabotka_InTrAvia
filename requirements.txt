@@ -6,5 +6,6 @@ openpyxl==3.1.5
 openai-whisper==20250625
 
 # torch, numba, tiktoken и numpy подтягиваются как зависимости openai-whisper.
-# gunicorn нужен только для Linux-развёртывания — на Windows не запускается.
+# Продакшн-серверы: waitress на Windows (serve.py), gunicorn на Linux.
+waitress==3.0.2; sys_platform == "win32"
 gunicorn==27.0.1; sys_platform != "win32"
