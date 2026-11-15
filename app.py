@@ -1767,9 +1767,12 @@ def dispatch():
         pilot_rank = (data.get('pilot_rank') or '').strip() or 'КВС'
         aircraft = (data.get('aircraft') or '').strip() or None
         pilot_audio = data.get('pilot_audio') or ''
-        if not pilot_audio:
+        pilot_description = (data.get('description') or '').strip()
+        # текстовая заявка допустима без аудио — достаточно описания
+        if not pilot_audio and not pilot_description:
             conn.close()
-            return jsonify({'success': False, 'error': 'Аудиозапись не передана'}), 400
+            return jsonify({'success': False,
+                            'error': 'Нужна аудиозапись или текстовое описание'}), 400
         is_draft = data.get('is_draft', False)
         st = 'draft' if is_draft else 'new'
         mcc = 'DRAFT' if is_draft else 'PENDING'
@@ -1777,12 +1780,16 @@ def dispatch():
         cur.execute("""INSERT INTO requests (id, aircraft, fault_type, severity, terminal,
             parking_id, description, source, engineer_id, engineer_name, travel_time,
             status, criticality, pilot_name, pilot_rank, pilot_audio,
-            pilot_audio_mime, pilot_audio_duration, mcc_status)
-            VALUES (?,?,?,'medium',NULL,NULL,?,'pilot',NULL,NULL,0,?,'medium',?,?,?,?,?,?)""",
-            (rid, aircraft, 'pilot_voice', 'Голосовая заявка от командира ВС',
+            pilot_audio_mime, pilot_audio_duration, mcc_status, chain_stage)
+            VALUES (?,?,?,'medium',NULL,?,?,'pilot',NULL,NULL,0,?,'medium',?,?,?,?,?,?,'mcc')""",
+            (rid, aircraft, data.get('fault_type') or 'pilot_voice',
+             str(data.get('parking_id') or '') or None,
+             pilot_description or 'Голосовая заявка от командира ВС',
              st, pilot_name, pilot_rank, pilot_audio,
              data.get('pilot_audio_mime') or 'audio/webm',
              data.get('pilot_audio_duration') or 0, mcc))
+        chain_log(conn, rid, 'mcc', 'Пилот', pilot_name,
+                  'Дефект зарегистрирован и передан в MCC')
         conn.commit(); conn.close()
         return jsonify({'success': True, 'request_id': rid, 'requestId': rid, 'id': rid})
 
@@ -2449,6 +2456,17 @@ def chain_log(conn, rid, stage, actor_role, actor_name, note=''):
                     VALUES (?,?,?,?,?)""", (rid, stage, actor_role, actor_name or '', note or ''))
 
 
+def _iso_ts(value):
+    """SQLite пишет CURRENT_TIMESTAMP в UTC без пояса — помечаем как UTC,
+    иначе браузер считает время локальным и врёт с возрастом заявки."""
+    if not value:
+        return value
+    text = str(value)
+    if 'T' in text:
+        return text if text.endswith('Z') else text + 'Z'
+    return text.replace(' ', 'T') + 'Z'
+
+
 def _chain_entry(row, history):
     """Запись в форме, которую ожидает интерфейс МЦЦ (формат прежнего ATLB)."""
     stage = row.get('chain_stage') or 'mcc'
@@ -2465,20 +2483,20 @@ def _chain_entry(row, history):
         'parking': row.get('parking_id') or '',
         'terminal': row.get('terminal') or '',
         'source': 'pilot' if row.get('source') == 'pilot' else 'manual',
-        'createdAt': row.get('created_at'),
+        'createdAt': _iso_ts(row.get('created_at')),
         'status': status,
         'chainStage': stage,
         'chainStageLabel': CHAIN_STAGE_LABELS.get(stage, stage),
-        'cpuSentAt': row.get('cpu_at'),
+        'cpuSentAt': _iso_ts(row.get('cpu_at')),
         'shiftSupervisorName': row.get('shift_supervisor_name') or '',
-        'shiftAssignedAt': row.get('shift_assigned_at'),
+        'shiftAssignedAt': _iso_ts(row.get('shift_assigned_at')),
         'foremanName': row.get('foreman_name') or '',
-        'foremanAssignedAt': row.get('foreman_assigned_at'),
+        'foremanAssignedAt': _iso_ts(row.get('foreman_assigned_at')),
         'engineerName': row.get('engineer_name') or '',
-        'technicianAssignedAt': row.get('technician_assigned_at'),
+        'technicianAssignedAt': _iso_ts(row.get('technician_assigned_at')),
         'engineerId': row.get('engineer_id') or '',
         'verdict': row.get('engineer_verdict') or '',
-        'verdictAt': row.get('engineer_verdict_at'),
+        'verdictAt': _iso_ts(row.get('engineer_verdict_at')),
         'mccDecision': row.get('mcc_decision') or '',
         'mccComment': row.get('mcc_comment') or '',
         'melRef': row.get('mcc_mel_ref') or '',
@@ -2487,10 +2505,10 @@ def _chain_entry(row, history):
         'aogConfirmed': (row.get('mcc_decision') or '') == 'AOG_RECOVERY',
         'aogEtr': row.get('etr') or '',
         'aogAction': row.get('aog_action') or '',
-        'aogSince': row.get('aog_since'),
+        'aogSince': _iso_ts(row.get('aog_since')),
         'engineerComment': row.get('engineer_comment') or '',
         'flightNumber': '',
-        'closedAt': row.get('chain_closed_at'),
+        'closedAt': _iso_ts(row.get('chain_closed_at')),
         'pilotName': row.get('pilot_name') or '',
         'pilotRank': row.get('pilot_rank') or '',
         'history': history,
@@ -2538,7 +2556,7 @@ def get_chain():
                    FROM chain_log ORDER BY id ASC""")
     for h in cur.fetchall():
         hist.setdefault(h['request_id'], []).append({
-            'at': h['created_at'], 'to': h['stage'], 'role': h['actor_role'],
+            'at': _iso_ts(h['created_at']), 'to': h['stage'], 'role': h['actor_role'],
             'note': h['note'], 'actor': h['actor_name'],
         })
     conn.close()

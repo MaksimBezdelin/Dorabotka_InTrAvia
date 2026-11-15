@@ -1266,10 +1266,14 @@ function submitTextRequest(event) {
     var fullDescription = descLines.join('\n');
 
     var payload = {
+        source: 'pilot',
+        pilot_name: user.name || 'Пилот',
+        pilot_rank: user.rank || 'КВС',
         aircraft: aircraft || (user.aircraft || 'RA-XXXXX'),
         fault_type: labelToCode(defects[0].name),
         severity: defects[0].severity,
         parking_id: parking,
+        description: fullDescription,
         flight_number: flight || null
     };
 
