@@ -2653,7 +2653,9 @@ def chain_assign_shift(rid):
     conn.execute("""UPDATE requests SET chain_stage='shift', shift_supervisor_id=?,
                     shift_supervisor_name=?, shift_assigned_at=CURRENT_TIMESTAMP
                     WHERE id=?""", (st['id'], st['name'], rid))
-    chain_log(conn, rid, 'shift', 'ЦПУ', st['name'], comment)
+    # актор — оператор ЦПУ, который назначает; назначенный идёт в отдельное поле
+    chain_log(conn, rid, 'shift', 'ЦПУ', data.get('actor') or 'Оператор ЦПУ',
+              comment + ' | Назначен: ' + st['name'])
     conn.commit(); conn.close()
     return jsonify({'success': True, 'chain_stage': 'shift', 'name': st['name']})
 

@@ -880,7 +880,7 @@ function submitAssign() {
     var path, payload;
     if (ROLE === 'cpu') {
         path = '/chain/' + encodeURIComponent(currentRequestId) + '/assign_shift';
-        payload = {staff_id: selectedId, comment: comment};
+        payload = {staff_id: selectedId, comment: comment, actor: user.name};
     } else if (ROLE === 'shift_supervisor') {
         path = '/chain/' + encodeURIComponent(currentRequestId) + '/assign_foreman';
         payload = {staff_id: selectedId, comment: comment};
