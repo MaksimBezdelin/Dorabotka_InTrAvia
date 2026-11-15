@@ -135,6 +135,49 @@ def test_mel_defer_closes_without_technician(api, make_pilot_request):
     assert entry['melCategory'] == 'C'
 
 
+def _login(app_module, email, password):
+    c = app_module.app.test_client()
+    resp = c.post('/api/auth/login', json={'email': email, 'password': password})
+    assert resp.status_code == 200, (email, resp.get_json())
+    return c
+
+
+def _chain_ids(client):
+    resp = client.get('/api/chain')
+    assert resp.status_code == 200
+    return {e['id'] for e in resp.get_json()}
+
+
+def test_chain_visibility_scoped_by_role(app_module, api, make_pilot_request):
+    status, staff = api.get('/api/staff')
+    sup_id = next(r['id'] for r in staff if r['email'] == 'shift@aeroflot.ru')
+    foreman_id = next(r['id'] for r in staff if r['email'] == 'foreman@aeroflot.ru')
+
+    rid = make_pilot_request(aircraft='RA-VIS1')
+
+    # на этапе MCC заявку видят MCC и admin, но не ЦПУ
+    assert rid in _chain_ids(_login(app_module, 'mcc@aeroflot.ru', 'mcc123'))
+    assert rid in _chain_ids(_login(app_module, 'admin@aeroflot.ru', 'admin123'))
+    assert rid not in _chain_ids(_login(app_module, 'cpu@aeroflot.ru', 'cpu123'))
+
+    # после передачи в ЦПУ — видит ЦПУ, но ещё не начальник смены
+    api.post(f'/api/chain/{rid}/to_cpu', {})
+    assert rid in _chain_ids(_login(app_module, 'cpu@aeroflot.ru', 'cpu123'))
+    assert rid not in _chain_ids(_login(app_module, 'shift@aeroflot.ru', 'shift123'))
+
+    # назначенный начальник смены видит, второй — нет
+    api.post(f'/api/chain/{rid}/assign_shift',
+             {'staff_id': sup_id, 'comment': 'x'})
+    assert rid in _chain_ids(_login(app_module, 'shift@aeroflot.ru', 'shift123'))
+    assert rid not in _chain_ids(_login(app_module, 'shift2@aeroflot.ru', 'shift123'))
+
+    # назначенный бригадир видит, второй — нет
+    api.post(f'/api/chain/{rid}/assign_foreman',
+             {'staff_id': foreman_id, 'comment': 'x'})
+    assert rid in _chain_ids(_login(app_module, 'foreman@aeroflot.ru', 'foreman123'))
+    assert rid not in _chain_ids(_login(app_module, 'foreman2@aeroflot.ru', 'foreman123'))
+
+
 def test_recurring_flag_after_three_defects(api, make_pilot_request):
     for _ in range(3):
         make_pilot_request(aircraft='RA-RECUR', fault='engine_vibration')

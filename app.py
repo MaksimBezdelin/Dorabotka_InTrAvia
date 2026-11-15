@@ -2843,11 +2843,26 @@ def get_staff():
 @app.route('/api/chain', methods=['GET'])
 @roles('mcc', 'cpu', 'shift_supervisor', 'foreman')
 def get_chain():
+    user = session.get('user') or {}
+    role = user.get('role')
+    sql = """SELECT * FROM requests
+             WHERE COALESCE(flight_cancelled, 0) = 0
+               AND status NOT IN ('cancelled', 'draft')"""
+    params = []
+    # ЦПУ видит всё, что уже вышло из MCC; звенья — только назначенные им.
+    # MCC и admin видят всю цепочку.
+    if role == 'cpu':
+        sql += " AND chain_stage != 'mcc'"
+    elif role == 'shift_supervisor':
+        sql += " AND shift_supervisor_id = ?"
+        params.append(user.get('id') or '')
+    elif role == 'foreman':
+        sql += " AND foreman_id = ?"
+        params.append(user.get('id') or '')
+    sql += " ORDER BY created_at DESC"
+
     conn = get_db(); cur = conn.cursor()
-    cur.execute("""SELECT * FROM requests
-                   WHERE COALESCE(flight_cancelled, 0) = 0
-                     AND status NOT IN ('cancelled', 'draft')
-                   ORDER BY created_at DESC""")
+    cur.execute(sql, params)
     rows = [dict(r) for r in cur.fetchall()]
     rec_map = _compute_recurring_map(conn)
     hist = {}
