@@ -467,7 +467,15 @@ def ensure_schema(conn):
 
     cur.execute("""CREATE TABLE IF NOT EXISTS staff (
         id TEXT PRIMARY KEY, name TEXT, role TEXT,
-        shift TEXT DEFAULT 'day', status TEXT DEFAULT 'online')""")
+        shift TEXT DEFAULT 'day', status TEXT DEFAULT 'online',
+        email TEXT DEFAULT '', password TEXT DEFAULT '')""")
+
+    cur.execute("PRAGMA table_info(staff)")
+    staff_cols = {r['name'] for r in cur.fetchall()}
+    for col, typ in (('email', "TEXT DEFAULT ''"), ('password', "TEXT DEFAULT ''")):
+        if col not in staff_cols:
+            cur.execute(f"ALTER TABLE staff ADD COLUMN {col} {typ}")
+            print(f"[MIGRATION] + staff.{col}")
 
     cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -575,14 +583,28 @@ def seed_initial_data(conn):
 
     cur.execute("SELECT COUNT(*) FROM staff")
     if cur.fetchone()[0] == 0:
-        cur.executemany("""INSERT INTO staff (id,name,role,shift,status)
-                           VALUES (?,?,?,?,'online')""", [
-            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day'),
-            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night'),
-            ('fr_1', 'Ершов Е.В.', 'foreman', 'day'),
-            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day'),
-            ('fr_3', 'Зимин З.П.', 'foreman', 'night'),
+        cur.executemany("""INSERT INTO staff (id,name,role,shift,status,email,password)
+                           VALUES (?,?,?,?,'online',?,?)""", [
+            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day', 'shift@aeroflot.ru', 'shift123'),
+            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night', 'shift2@aeroflot.ru', 'shift123'),
+            ('fr_1', 'Ершов Е.В.', 'foreman', 'day', 'foreman@aeroflot.ru', 'foreman123'),
+            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day', 'foreman2@aeroflot.ru', 'foreman123'),
+            ('fr_3', 'Зимин З.П.', 'foreman', 'night', 'foreman3@aeroflot.ru', 'foreman123'),
         ])
+    else:
+        # вход для уже созданных записей справочника
+        cur.executemany("UPDATE staff SET email=?, password=? WHERE id=? AND (email='' OR email IS NULL)", [
+            ('shift@aeroflot.ru', 'shift123', 'sup_1'),
+            ('shift2@aeroflot.ru', 'shift123', 'sup_2'),
+            ('foreman@aeroflot.ru', 'foreman123', 'fr_1'),
+            ('foreman2@aeroflot.ru', 'foreman123', 'fr_2'),
+            ('foreman3@aeroflot.ru', 'foreman123', 'fr_3'),
+        ])
+
+    # оператор ЦПУ — отдельный профиль для первого шага цепочки
+    cur.execute("""INSERT OR IGNORE INTO staff (id,name,role,shift,status,email,password)
+                   VALUES ('cpu_1','Орлов В.Н.','cpu','day','online',
+                           'cpu@aeroflot.ru','cpu123')""")
     conn.commit()
 
 
@@ -894,6 +916,18 @@ def pilot_dashboard(): return render_template('pilot/dashboard.html')
 def mcc_dashboard(): return render_template('mcc/dashboard.html')
 
 
+@app.route('/cpu/dashboard.html')
+def cpu_dashboard(): return render_template('supervisor/dashboard.html', role='cpu')
+
+
+@app.route('/shift/dashboard.html')
+def shift_dashboard(): return render_template('supervisor/dashboard.html', role='shift_supervisor')
+
+
+@app.route('/foreman/dashboard.html')
+def foreman_dashboard(): return render_template('supervisor/dashboard.html', role='foreman')
+
+
 # ============================================================
 # Авторизация
 # ============================================================
@@ -910,6 +944,19 @@ def auth_login():
                 (email, password))
     u = cur.fetchone()
     if not u:
+        # начальник смены и бригадир входят из справочника staff
+        cur.execute("""SELECT id,email,name,role,shift FROM staff
+                       WHERE LOWER(email)=? AND password=?""", (email, password))
+        s = cur.fetchone()
+        if s:
+            cur.execute("UPDATE staff SET status='online' WHERE id=?", (s['id'],))
+            conn.commit(); conn.close()
+            return jsonify({'success': True, 'user': {
+                'id': s['id'], 'email': s['email'], 'name': s['name'],
+                'role': s['role'], 'shift': s['shift'] or 'day',
+                'avatar': {'shift_supervisor': '👷', 'foreman': '🧰',
+                           'cpu': '🗂'}.get(s['role'], '👤'),
+            }})
         conn.close()
         return jsonify({'error': 'Неверный email или пароль'}), 401
     cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
@@ -2488,8 +2535,10 @@ def _chain_entry(row, history):
         'chainStage': stage,
         'chainStageLabel': CHAIN_STAGE_LABELS.get(stage, stage),
         'cpuSentAt': _iso_ts(row.get('cpu_at')),
+        'shiftSupervisorId': row.get('shift_supervisor_id') or '',
         'shiftSupervisorName': row.get('shift_supervisor_name') or '',
         'shiftAssignedAt': _iso_ts(row.get('shift_assigned_at')),
+        'foremanId': row.get('foreman_id') or '',
         'foremanName': row.get('foreman_name') or '',
         'foremanAssignedAt': _iso_ts(row.get('foreman_assigned_at')),
         'engineerName': row.get('engineer_name') or '',
