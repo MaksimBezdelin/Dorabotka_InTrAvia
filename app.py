@@ -1,5 +1,4 @@
 # ============================================================
-<<<<<<< HEAD
 # InTrAvia Dispatch — Сервер (Flask) + NetworkX routing + MCC flow
 # ============================================================
 # Логика цепочки (реальная авиация):
@@ -13,46 +12,64 @@
 #        - AOG_RECOVERY → запускает AOG Recovery (запчасти, OEM, ETR)
 #        - MEL_DEFER    → оформляет MEL с категорией
 #        - CLOSE        → закрывает дефект (ремонт выполнен)
-=======
-# InTrAvia Dispatch — Сервер (Flask)
-# ============================================================
-# Файл собран командой InTrAvia вместе с нейросетью-ассистентом.
-# Включает в себя: полную логику CRUD, синхронизацию таблиц,
-# поддержку черновиков (drafts), интеграцию с MCC, Whisper и аудио.
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ============================================================
 
 import os
 import re
+import hmac
 import math
 import time
 import json
 import base64
 import sqlite3
+import io
+from functools import wraps
+from datetime import datetime, timedelta
 import tempfile
 import subprocess
 import shutil
 import threading
-<<<<<<< HEAD
 import networkx as nx
-=======
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 from flask_cors import CORS
+from werkzeug.security import (
+    generate_password_hash, check_password_hash
+)
 from flask import (
     Flask, request, jsonify, session,
     render_template, redirect, url_for,
     Response, abort
 )
 
+# Консоль Windows по умолчанию cp1251 — любой непечатный символ в print()
+# роняет запуск. Переключаем потоки на UTF-8, чтобы приложение стартовало везде.
+import sys
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 # ------------------------------------------------------------
-<<<<<<< HEAD
 # Конфигурация
-=======
-# [MIX] Конфигурация
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'database.db')
+
+
+def _default_data_dir():
+    """Каталог данных вне папки проекта: код обновляется, база — нет."""
+    if os.name == 'nt':
+        root = os.environ.get('LOCALAPPDATA') or os.path.join(
+            os.path.expanduser('~'), 'AppData', 'Local')
+    else:
+        root = os.environ.get('XDG_DATA_HOME') or os.path.join(
+            os.path.expanduser('~'), '.local', 'share')
+    return os.path.join(root, 'InTrAvia')
+
+
+DATA_DIR = os.environ.get('INTRAVIA_DATA_DIR') or _default_data_dir()
+# INTRAVIA_DB подменяет файл базы целиком (тесты, стенд)
+DB_PATH = os.environ.get('INTRAVIA_DB') or os.path.join(DATA_DIR, 'database.db')
+LEGACY_DB_PATH = os.path.join(BASE_DIR, 'database.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
@@ -60,36 +77,133 @@ REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
 
-FFMPEG_PATH = r'C:\Users\deela\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe'
+# ------------------------------------------------------------
+# Пароли
+# ------------------------------------------------------------
+# В базе хранятся только хэши (scrypt). Старые записи, где пароль лежит
+# открытым текстом, принимаются один раз и при успешном входе переписываются
+# хэшем — так база переезжает на хэши без отдельной миграции.
 
-if os.path.exists(FFMPEG_PATH):
+def hash_password(password):
+    return generate_password_hash(password)
+
+
+def is_password_hash(value):
+    """Формат werkzeug: '<метод>$<соль>$<хэш>'."""
+    if not isinstance(value, str):
+        return False
+    method, sep, _ = value.partition('$')
+    return bool(sep) and method.split(':')[0] in ('scrypt', 'pbkdf2')
+
+
+def verify_password(stored, password):
+    """Сверяет пароль с тем, что лежит в базе.
+
+    Возвращает (совпал, нужен_перехэш). Второй флаг True только для старых
+    записей с открытым паролем — вызывающий код заменяет их хэшем.
+    """
+    if not stored:
+        return False, False
+    if is_password_hash(stored):
+        try:
+            return check_password_hash(stored, password), False
+        except ValueError:
+            return False, False
+    return hmac.compare_digest(stored, password), True
+
+
+def _find_ffmpeg_below(root, max_depth=3):
+    """Ищет bin/ffmpeg.exe в подкаталогах портативной сборки."""
+    base_depth = root.rstrip(os.sep).count(os.sep)
+    for current, dirs, files in os.walk(root):
+        if current.count(os.sep) - base_depth >= max_depth:
+            dirs[:] = []
+            continue
+        if 'ffmpeg.exe' in files:
+            return os.path.join(current, 'ffmpeg.exe')
+    return None
+
+
+def _resolve_ffmpeg():
+    """Ищет ffmpeg без хардкода пути под конкретную машину.
+
+    Порядок: переменная окружения INTRAVIA_FFMPEG → PATH → winget → Program Files → ./bin.
+    """
+    candidates = []
+    env_path = os.environ.get('INTRAVIA_FFMPEG')
+    if env_path:
+        candidates.append(env_path)
+
+    on_path = shutil.which('ffmpeg')
+    if on_path:
+        candidates.append(on_path)
+
+    local_appdata = os.environ.get('LOCALAPPDATA')
+    if local_appdata:
+        candidates.append(os.path.join(
+            local_appdata, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'))
+
+        # Портативная сборка из winget: ссылка в Links создаётся не всегда,
+        # поэтому доискиваем exe внутри Packages\Gyan.FFmpeg_*
+        packages = os.path.join(local_appdata, 'Microsoft', 'WinGet', 'Packages')
+        if os.path.isdir(packages):
+            for entry in sorted(os.listdir(packages)):
+                if 'ffmpeg' in entry.lower():
+                    found = _find_ffmpeg_below(os.path.join(packages, entry))
+                    if found:
+                        candidates.append(found)
+
+    for var in ('ProgramFiles', 'ProgramFiles(x86)'):
+        root = os.environ.get(var)
+        if root:
+            candidates.append(os.path.join(root, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+
+    candidates.append(os.path.join(BASE_DIR, 'bin', 'ffmpeg.exe'))
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+FFMPEG_PATH = _resolve_ffmpeg()
+
+if FFMPEG_PATH:
     ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
     current_path = os.environ.get('PATH', '')
     if ffmpeg_dir not in current_path.split(os.pathsep):
         os.environ['PATH'] = ffmpeg_dir + os.pathsep + current_path
         print(f'[FFMPEG] Добавлено в PATH: {ffmpeg_dir}')
 else:
-    print(f'[FFMPEG] ВНИМАНИЕ: {FFMPEG_PATH} не найден!')
+    print('[FFMPEG] ВНИМАНИЕ: ffmpeg не найден — расшифровка голосовых заявок работать не будет.')
+    print('[FFMPEG] Установите: winget install Gyan.FFmpeg')
+    print('[FFMPEG] Либо задайте путь в переменной окружения INTRAVIA_FFMPEG.')
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-app.secret_key = 'intravia-secret-key-change-in-production'
+app.secret_key = os.environ.get('INTRAVIA_SECRET') or 'intravia-secret-key-change-in-production'
+app.permanent_session_lifetime = timedelta(hours=12)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
+# cookie сессии недоступна из JS и не уходит на сторонние сайты;
+# флаг Secure включает serve.py при запуске с HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-<<<<<<< HEAD
-=======
-# ============================================================
-# [MAN] CORS
-# ============================================================
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
-CORS(app, resources={r"/*": {"origins": "*"}})
+# CORS больше не открыт наружу: интерфейс и API отдаёт один сервер.
+# Раньше стояло origins="*" — любой сторонний сайт мог дёргать API.
+CORS(app, resources={r"/api/*": {"origins": []}})
+
+
+@app.after_request
+def security_headers(resp):
+    """Базовые заголовки: без сниффинга типов, без встраивания в чужие рамки."""
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'DENY')
+    resp.headers.setdefault('Referrer-Policy', 'same-origin')
+    return resp
 
 
 # ------------------------------------------------------------
-<<<<<<< HEAD
 # Координаты стоянок
-=======
-# [MAN] Координаты стоянок
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ------------------------------------------------------------
 PARKING_COORDS = {
     '101': (55.9807, 37.4171), '102': (55.9806, 37.4171),
@@ -149,7 +263,6 @@ def distance_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-<<<<<<< HEAD
 # ============================================================
 # Дорожный граф (vehicle) — NetworkX
 # ============================================================
@@ -235,7 +348,7 @@ def load_road_graph():
         _bridge_all_components(road_graph_vehicle, components)
         final_components = list(nx.connected_components(road_graph_vehicle))
         if len(final_components) == 1:
-            print('[GRAPH] ✓ Граф полностью связан')
+            print('[GRAPH] OK: граф полностью связан')
         else:
             print(f'[GRAPH] ⚠ Осталось {len(final_components)} компонент(ы)')
 
@@ -325,25 +438,77 @@ def get_shortest_path(graph, start_lat, start_lng, end_lat, end_lng):
 # ============================================================
 # DB
 # ============================================================
-=======
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
-<<<<<<< HEAD
-=======
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA foreign_keys=ON")
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     except sqlite3.OperationalError as e:
         print(f'[DB] PRAGMA warning: {e}')
     return conn
 
 
-<<<<<<< HEAD
+def migrate_legacy_database():
+    """Переносит database.db из папки проекта в DATA_DIR при первом запуске.
+
+    Копия делается через sqlite backup API, поэтому учитываются данные из WAL.
+    Старый файл не удаляем — его можно убрать вручную, когда всё проверено.
+    """
+    if os.environ.get('INTRAVIA_DB') or DB_PATH == LEGACY_DB_PATH:
+        return
+    if os.path.exists(DB_PATH) or not os.path.isfile(LEGACY_DB_PATH):
+        return
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    try:
+        src = sqlite3.connect(LEGACY_DB_PATH, timeout=30)
+        dst = sqlite3.connect(DB_PATH)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close(); src.close()
+        print(f'[DB] База перенесена в {DB_PATH}')
+    except sqlite3.Error as e:
+        print(f'[DB] Не удалось перенести базу: {e}')
+
+
+def backup_database(source_path=None, backup_dir=None, keep=None):
+    """Снимает резервную копию базы и чистит старые.
+
+    По умолчанию копии лежат в <папка базы>/backups, хранится последние
+    INTRAVIA_BACKUP_KEEP (14). Отключить: INTRAVIA_BACKUP=0.
+    """
+    if os.environ.get('INTRAVIA_BACKUP', '1').lower() in ('0', 'false', 'off', 'no'):
+        return None
+    source_path = source_path or DB_PATH
+    if not os.path.isfile(source_path):
+        return None
+    backup_dir = backup_dir or os.environ.get('INTRAVIA_BACKUP_DIR') or os.path.join(
+        os.path.dirname(source_path), 'backups')
+    keep = keep if keep is not None else int(os.environ.get('INTRAVIA_BACKUP_KEEP', '14'))
+    os.makedirs(backup_dir, exist_ok=True)
+
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    target = os.path.join(backup_dir, f'database-{stamp}.db')
+
+    src = sqlite3.connect(source_path, timeout=30)
+    dst = sqlite3.connect(target)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close(); src.close()
+
+    names = sorted(n for n in os.listdir(backup_dir)
+                   if n.startswith('database-') and n.endswith('.db'))
+    stale = names[:-keep] if keep > 0 else names
+    for name in stale:
+        try:
+            os.remove(os.path.join(backup_dir, name))
+        except OSError:
+            pass
+    return target
+
+
 def ensure_schema(conn):
     cur = conn.cursor()
 
@@ -420,7 +585,52 @@ def ensure_schema(conn):
         'engineer_verdict_at': "TIMESTAMP",
         'aog_action': "TEXT DEFAULT ''",             # parts | oem | ame | replace
         'inspection_assigned_at': "TIMESTAMP",
+        # --- сквозная цепочка MCC → ЦПУ → нач. смены → бригадир → техник → MCC ---
+        'chain_stage': "TEXT DEFAULT 'mcc'",
+        'cpu_at': "TIMESTAMP",
+        'shift_supervisor_id': "TEXT DEFAULT ''",
+        'shift_supervisor_name': "TEXT DEFAULT ''",
+        'shift_assigned_at': "TIMESTAMP",
+        'foreman_id': "TEXT DEFAULT ''",
+        'foreman_name': "TEXT DEFAULT ''",
+        'foreman_assigned_at': "TIMESTAMP",
+        'technician_assigned_at': "TIMESTAMP",
+        'chain_closed_at': "TIMESTAMP",
+        # подпись CRS пилотом в ATLB
+        'crs_signed': "INTEGER DEFAULT 0",
+        'crs_signed_at': "TIMESTAMP",
+        'crs_signed_by': "TEXT DEFAULT ''",
+        'crs_signature': "TEXT DEFAULT ''",
     }
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS staff (
+        id TEXT PRIMARY KEY, name TEXT, role TEXT,
+        shift TEXT DEFAULT 'day', status TEXT DEFAULT 'online',
+        email TEXT DEFAULT '', password TEXT DEFAULT '')""")
+
+    cur.execute("PRAGMA table_info(staff)")
+    staff_cols = {r['name'] for r in cur.fetchall()}
+    for col, typ in (('email', "TEXT DEFAULT ''"), ('password', "TEXT DEFAULT ''")):
+        if col not in staff_cols:
+            cur.execute(f"ALTER TABLE staff ADD COLUMN {col} {typ}")
+            print(f"[MIGRATION] + staff.{col}")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS reports (
+        id TEXT PRIMARY KEY, request_id TEXT, aircraft TEXT, engineer_name TEXT,
+        text TEXT, source TEXT DEFAULT 'dispatcher', deleted INTEGER DEFAULT 0,
+        payload TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    # в базах прошлых версий payload не было, а POST /api/reports его пишет
+    cur.execute("PRAGMA table_info(reports)")
+    report_cols = {r['name'] for r in cur.fetchall()}
+    if 'payload' not in report_cols:
+        cur.execute("ALTER TABLE reports ADD COLUMN payload TEXT DEFAULT ''")
+        print('[MIGRATION] + reports.payload')
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT, stage TEXT, actor_role TEXT, actor_name TEXT,
+        note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_chain_log_req ON chain_log(request_id)")
     for col, typ in needed_cols.items():
         if col not in existing_cols:
             try:
@@ -432,22 +642,30 @@ def ensure_schema(conn):
 
 
 def seed_initial_data(conn):
+    # Для боевой базы демо-учётки не нужны: INTRAVIA_DEMO_SEED=0.
+    # Первого администратора тогда создаёт `manage.py create-admin`.
+    if os.environ.get('INTRAVIA_DEMO_SEED', '1').lower() in ('0', 'false', 'off', 'no'):
+        return
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users WHERE role='admin'")
     if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('admin_1','admin@aeroflot.ru','admin123','Администратор','admin','👨‍💼','online')")
+        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('admin_1','admin@aeroflot.ru',?,'Администратор','admin','👨‍💼','online')",
+                    (hash_password('admin123'),))
 
     cur.execute("SELECT COUNT(*) FROM users WHERE role='dispatcher'")
     if cur.fetchone()[0] == 0:
+        # демо-пароль у всех диспетчеров один, поэтому хэш считается один раз
+        disp_hash = hash_password('disp123')
         cur.executemany("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                            VALUES (?,?,?,?,'dispatcher','👨‍✈️',?,?,'online')""", [
-            ('disp_1','dispatcher@aeroflot.ru','disp123','Петров П.П.','+7 (999) 200-10-01','day'),
-            ('disp_2','dispatcher2@aeroflot.ru','disp123','Козлов К.К.','+7 (999) 200-10-02','night'),
+            ('disp_1','dispatcher@aeroflot.ru',disp_hash,'Петров П.П.','+7 (999) 200-10-01','day'),
+            ('disp_2','dispatcher2@aeroflot.ru',disp_hash,'Козлов К.К.','+7 (999) 200-10-02','night'),
         ])
 
     cur.execute("SELECT COUNT(*) FROM users WHERE role='mcc'")
     if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('mcc_1','mcc@aeroflot.ru','mcc123','Смирнов А.В.','mcc','👨‍💻','online')")
+        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('mcc_1','mcc@aeroflot.ru',?,'Смирнов А.В.','mcc','👨‍💻','online')",
+                    (hash_password('mcc123'),))
 
     cur.execute("SELECT COUNT(*) FROM engineers")
     if cur.fetchone()[0] == 0:
@@ -470,8 +688,10 @@ def seed_initial_data(conn):
             ('eng_12','Белов Б.Б.','EN-012','general',55.979,37.414,'+7 (999) 300-10-12'),
             ('eng_16','Егоров Е.Е.','EN-016','general',55.971,37.415,'+7 (999) 300-10-16'),
         ])
+        eng_hash = hash_password('eng123')
         cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'eng123',?,'engineer','🔧','offline')""", [
+                           VALUES (?,?,?,?,'engineer','🔧','offline')""",
+                        [(i, e, eng_hash, n) for i, e, n in [
             ('eng_1','ivanov@aeroflot.ru','Иванов И.И.'),
             ('eng_2','sidorov@aeroflot.ru','Сидоров С.С.'),
             ('eng_3','kuznetsov@aeroflot.ru','Кузнецов К.К.'),
@@ -488,250 +708,10 @@ def seed_initial_data(conn):
             ('eng_14','sokolov@aeroflot.ru','Соколов С.С.'),
             ('eng_15','fomin@aeroflot.ru','Фомин Ф.Ф.'),
             ('eng_16','egorov@aeroflot.ru','Егоров Е.Е.'),
-=======
-# ============================================================
-# Схема БД
-# ============================================================
-def ensure_schema(conn):
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id        TEXT PRIMARY KEY,
-            email     TEXT UNIQUE NOT NULL,
-            password  TEXT NOT NULL,
-            name      TEXT NOT NULL,
-            role      TEXT NOT NULL,
-            avatar    TEXT,
-            phone     TEXT,
-            shift     TEXT,
-            status    TEXT DEFAULT 'offline'
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS engineers (
-            id              TEXT PRIMARY KEY,
-            name            TEXT NOT NULL,
-            device_id       TEXT,
-            specialization  TEXT DEFAULT 'general',
-            coords_lat      REAL DEFAULT 55.975,
-            coords_lng      REAL DEFAULT 37.410,
-            status          TEXT DEFAULT 'free',
-            task            TEXT,
-            phone           TEXT
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pilots (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            email       TEXT UNIQUE,
-            phone       TEXT,
-            aircraft    TEXT,
-            rank        TEXT DEFAULT 'pilot',
-            status      TEXT DEFAULT 'active'
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS transport (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id    TEXT UNIQUE NOT NULL,
-            lat          REAL NOT NULL,
-            lng          REAL NOT NULL,
-            speed        INTEGER DEFAULT 50,
-            assigned_to  TEXT
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS requests (
-            id                    TEXT PRIMARY KEY,
-            aircraft              TEXT,
-            fault_type            TEXT,
-            severity              TEXT DEFAULT 'medium',
-            terminal              TEXT,
-            parking_id            TEXT,
-            description           TEXT,
-            source                TEXT DEFAULT 'dispatcher',
-            engineer_id           TEXT,
-            engineer_name         TEXT,
-            travel_time           REAL DEFAULT 0,
-            using_car             INTEGER DEFAULT 0,
-            walk_to_car           REAL DEFAULT 0,
-            car_time              REAL DEFAULT 0,
-            best_car              TEXT,
-            status                TEXT DEFAULT 'assigned',
-            criticality           TEXT DEFAULT 'medium',
-            engineer_comment      TEXT,
-            pilot_name            TEXT,
-            pilot_rank            TEXT,
-            pilot_audio           TEXT,
-            pilot_audio_mime      TEXT,
-            pilot_audio_duration  REAL DEFAULT 0,
-            pilot_audio_text      TEXT,
-            rejected_by           TEXT DEFAULT '',
-            cancel_reason         TEXT DEFAULT '',
-            cancelled_by_name     TEXT DEFAULT '',
-            cancelled_at          TIMESTAMP,
-            replaces_request_id   TEXT DEFAULT '',
-            delay_minutes         INTEGER DEFAULT 0,
-            delay_reason          TEXT DEFAULT '',
-            delay_started_at      TIMESTAMP,
-            delay_approved_by     TEXT DEFAULT '',
-            flight_cancelled      INTEGER DEFAULT 0,
-            flight_cancel_reason  TEXT DEFAULT '',
-            flight_cancelled_at   TIMESTAMP,
-            all_rejected          INTEGER DEFAULT 0,
-            mcc_status            TEXT DEFAULT 'PENDING',
-            mcc_decision          TEXT DEFAULT '',
-            mcc_comment           TEXT DEFAULT '',
-            created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-
-    # Миграции: базовые поля
-    cur.execute("PRAGMA table_info(requests)")
-    existing_cols = {row['name'] for row in cur.fetchall()}
-
-    needed_cols = {
-        'pilot_name':           "TEXT",
-        'pilot_rank':           "TEXT",
-        'pilot_audio':          "TEXT",
-        'pilot_audio_mime':     "TEXT",
-        'pilot_audio_duration': "REAL DEFAULT 0",
-        'pilot_audio_text':     "TEXT",
-        'rejected_by':          "TEXT DEFAULT ''",
-        'cancel_reason':        "TEXT DEFAULT ''",
-        'cancelled_by_name':    "TEXT DEFAULT ''",
-        'cancelled_at':         "TIMESTAMP",
-        'replaces_request_id':  "TEXT DEFAULT ''",
-        'delay_minutes':        "INTEGER DEFAULT 0",
-        'delay_reason':         "TEXT DEFAULT ''",
-        'delay_started_at':     "TIMESTAMP",
-        'delay_approved_by':    "TEXT DEFAULT ''",
-        'flight_cancelled':     "INTEGER DEFAULT 0",
-        'flight_cancel_reason': "TEXT DEFAULT ''",
-        'flight_cancelled_at':  "TIMESTAMP",
-        'all_rejected':         "INTEGER DEFAULT 0",
-        'mcc_status':           "TEXT DEFAULT 'PENDING'",
-        'mcc_decision':         "TEXT DEFAULT ''",
-        'mcc_comment':          "TEXT DEFAULT ''",
-
-        # ---- Новые поля для DCE-визарда ----
-        'mcc_ata':              "TEXT DEFAULT ''",
-        'mcc_mel_choice':       "TEXT DEFAULT ''",
-        'mcc_mel_ref':          "TEXT DEFAULT ''",
-        'mcc_amm_verdict':      "TEXT DEFAULT ''",
-        'mcc_proc_o':           "INTEGER DEFAULT 0",
-        'mcc_proc_m':           "INTEGER DEFAULT 0",
-        'mcc_proc_mh':          "INTEGER DEFAULT 0",
-        'mcc_mel_category':     "TEXT DEFAULT ''",
-        'mcc_due_date':         "TEXT DEFAULT ''",
-        'mcc_combined_check':   "TEXT DEFAULT ''",
-        'mcc_recurring_action': "TEXT DEFAULT ''",
-        'mcc_escalation':       "TEXT DEFAULT ''",
-        'mcc_dce_name':         "TEXT DEFAULT ''",
-        'mcc_kupol_ref':        "TEXT DEFAULT ''",
-        'aog_since':            "TIMESTAMP",
-        'etr':                  "TEXT DEFAULT ''",
-        'reported_by':          "TEXT DEFAULT ''",
-    }
-
-    for col, col_type in needed_cols.items():
-        if col not in existing_cols:
-            try:
-                cur.execute(f"ALTER TABLE requests ADD COLUMN {col} {col_type}")
-                print(f"[MIGRATION] Добавлена колонка requests.{col}")
-            except sqlite3.OperationalError as e:
-                print(f"[MIGRATION] Не удалось добавить {col}: {e}")
-    conn.commit()
-
-
-# ============================================================
-# Начальные данные
-# ============================================================
-def seed_initial_data(conn):
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("""
-            INSERT INTO users (id, email, password, name, role, avatar, status)
-            VALUES (?, ?, ?, ?, 'admin', '👨‍💼', 'online')
-        """, ('admin_1', 'admin@aeroflot.ru', 'admin123', 'Администратор'))
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role = 'dispatcher'")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""
-            INSERT INTO users (id, email, password, name, role, avatar, phone, shift, status)
-            VALUES (?, ?, ?, ?, 'dispatcher', '👨‍✈️', ?, ?, 'online')
-        """, [
-            ('disp_1', 'dispatcher@aeroflot.ru',  'disp123', 'Петров П.П.',  '+7 (999) 200-10-01', 'day'),
-            ('disp_2', 'dispatcher2@aeroflot.ru', 'disp123', 'Козлов К.К.',  '+7 (999) 200-10-02', 'night'),
-        ])
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role = 'mcc'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("""
-            INSERT INTO users (id, email, password, name, role, avatar, status)
-            VALUES ('mcc_1', 'mcc@aeroflot.ru', 'mcc123', 'Смирнов А.В.', 'mcc', '👨‍💻', 'online')
-        """)
-
-    cur.execute("SELECT COUNT(*) FROM engineers")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""
-            INSERT INTO engineers (id, name, device_id, specialization, coords_lat, coords_lng, status, phone)
-            VALUES (?, ?, ?, ?, ?, ?, 'free', ?)
-        """, [
-            ('eng_1',  'Иванов И.И.',    'EN-001', 'engine',     55.975, 37.410, '+7 (999) 300-10-01'),
-            ('eng_5',  'Морозов М.М.',   'EN-005', 'engine',     55.974, 37.412, '+7 (999) 300-10-05'),
-            ('eng_7',  'Волков В.В.',    'EN-007', 'engine',     55.973, 37.408, '+7 (999) 300-10-07'),
-            ('eng_2',  'Сидоров С.С.',   'EN-002', 'avionics',   55.977, 37.412, '+7 (999) 300-10-02'),
-            ('eng_8',  'Зайцев З.З.',    'EN-008', 'avionics',   55.978, 37.410, '+7 (999) 300-10-08'),
-            ('eng_13', 'Гусев Г.Г.',     'EN-013', 'avionics',   55.976, 37.418, '+7 (999) 300-10-13'),
-            ('eng_3',  'Кузнецов К.К.',  'EN-003', 'hydraulics', 55.973, 37.415, '+7 (999) 300-10-03'),
-            ('eng_10', 'Орлов О.О.',     'EN-010', 'hydraulics', 55.977, 37.416, '+7 (999) 300-10-10'),
-            ('eng_4',  'Смирнов С.С.',   'EN-004', 'electrical', 55.976, 37.408, '+7 (999) 300-10-04'),
-            ('eng_9',  'Лебедев Л.Л.',   'EN-009', 'electrical', 55.974, 37.418, '+7 (999) 300-10-09'),
-            ('eng_14', 'Соколов С.С.',   'EN-014', 'electrical', 55.972, 37.410, '+7 (999) 300-10-14'),
-            ('eng_6',  'Новиков Н.Н.',   'EN-006', 'mechanical', 55.976, 37.415, '+7 (999) 300-10-06'),
-            ('eng_11', 'Титов Т.Т.',     'EN-011', 'mechanical', 55.972, 37.413, '+7 (999) 300-10-11'),
-            ('eng_15', 'Фомин Ф.Ф.',     'EN-015', 'mechanical', 55.979, 37.412, '+7 (999) 300-10-15'),
-            ('eng_12', 'Белов Б.Б.',     'EN-012', 'general',    55.979, 37.414, '+7 (999) 300-10-12'),
-            ('eng_16', 'Егоров Е.Е.',    'EN-016', 'general',    55.971, 37.415, '+7 (999) 300-10-16'),
-        ])
-
-        cur.executemany("""
-            INSERT OR IGNORE INTO users (id, email, password, name, role, avatar, status)
-            VALUES (?, ?, 'eng123', ?, 'engineer', '🔧', 'offline')
-        """, [
-            ('eng_1',  'ivanov@aeroflot.ru',    'Иванов И.И.'),
-            ('eng_2',  'sidorov@aeroflot.ru',   'Сидоров С.С.'),
-            ('eng_3',  'kuznetsov@aeroflot.ru', 'Кузнецов К.К.'),
-            ('eng_4',  'smirnov@aeroflot.ru',   'Смирнов С.С.'),
-            ('eng_5',  'morozov@aeroflot.ru',   'Морозов М.М.'),
-            ('eng_6',  'novikov@aeroflot.ru',   'Новиков Н.Н.'),
-            ('eng_7',  'volkov@aeroflot.ru',    'Волков В.В.'),
-            ('eng_8',  'zaytsev@aeroflot.ru',   'Зайцев З.З.'),
-            ('eng_9',  'lebedev@aeroflot.ru',   'Лебедев Л.Л.'),
-            ('eng_10', 'orlov@aeroflot.ru',     'Орлов О.О.'),
-            ('eng_11', 'titov@aeroflot.ru',     'Титов Т.Т.'),
-            ('eng_12', 'belov@aeroflot.ru',     'Белов Б.Б.'),
-            ('eng_13', 'gusev@aeroflot.ru',     'Гусев Г.Г.'),
-            ('eng_14', 'sokolov@aeroflot.ru',   'Соколов С.С.'),
-            ('eng_15', 'fomin@aeroflot.ru',     'Фомин Ф.Ф.'),
-            ('eng_16', 'egorov@aeroflot.ru',    'Егоров Е.Е.'),
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
-        ])
+        ]])
 
     cur.execute("SELECT COUNT(*) FROM pilots")
     if cur.fetchone()[0] == 0:
-<<<<<<< HEAD
         cur.executemany("""INSERT INTO pilots (id,name,email,phone,aircraft,rank,status)
                            VALUES (?,?,?,?,?,?,'active')""", [
             ('pilot_1','Иванов И.И.','ivanov@aeroflot.ru','+7 (999) 100-10-01','SU-1234','КВС'),
@@ -740,66 +720,66 @@ def seed_initial_data(conn):
             ('pilot_4','Кузнецов К.К.','kuznetsov@aeroflot.ru','+7 (999) 100-10-04','SU-1237','КВС'),
             ('pilot_5','Смирнов С.С.','smirnov@aeroflot.ru','+7 (999) 100-10-05','SU-1238','Пилот'),
         ])
+        pilot_hash = hash_password('pilot123')
         cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""", [
+                           VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
+                        [(i, e, pilot_hash, n) for i, e, n in [
             ('pilot_1','pilot1@aeroflot.ru','Иванов И.И.'),
             ('pilot_2','pilot2@aeroflot.ru','Петров П.П.'),
             ('pilot_3','pilot3@aeroflot.ru','Сидоров С.С.'),
             ('pilot_4','pilot4@aeroflot.ru','Кузнецов К.К.'),
             ('pilot_5','pilot5@aeroflot.ru','Смирнов С.С.'),
-=======
-        cur.executemany("""
-            INSERT INTO pilots (id, name, email, phone, aircraft, rank, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'active')
-        """, [
-            ('pilot_1', 'Иванов И.И.',   'ivanov@aeroflot.ru',    '+7 (999) 100-10-01', 'SU-1234', 'КВС'),
-            ('pilot_2', 'Петров П.П.',   'petrov@aeroflot.ru',    '+7 (999) 100-10-02', 'SU-1235', 'Пилот'),
-            ('pilot_3', 'Сидоров С.С.',  'sidorov@aeroflot.ru',   '+7 (999) 100-10-03', 'SU-1236', 'Второй пилот'),
-            ('pilot_4', 'Кузнецов К.К.', 'kuznetsov@aeroflot.ru', '+7 (999) 100-10-04', 'SU-1237', 'КВС'),
-            ('pilot_5', 'Смирнов С.С.',  'smirnov@aeroflot.ru',   '+7 (999) 100-10-05', 'SU-1238', 'Пилот'),
-        ])
-        cur.executemany("""
-            INSERT OR IGNORE INTO users (id, email, password, name, role, avatar, status)
-            VALUES (?, ?, 'pilot123', ?, 'pilot', '👨‍✈️', 'offline')
-        """, [
-            ('pilot_1', 'pilot1@aeroflot.ru', 'Иванов И.И.'),
-            ('pilot_2', 'pilot2@aeroflot.ru', 'Петров П.П.'),
-            ('pilot_3', 'pilot3@aeroflot.ru', 'Сидоров С.С.'),
-            ('pilot_4', 'pilot4@aeroflot.ru', 'Кузнецов К.К.'),
-            ('pilot_5', 'pilot5@aeroflot.ru', 'Смирнов С.С.'),
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
-        ])
+        ]])
 
     cur.execute("SELECT COUNT(*) FROM transport")
     if cur.fetchone()[0] == 0:
-<<<<<<< HEAD
         cur.executemany("""INSERT INTO transport (device_id,lat,lng,speed)
                            VALUES (?,?,?,?)""", [
-=======
-        cur.executemany("""
-            INSERT INTO transport (device_id, lat, lng, speed)
-            VALUES (?, ?, ?, ?)
-        """, [
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
             ('CAR-001', 55.9780, 37.4150, 40),
             ('CAR-002', 55.9790, 37.4130, 60),
             ('CAR-003', 55.9760, 37.4090, 50),
             ('CAR-004', 55.9740, 37.4160, 30),
             ('CAR-005', 55.9770, 37.4180, 70),
         ])
-<<<<<<< HEAD
+
+    cur.execute("SELECT COUNT(*) FROM staff")
+    if cur.fetchone()[0] == 0:
+        shift_hash = hash_password('shift123')
+        foreman_hash = hash_password('foreman123')
+        cur.executemany("""INSERT INTO staff (id,name,role,shift,status,email,password)
+                           VALUES (?,?,?,?,'online',?,?)""", [
+            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day', 'shift@aeroflot.ru', shift_hash),
+            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night', 'shift2@aeroflot.ru', shift_hash),
+            ('fr_1', 'Ершов Е.В.', 'foreman', 'day', 'foreman@aeroflot.ru', foreman_hash),
+            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day', 'foreman2@aeroflot.ru', foreman_hash),
+            ('fr_3', 'Зимин З.П.', 'foreman', 'night', 'foreman3@aeroflot.ru', foreman_hash),
+        ])
+    else:
+        # вход для уже созданных записей справочника
+        cur.execute("SELECT id FROM staff WHERE email='' OR email IS NULL")
+        missing = {r['id'] for r in cur.fetchall()}
+        credentials = {
+            'sup_1': ('shift@aeroflot.ru', 'shift123'),
+            'sup_2': ('shift2@aeroflot.ru', 'shift123'),
+            'fr_1': ('foreman@aeroflot.ru', 'foreman123'),
+            'fr_2': ('foreman2@aeroflot.ru', 'foreman123'),
+            'fr_3': ('foreman3@aeroflot.ru', 'foreman123'),
+        }
+        cur.executemany("UPDATE staff SET email=?, password=? WHERE id=?",
+                        [(email, hash_password(pwd), sid)
+                         for sid, (email, pwd) in credentials.items() if sid in missing])
+
+    # оператор ЦПУ — отдельный профиль для первого шага цепочки
+    cur.execute("SELECT id FROM staff WHERE id='cpu_1'")
+    if not cur.fetchone():
+        cur.execute("""INSERT INTO staff (id,name,role,shift,status,email,password)
+                       VALUES ('cpu_1','Орлов В.Н.','cpu','day','online',
+                               'cpu@aeroflot.ru',?)""", (hash_password('cpu123'),))
     conn.commit()
+    print('[SECURITY] Демо-учётные записи включены. Пароль меняется так:')
+    print('           python manage.py passwd <email>')
 
 
-=======
-
-    conn.commit()
-
-
-# ============================================================
-# [MAN] Номера инженеров (EN-XXX)
-# ============================================================
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 DEVICE_ID_RE = re.compile(r'^EN-(\d{3})$')
 
 
@@ -814,13 +794,8 @@ def get_used_numbers(conn):
     cur = conn.cursor()
     cur.execute("SELECT device_id FROM engineers")
     used = set()
-<<<<<<< HEAD
     for r in cur.fetchall():
         n = get_engineer_number_from_device(r['device_id'])
-=======
-    for row in cur.fetchall():
-        n = get_engineer_number_from_device(row['device_id'])
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         if n > 0:
             used.add(n)
     return used
@@ -843,31 +818,15 @@ def migrate_engineer_numbers():
     cur.execute("SELECT id, device_id, name FROM engineers")
     rows = cur.fetchall()
     if not rows:
-<<<<<<< HEAD
         conn.close(); return
     def sort_key(r):
         m = re.search(r'(\d+)\s*$', str(r['id'] or ''))
         return (int(m.group(1)) if m else 10**9, str(r['name'] or ''))
-=======
-        conn.close()
-        return
-
-    def sort_key(r):
-        m = re.search(r'(\d+)\s*$', str(r['id'] or ''))
-        return (int(m.group(1)) if m else 10**9, str(r['name'] or ''))
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     ordered = sorted(rows, key=sort_key)
     needs = any(get_engineer_number_from_device(r['device_id']) != idx
                 for idx, r in enumerate(ordered, start=1))
     if not needs:
-<<<<<<< HEAD
         conn.close(); return
-=======
-        conn.close()
-        return
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     print(f'[MIGRATION] Перенумерация {len(ordered)} инженеров')
     mapping = []
     for idx, r in enumerate(ordered, start=1):
@@ -876,7 +835,6 @@ def migrate_engineer_numbers():
         tmp_dev = f'__TMP_{idx}'
         mapping.append((tmp_id, f'eng_{idx}', f'EN-{idx:03d}', r['name'], old_id))
         try:
-<<<<<<< HEAD
             cur.execute("UPDATE engineers SET id=?, device_id=? WHERE id=?",
                         (tmp_id, tmp_dev, old_id))
             cur.execute("UPDATE users SET id=? WHERE id=?", (tmp_id, old_id))
@@ -894,32 +852,16 @@ def migrate_engineer_numbers():
                         (new_id, tmp_id))
         except sqlite3.IntegrityError as e:
             print(f'[MIGRATION] set {new_id}: {e}')
-=======
-            cur.execute("UPDATE engineers SET id = ?, device_id = ? WHERE id = ?",
-                        (tmp_id, tmp_dev, old_id))
-            cur.execute("UPDATE users SET id = ? WHERE id = ?", (tmp_id, old_id))
-            cur.execute("UPDATE requests SET engineer_id = ? WHERE engineer_id = ?",
-                        (tmp_id, old_id))
-        except sqlite3.IntegrityError as e:
-            print(f'[MIGRATION] Не удалось сдвинуть {old_id}: {e}')
-    conn.commit()
-
-    for tmp_id, new_id, new_dev, name, old_id in mapping:
-        try:
-            cur.execute("UPDATE engineers SET id = ?, device_id = ? WHERE id = ?",
-                        (new_id, new_dev, tmp_id))
-            cur.execute("UPDATE users SET id = ? WHERE id = ?", (new_id, tmp_id))
-            cur.execute("UPDATE requests SET engineer_id = ? WHERE engineer_id = ?",
-                        (new_id, tmp_id))
-        except sqlite3.IntegrityError as e:
-            print(f'[MIGRATION] Не удалось установить {new_id}: {e}')
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     conn.commit()
     conn.close()
 
 
 def init_db():
+    migrate_legacy_database()
     print(f'[DB] Используется база: {DB_PATH}')
+    backup = backup_database()
+    if backup:
+        print(f'[DB] Резервная копия: {backup}')
     conn = get_db()
     ensure_schema(conn)
     seed_initial_data(conn)
@@ -935,17 +877,10 @@ def set_engineer_busy(conn, engineer_id, task_text):
     if not engineer_id:
         return False
     cur = conn.cursor()
-<<<<<<< HEAD
     cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
     if not cur.fetchone():
         return False
     cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
-=======
-    cur.execute("SELECT id FROM engineers WHERE id = ?", (engineer_id,))
-    if not cur.fetchone():
-        return False
-    cur.execute("UPDATE engineers SET status = 'busy', task = ? WHERE id = ?",
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
                 (task_text, engineer_id))
     return cur.rowcount > 0
 
@@ -954,17 +889,10 @@ def set_engineer_free(conn, engineer_id):
     if not engineer_id:
         return False
     cur = conn.cursor()
-<<<<<<< HEAD
     cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
     if not cur.fetchone():
         return False
     cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
-=======
-    cur.execute("SELECT id FROM engineers WHERE id = ?", (engineer_id,))
-    if not cur.fetchone():
-        return False
-    cur.execute("UPDATE engineers SET status = 'free', task = NULL WHERE id = ?",
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
                 (engineer_id,))
     return cur.rowcount > 0
 
@@ -972,7 +900,6 @@ def set_engineer_free(conn, engineer_id):
 def engineer_has_active_requests(conn, engineer_id, exclude_request_id=None):
     cur = conn.cursor()
     if exclude_request_id:
-<<<<<<< HEAD
         cur.execute("""SELECT COUNT(*) FROM requests
             WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled')
               AND id!=?""", (engineer_id, exclude_request_id))
@@ -1021,60 +948,6 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
                    WHERE status NOT IN ('completed','cancelled','flight_cancelled')
                      AND engineer_id IS NOT NULL""")
     busy_with_requests = {r['engineer_id'] for r in cur.fetchall()}
-=======
-        cur.execute("""
-            SELECT COUNT(*) FROM requests
-            WHERE engineer_id = ? AND status NOT IN ('completed', 'cancelled', 'flight_cancelled') AND id != ?
-        """, (engineer_id, exclude_request_id))
-    else:
-        cur.execute("""
-            SELECT COUNT(*) FROM requests
-            WHERE engineer_id = ? AND status NOT IN ('completed', 'cancelled', 'flight_cancelled')
-        """, (engineer_id,))
-    return cur.fetchone()[0]
-
-
-# ============================================================
-# Таблица «поломка → специализация»
-# ============================================================
-FAULT_SKILL = {
-    'engine_failure': 'engine', 'engine_oil': 'engine', 'engine_overheat': 'engine',
-    'engine_vibration': 'engine', 'engine_start': 'engine', 'fuel_leak': 'engine',
-    'fuel_system': 'engine', 'avionics_nav': 'avionics', 'avionics_radio': 'avionics',
-    'avionics_autopilot': 'avionics', 'avionics_transponder': 'avionics',
-    'avionics_display': 'avionics', 'avionics_gps': 'avionics', 'hydraulic': 'hydraulics',
-    'hydraulic_leak': 'hydraulics', 'hydraulic_pressure': 'hydraulics',
-    'electrical': 'electrical', 'electrical_generator': 'electrical',
-    'electrical_battery': 'electrical', 'electrical_short': 'electrical',
-    'electrical_lighting': 'electrical', 'landing_gear': 'mechanical',
-    'pneumatic': 'mechanical', 'brake_system': 'mechanical', 'flap_issue': 'mechanical',
-    'aileron_issue': 'mechanical', 'rudder_issue': 'mechanical', 'wing_damage': 'mechanical',
-    'fuselage_damage': 'mechanical', 'door_issue': 'mechanical',
-    'air_condition': 'general', 'pressurization': 'general', 'oxygen_system': 'general',
-    'fire_system': 'general', 'deicing_system': 'general', 'pilot_voice': 'general',
-}
-
-
-def get_free_engineer_for(conn, fault_type, required_skill_map,
-                          target_lat=None, target_lng=None, exclude_ids=None):
-    if exclude_ids is None:
-        exclude_ids = set()
-    exclude_ids = {str(x) for x in exclude_ids}
-    required_skill = required_skill_map.get(fault_type, 'general')
-
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, device_id, specialization, coords_lat, coords_lng
-        FROM engineers WHERE status = 'free'
-    """)
-    all_free = [dict(r) for r in cur.fetchall()]
-
-    cur.execute("""
-        SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed', 'cancelled', 'flight_cancelled') AND engineer_id IS NOT NULL
-    """)
-    busy_with_requests = {row['engineer_id'] for row in cur.fetchall()}
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
     all_free = [e for e in all_free
                 if str(e['id']) not in exclude_ids
@@ -1085,12 +958,8 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
         return None, None
     if target_lat is None or target_lng is None:
         return pool[0], {'travel_time': 0, 'walk_time': 0, 'using_car': False,
-<<<<<<< HEAD
                          'best_car': None, 'best_car_time': 0, 'walk_to_car': 0,
                          'path_coords': None}
-=======
-                         'best_car': None, 'best_car_time': 0, 'walk_to_car': 0}
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
     cars = [dict(r) for r in cur.fetchall()]
@@ -1099,7 +968,6 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
     for e in pool:
         e_lat = e['coords_lat'] or 55.975
         e_lng = e['coords_lng'] or 37.410
-<<<<<<< HEAD
 
         walk_dist = distance_km(e_lat, e_lng, target_lat, target_lng)
         walk_time = walk_dist / WALK_SPEED_KMH * 60
@@ -1132,20 +1000,6 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
                 best_car_time = dt
                 best_walk_to_car = wtc
                 best_combined_path = seg1_path + seg2_path[1:]
-=======
-        walk_dist = distance_km(e_lat, e_lng, target_lat, target_lng)
-        walk_time = walk_dist / WALK_SPEED_KMH * 60
-
-        best_car, best_time, best_car_time, best_walk_to_car = None, walk_time, 0, 0
-
-        for car in cars:
-            wtc = distance_km(e_lat, e_lng, car['lat'], car['lng']) / WALK_SPEED_KMH * 60
-            sp = car['speed'] or 30
-            dt = distance_km(car['lat'], car['lng'], target_lat, target_lng) / sp * 60
-            t = wtc + dt
-            if t < best_time:
-                best_time, best_car, best_car_time, best_walk_to_car = t, car, dt, wtc
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
         if best_time > REGULATION_MINUTES:
             continue
@@ -1155,12 +1009,8 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
             'walk_time': round(walk_time, 1),
             'using_car': best_car is not None, 'best_car': best_car,
             'best_car_time': round(best_car_time, 1),
-<<<<<<< HEAD
             'walk_to_car': round(best_walk_to_car, 1),
             'path_coords': best_combined_path,
-=======
-            'walk_to_car': round(best_walk_to_car, 1)
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         })
 
     if not feasible:
@@ -1172,7 +1022,6 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
 def try_reassign_queued():
     conn = get_db()
     cur = conn.cursor()
-<<<<<<< HEAD
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
                    WHERE status NOT IN ('completed','cancelled','flight_cancelled')
                      AND engineer_id IS NOT NULL""")
@@ -1183,28 +1032,10 @@ def try_reassign_queued():
     queued = [dict(r) for r in cur.fetchall()]
     if not queued:
         conn.close(); return
-=======
-    cur.execute("""
-        SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed', 'cancelled', 'flight_cancelled') AND engineer_id IS NOT NULL
-    """)
-    busy_engineers = {row['engineer_id'] for row in cur.fetchall()}
-
-    cur.execute("""
-        SELECT id, aircraft, fault_type, parking_id, rejected_by
-        FROM requests WHERE status = 'queued' ORDER BY created_at ASC
-    """)
-    queued = [dict(r) for r in cur.fetchall()]
-
-    if not queued:
-        conn.close()
-        return
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
     for q in queued:
         rejected = {x.strip() for x in str(q['rejected_by']).split(',') if x.strip()}
         exclude = rejected | busy_engineers
-<<<<<<< HEAD
         target = PARKING_COORDS.get(str(q['parking_id'] or ''), (55.975, 37.410))
         eng, route = get_free_engineer_for(conn, q['fault_type'] or 'engine_failure',
                                             FAULT_SKILL, target[0], target[1],
@@ -1225,37 +1056,9 @@ def try_reassign_queued():
                         (q['id'], route['best_car']['id']))
         cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
                     ('ВС ' + (q['aircraft'] or ''), eng['id']))
+        chain_log(conn, q['id'], 'tech', 'Диспетчер', 'Автоназначение',
+                  'Из очереди назначен ' + eng['name'])
         busy_engineers.add(eng['id'])
-=======
-        parking_id = str(q['parking_id'] or '')
-        target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
-
-        engineer, route = get_free_engineer_for(
-            conn, q['fault_type'] or 'engine_failure', FAULT_SKILL,
-            target[0], target[1], exclude_ids=exclude
-        )
-        if not engineer:
-            continue
-
-        cur.execute("""
-            UPDATE requests
-            SET engineer_id = ?, engineer_name = ?, travel_time = ?, using_car = ?, walk_to_car = ?,
-                car_time = ?, best_car = ?, status = 'assigned', delay_minutes = 0, delay_reason = '',
-                delay_started_at = NULL, delay_approved_by = '', all_rejected = 0
-            WHERE id = ?
-        """, (engineer['id'], engineer['name'], route['travel_time'],
-              1 if route['using_car'] else 0,
-              route['walk_to_car'], route['best_car_time'],
-              route['best_car']['device_id'] if route['best_car'] else None, q['id']))
-
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to = ? WHERE id = ?",
-                        (q['id'], route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status = 'busy', task = ? WHERE id = ?",
-                    ('ВС ' + (q['aircraft'] or ''), engineer['id']))
-        busy_engineers.add(engineer['id'])
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     conn.commit()
     conn.close()
 
@@ -1264,7 +1067,6 @@ def try_reassign_queued():
 # Страницы
 # ============================================================
 @app.route('/')
-<<<<<<< HEAD
 def index(): return redirect(url_for('login_page'))
 
 
@@ -1290,144 +1092,230 @@ def pilot_dashboard(): return render_template('pilot/dashboard.html')
 
 @app.route('/mcc/dashboard.html')
 def mcc_dashboard(): return render_template('mcc/dashboard.html')
-=======
-def index():
-    return redirect(url_for('login_page'))
 
 
-@app.route('/login.html')
-def login_page():
-    return render_template('login.html')
+@app.route('/cpu/dashboard.html')
+def cpu_dashboard(): return render_template('supervisor/dashboard.html', role='cpu')
 
 
-@app.route('/admin/dashboard.html')
-def admin_dashboard():
-    return render_template('admin/dashboard.html')
+@app.route('/shift/dashboard.html')
+def shift_dashboard(): return render_template('supervisor/dashboard.html', role='shift_supervisor')
 
 
-@app.route('/dispatcher/dashboard.html')
-def dispatcher_dashboard():
-    return render_template('dispatcher/dashboard.html')
-
-
-@app.route('/engineer/dashboard.html')
-def engineer_dashboard():
-    return render_template('engineer/dashboard.html')
-
-
-@app.route('/pilot/dashboard.html')
-def pilot_dashboard():
-    return render_template('pilot/dashboard.html')
-
-
-@app.route('/mcc/dashboard.html')
-def mcc_dashboard():
-    return render_template('mcc/dashboard.html')
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
+@app.route('/foreman/dashboard.html')
+def foreman_dashboard(): return render_template('supervisor/dashboard.html', role='foreman')
 
 
 # ============================================================
 # Авторизация
 # ============================================================
+PUBLIC_API = {'/api/auth/login', '/api/auth/logout', '/api/auth/session'}
+PUBLIC_PAGES = {'/login.html', '/', '/favicon.ico'}
+
+# Куда возвращать пользователя, если он открыл чужой дашборд
+ROLE_HOME = {
+    'admin': '/admin/dashboard.html',
+    'dispatcher': '/dispatcher/dashboard.html',
+    'engineer': '/engineer/dashboard.html',
+    'pilot': '/pilot/dashboard.html',
+    'mcc': '/mcc/dashboard.html',
+    'cpu': '/cpu/dashboard.html',
+    'shift_supervisor': '/shift/dashboard.html',
+    'foreman': '/foreman/dashboard.html',
+}
+
+# Какой ролью открывается каждый дашборд (admin проходит везде)
+PAGE_ACCESS = {
+    '/admin/dashboard.html': {'admin'},
+    '/dispatcher/dashboard.html': {'dispatcher'},
+    '/engineer/dashboard.html': {'engineer'},
+    '/pilot/dashboard.html': {'pilot'},
+    '/mcc/dashboard.html': {'mcc'},
+    '/cpu/dashboard.html': {'cpu'},
+    '/shift/dashboard.html': {'shift_supervisor'},
+    '/foreman/dashboard.html': {'foreman'},
+}
+
+
+def roles(*allowed):
+    """Пускает endpoint только перечисленным ролям; admin — всегда.
+
+    Проверка роли, а не конкретной записи: кто именно из инженеров может
+    вынести вердикт — решает уже обработчик.
+    """
+    allowed = set(allowed) | {'admin'}
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            role = (session.get('user') or {}).get('role')
+            if role not in allowed:
+                return jsonify({'success': False,
+                                'error': 'Недостаточно прав'}), 403
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def current_user():
+    return session.get('user') or {}
+
+
+def pilot_name_of_session(conn):
+    """Актуальное имя пилота: оно могло измениться в профиле."""
+    user = current_user()
+    row = conn.execute("SELECT name FROM users WHERE id=?",
+                       (user.get('id'),)).fetchone()
+    name = row['name'] if row else None
+    return (name or user.get('name') or '').strip()
+
+
+def _row_value(row, key, default=''):
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
+
+
+def owns_request(conn, row):
+    """Может ли текущий пользователь трогать эту заявку.
+
+    Диспетчер и admin работают со всеми заявками, инженер — только со своей,
+    пилот — только со своей (по имени).
+    """
+    role = current_user().get('role')
+    if role in ('admin', 'dispatcher', 'mcc'):
+        return True
+    if role == 'engineer':
+        return (str(_row_value(row, 'engineer_id'))
+                == str(current_user().get('id') or ''))
+    if role == 'pilot':
+        return (_row_value(row, 'pilot_name').strip()
+                == pilot_name_of_session(conn))
+    return False
+
+
+@app.before_request
+def require_session():
+    """Без входа доступны только страница входа и /api/auth/*."""
+    path = request.path
+    if request.method == 'OPTIONS':
+        return None
+
+    is_api = path.startswith('/api/')
+    is_page = path.endswith('.html') or path == '/'
+
+    if not (is_api or is_page):
+        return None
+    if is_api and path in PUBLIC_API:
+        return None
+    if path in PUBLIC_PAGES:
+        return None
+    user = session.get('user')
+    if not user:
+        if is_api:
+            return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+        return redirect(url_for('login_page'))
+
+    # чужой дашборд не отдаём — возвращаем на свой
+    allowed = PAGE_ACCESS.get(path)
+    if allowed and user.get('role') not in allowed and user.get('role') != 'admin':
+        return redirect(ROLE_HOME.get(user.get('role'), '/login.html'))
+    return None
+
+
+@app.route('/api/auth/session', methods=['GET'])
+def auth_session():
+    user = session.get('user')
+    if not user:
+        return jsonify({'success': False}), 401
+    return jsonify({'success': True, 'user': user})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    session.clear()
+    return jsonify({'success': True})
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
     password = (data.get('password') or '').strip()
-<<<<<<< HEAD
     if not email or not password:
         return jsonify({'error': 'Заполните все поля'}), 400
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,email,name,role,avatar FROM users WHERE email=? AND password=?",
-                (email, password))
+    cur.execute("SELECT id,email,name,role,avatar,password FROM users WHERE email=?",
+                (email,))
     u = cur.fetchone()
-    if not u:
-        conn.close()
-        return jsonify({'error': 'Неверный email или пароль'}), 401
-    cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
-    conn.commit()
-    extra = {}
-    if u['role'] == 'pilot':
-        cur.execute("SELECT aircraft, rank FROM pilots WHERE id=?", (u['id'],))
-        p = cur.fetchone()
-        if p:
-            extra['aircraft'] = p['aircraft'] or ''
-            extra['rank'] = p['rank'] or 'pilot'
+    if u:
+        ok, needs_rehash = verify_password(u['password'], password)
+        if ok:
+            if needs_rehash:
+                # старый пароль лежал открытым текстом — сразу переводим на хэш
+                cur.execute("UPDATE users SET password=? WHERE id=?",
+                            (hash_password(password), u['id']))
+            cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
+            conn.commit()
+            extra = {}
+            if u['role'] == 'pilot':
+                cur.execute("SELECT aircraft, rank FROM pilots WHERE id=?", (u['id'],))
+                p = cur.fetchone()
+                if p:
+                    extra['aircraft'] = p['aircraft'] or ''
+                    extra['rank'] = p['rank'] or 'pilot'
+            conn.close()
+            res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
+                   'role': u['role'], 'avatar': u['avatar'] or '👤'}
+            res.update(extra)
+            session.permanent = True
+            session['user'] = res
+            return jsonify({'success': True, 'user': res})
+
+    # начальник смены и бригадир входят из справочника staff
+    cur.execute("""SELECT id,email,name,role,shift,password FROM staff
+                   WHERE LOWER(email)=?""", (email,))
+    s = cur.fetchone()
+    if s:
+        ok, needs_rehash = verify_password(s['password'], password)
+        if ok:
+            if needs_rehash:
+                cur.execute("UPDATE staff SET password=? WHERE id=?",
+                            (hash_password(password), s['id']))
+            cur.execute("UPDATE staff SET status='online' WHERE id=?", (s['id'],))
+            conn.commit(); conn.close()
+            session['user'] = {
+                'id': s['id'], 'email': s['email'], 'name': s['name'],
+                'role': s['role'], 'avatar': '👤'}
+            return jsonify({'success': True, 'user': {
+                'id': s['id'], 'email': s['email'], 'name': s['name'],
+                'role': s['role'], 'shift': s['shift'] or 'day',
+                'avatar': {'shift_supervisor': '👷', 'foreman': '🧰',
+                           'cpu': '🗂'}.get(s['role'], '👤'),
+            }})
     conn.close()
-    res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
-           'role': u['role'], 'avatar': u['avatar'] or '👤'}
-    res.update(extra)
-    return jsonify({'success': True, 'user': res})
+    return jsonify({'error': 'Неверный email или пароль'}), 401
 
 
 # ============================================================
 # Users
-=======
-
-    if not email or not password:
-        return jsonify({'error': 'Заполните все поля'}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, email, name, role, avatar
-        FROM users WHERE email = ? AND password = ?
-    """, (email, password))
-    user = cur.fetchone()
-
-    if not user:
-        conn.close()
-        return jsonify({'error': 'Неверный email или пароль'}), 401
-
-    cur.execute("UPDATE users SET status = 'online' WHERE id = ?", (user['id'],))
-    conn.commit()
-    conn.close()
-
-    extra = {}
-    if user['role'] == 'pilot':
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT aircraft, rank FROM pilots WHERE id = ?", (user['id'],))
-        row = cur.fetchone()
-        conn.close()
-        if row:
-            extra['aircraft'] = row['aircraft'] or ''
-            extra['rank'] = row['rank'] or 'pilot'
-
-    result = {
-        'id': user['id'], 'email': user['email'], 'name': user['name'],
-        'role': user['role'], 'avatar': user['avatar'] or '👤'
-    }
-    result.update(extra)
-    return jsonify({'success': True, 'user': result})
-
-
-# ============================================================
-# [API] Пользователи
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ============================================================
 @app.route('/api/users', methods=['GET'])
+@roles('admin')
 def get_users():
     conn = get_db()
     cur = conn.cursor()
-<<<<<<< HEAD
     cur.execute("SELECT id,email,name,role,avatar,phone,shift,status FROM users ORDER BY role,name")
     res = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(res)
-=======
-    cur.execute("""
-        SELECT id, email, name, role, avatar, phone, shift, status
-        FROM users ORDER BY role, name
-    """)
-    rows = cur.fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/users', methods=['POST'])
+@roles('admin')
 def create_user():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
@@ -1437,7 +1325,6 @@ def create_user():
         return jsonify({'error': 'Имя и email обязательны'}), 400
     conn = get_db()
     cur = conn.cursor()
-<<<<<<< HEAD
     cur.execute("SELECT id FROM users WHERE email=?", (email,))
     if cur.fetchone():
         conn.close()
@@ -1445,56 +1332,32 @@ def create_user():
     uid = role + '_' + str(int(time.time() * 1000))
     avatar = {'dispatcher': '👨‍✈️', 'mcc': '👨‍💻'}.get(role, '👤')
     default_pwd = {'dispatcher': 'disp123', 'mcc': 'mcc123'}.get(role, 'user123')
-    password = data.get('password') or default_pwd
+    password = (data.get('password') or '').strip() or default_pwd
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                    VALUES (?,?,?,?,?,?,?,?,'offline')""",
-                (uid, email, password, name, role, avatar,
+                (uid, email, hash_password(password), name, role, avatar,
                  data.get('phone', ''), data.get('shift', 'day')))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': uid})
-=======
-    cur.execute("SELECT id FROM users WHERE email = ?", (email,))
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Пользователь с таким email уже существует'}), 400
-
-    user_id = role + '_' + str(int(time.time() * 1000))
-
-    if role == 'dispatcher':
-        avatar = '👨‍✈️'
-        default_password = 'disp123'
-    elif role == 'mcc':
-        avatar = '👨‍💻'
-        default_password = 'mcc123'
-    else:
-        avatar = '👤'
-        default_password = 'user123'
-
-    password = data.get('password') or default_password
-
-    cur.execute("""
-        INSERT INTO users (id, email, password, name, role, avatar, phone, shift, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline')
-    """, (user_id, email, password, name, role, avatar,
-          data.get('phone', ''), data.get('shift', 'day')))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'id': user_id})
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/users/<user_id>', methods=['PUT'])
+@roles('admin', 'pilot')
 def update_user(user_id):
+    # пилот правит только свой профиль (admin — любой)
+    current = session.get('user') or {}
+    if current.get('role') == 'pilot' and current.get('id') != user_id:
+        return jsonify({'error': 'Можно менять только свой профиль'}), 403
     data = request.get_json() or {}
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id, role FROM users WHERE id=?", (user_id,))
     u = cur.fetchone()
     if not u:
         conn.close(); return jsonify({'error': 'Не найден'}), 404
-    if data.get('password'):
-        cur.execute("UPDATE users SET password=? WHERE id=?", (data.get('password'), user_id))
+    new_password = (data.get('password') or '').strip()
+    if new_password:
+        cur.execute("UPDATE users SET password=? WHERE id=?",
+                    (hash_password(new_password), user_id))
     cur.execute("""UPDATE users SET name=?, phone=?, shift=?, status=? WHERE id=?""",
                 (data.get('name'), data.get('phone', ''), data.get('shift', 'day'),
                  data.get('status', 'offline'), user_id))
@@ -1504,58 +1367,19 @@ def update_user(user_id):
         elif u['role'] == 'engineer':
             cur.execute("UPDATE engineers SET name=? WHERE id=?", (data['name'], user_id))
     conn.commit(); conn.close()
-=======
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, role FROM users WHERE id = ?", (user_id,))
-    user = cur.fetchone()
-    if not user:
-        conn.close()
-        return jsonify({'error': 'Пользователь не найден'}), 404
-
-    if data.get('password'):
-        cur.execute("UPDATE users SET password = ? WHERE id = ?",
-                    (data.get('password'), user_id))
-
-    cur.execute("""
-        UPDATE users SET name = ?, phone = ?, shift = ?, status = ?
-        WHERE id = ?
-    """, (data.get('name'), data.get('phone', ''), data.get('shift', 'day'),
-          data.get('status', 'offline'), user_id))
-
-    if data.get('name'):
-        if user['role'] == 'pilot':
-            cur.execute("UPDATE pilots SET name = ? WHERE id = ?",
-                        (data.get('name'), user_id))
-        elif user['role'] == 'engineer':
-            cur.execute("UPDATE engineers SET name = ? WHERE id = ?",
-                        (data.get('name'), user_id))
-
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
+@roles('admin')
 def delete_user(user_id):
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM users WHERE id=?", (user_id,))
     conn.commit(); conn.close()
-=======
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # MCC
 # ============================================================
 def _compute_recurring_map(conn):
@@ -1572,37 +1396,11 @@ def _compute_recurring_map(conn):
             'occurrences': r['cnt'] or 0, 'last_occurrence': r['last_seen']
         }
     return out
-=======
-# [MCC] API
-# ============================================================
-def _compute_recurring_map(conn):
-    """
-    Возвращает {(aircraft, fault_type): {'occurrences': N, 'last_occurrence': iso}}
-    Считает кол-во повторов за последние 30 дней. Если >= 3 → recurring.
-    """
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT aircraft, fault_type, COUNT(*) AS cnt, MAX(created_at) AS last_seen
-        FROM requests
-        WHERE aircraft IS NOT NULL AND aircraft != '' AND fault_type IS NOT NULL
-          AND status NOT IN ('completed', 'cancelled', 'flight_cancelled', 'draft')
-          AND created_at >= datetime('now', '-30 days')
-        GROUP BY aircraft, fault_type
-    """)
-    result = {}
-    for r in cur.fetchall():
-        key = (str(r['aircraft']).strip(), str(r['fault_type']).strip())
-        result[key] = {
-            'occurrences': r['cnt'] or 0,
-            'last_occurrence': r['last_seen'] or None
-        }
-    return result
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/mcc/defects', methods=['GET'])
+@roles('mcc')
 def get_mcc_defects():
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, fault_type, description, parking_id, terminal,
         source, pilot_name, pilot_rank, pilot_audio_text, engineer_id, engineer_name,
@@ -1620,41 +1418,6 @@ def get_mcc_defects():
     out = []
     for r in rows:
         d = dict(r)
-=======
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT
-            id, aircraft, fault_type, description, parking_id, terminal,
-            source, pilot_name, pilot_rank, pilot_audio_text,
-            engineer_id, engineer_name,
-            created_at, status,
-            mcc_status, mcc_decision, mcc_comment,
-            mcc_ata, mcc_mel_choice, mcc_mel_ref, mcc_amm_verdict,
-            mcc_proc_o, mcc_proc_m, mcc_proc_mh,
-            mcc_mel_category, mcc_due_date, mcc_combined_check,
-            mcc_recurring_action, mcc_escalation,
-            mcc_dce_name, mcc_kupol_ref,
-            aog_since, etr, reported_by,
-            severity, criticality
-        FROM requests
-        WHERE status NOT IN ('completed', 'cancelled', 'flight_cancelled', 'draft')
-        ORDER BY created_at DESC
-    """)
-    rows = cur.fetchall()
-
-    # Вычисляем повторяемость
-    recurring_map = _compute_recurring_map(conn)
-
-    conn.close()
-
-    result = []
-    for r in rows:
-        d = dict(r)
-
-        # Стандартные значения для полей, которых может не быть в БД
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         d['reported_by'] = d.get('reported_by') or d.get('pilot_name') or d.get('engineer_name') or 'Pilot'
         d['mel_category'] = d.get('mcc_mel_category') or ''
         d['mel_ref'] = d.get('mcc_mel_ref') or ''
@@ -1664,7 +1427,6 @@ def get_mcc_defects():
         d['proc_mh'] = bool(d.get('mcc_proc_mh'))
         d['dce_name'] = d.get('mcc_dce_name') or ''
         d['kupol_ref'] = d.get('mcc_kupol_ref') or ''
-<<<<<<< HEAD
         d['engineer_verdict'] = d.get('engineer_verdict') or ''
         d['aog_action'] = d.get('aog_action') or ''
         key = (str(d.get('aircraft') or '').strip(), str(d.get('fault_type') or '').strip())
@@ -1680,6 +1442,7 @@ def get_mcc_defects():
 # [MCC] Назначение инспекции инженеру
 # ------------------------------------------------------------
 @app.route('/api/mcc/assign_inspection', methods=['POST'])
+@roles('mcc')
 def mcc_assign_inspection():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1766,6 +1529,7 @@ def mcc_assign_inspection():
 # [ENGINEER] Вердикт инженера (AOG / REPAIR / MEL)
 # ------------------------------------------------------------
 @app.route('/api/engineer/verdict', methods=['POST'])
+@roles('engineer')
 def engineer_verdict():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1783,6 +1547,10 @@ def engineer_verdict():
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не найден'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому инженеру'}), 403
     if row['mcc_status'] != 'INSPECTION':
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не на инспекции'}), 400
 
@@ -1793,9 +1561,25 @@ def engineer_verdict():
         UPDATE requests SET
             engineer_verdict = ?,
             engineer_verdict_at = CURRENT_TIMESTAMP,
-            engineer_comment = ?
+            engineer_comment = ?,
+            chain_stage = 'verdict'
         WHERE id = ?
     """, (verdict, new_comment, rid))
+
+    engineer_name = ''
+    cur.execute("SELECT name FROM engineers WHERE id=?", (row['engineer_id'],))
+    eng_row = cur.fetchone()
+    if eng_row:
+        engineer_name = eng_row['name']
+    chain_log(conn, rid, 'verdict', 'Техник', engineer_name,
+              'Вердикт %s: %s' % (verdict, comment))
+
+    # техник закончил осмотр — освобождаем его и технику,
+    # решение по дефекту принимает МЦЦ
+    if row['engineer_id']:
+        conn.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                     (row['engineer_id'],))
+    conn.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
     conn.commit(); conn.close()
     return jsonify({
@@ -1809,6 +1593,7 @@ def engineer_verdict():
 # [MCC] Финальное решение MCC
 # ------------------------------------------------------------
 @app.route('/api/mcc/finalize', methods=['POST'])
+@roles('mcc')
 def mcc_finalize():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1825,9 +1610,11 @@ def mcc_finalize():
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не найден'}), 404
-    if row['mcc_status'] != 'INSPECTION':
+    # CLOSE разрешён и после AOG Recovery — когда борт восстановлен
+    allowed = ('INSPECTION', 'AOG_CONFIRMED') if action == 'CLOSE' else ('INSPECTION',)
+    if row['mcc_status'] not in allowed:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не на инспекции'}), 400
-    if not row['engineer_verdict']:
+    if action != 'CLOSE' and not row['engineer_verdict']:
         conn.close(); return jsonify({'success': False, 'error': 'Нет вердикта инженера'}), 400
 
     kupol_ref = 'KP-' + str(int(time.time()))
@@ -1851,9 +1638,12 @@ def mcc_finalize():
                 aog_action = ?,
                 mcc_dce_name = ?,
                 mcc_kupol_ref = ?,
-                aog_since = COALESCE(aog_since, CURRENT_TIMESTAMP)
+                aog_since = COALESCE(aog_since, CURRENT_TIMESTAMP),
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] AOG Recovery: ' + comment, etr, aog_action, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name, 'AOG Recovery: ' + comment)
 
     elif action == 'MEL_DEFER':
         cat = data.get('mel_category', '')
@@ -1872,9 +1662,13 @@ def mcc_finalize():
                 mcc_mel_ref = ?,
                 mcc_due_date = ?,
                 mcc_dce_name = ?,
-                mcc_kupol_ref = ?
+                mcc_kupol_ref = ?,
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] MEL: ' + comment, cat, ref, due, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name,
+                  'MEL %s (%s): %s' % (cat, ref, comment))
 
         # освободить инженера
         if row['engineer_id']:
@@ -1888,9 +1682,12 @@ def mcc_finalize():
                 mcc_decision = 'CLOSE',
                 mcc_comment = COALESCE(mcc_comment, '') || ?,
                 mcc_dce_name = ?,
-                mcc_kupol_ref = ?
+                mcc_kupol_ref = ?,
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] Закрыто: ' + comment, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name, 'Закрыто: ' + comment)
 
         if row['engineer_id']:
             cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (row['engineer_id'],))
@@ -1912,6 +1709,7 @@ def mcc_finalize():
 # [MCC] Обновление AOG Recovery (ETR / действие)
 # ------------------------------------------------------------
 @app.route('/api/mcc/aog_update', methods=['POST'])
+@roles('mcc')
 def mcc_aog_update():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1934,6 +1732,7 @@ def mcc_aog_update():
 # [MCC] Старый эндпоинт — оставлен для совместимости с админкой
 # ------------------------------------------------------------
 @app.route('/api/mcc/assess', methods=['POST'])
+@roles('mcc')
 def mcc_assess_defect():
     data = request.get_json() or {}
     rid = data.get('request_id'); decision = data.get('decision')
@@ -1979,6 +1778,7 @@ def mcc_assess_defect():
 
 
 @app.route('/api/mcc/clear/<clear_type>', methods=['POST'])
+@roles('mcc')
 def mcc_clear(clear_type):
     valid = ('queue', 'inspection', 'deferred', 'recurring', 'aog', 'history', 'all')
     if clear_type not in valid:
@@ -2015,268 +1815,50 @@ def mcc_clear(clear_type):
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
         conn.rollback()
-=======
-
-        # Повторяемость
-        key = (str(d.get('aircraft') or '').strip(), str(d.get('fault_type') or '').strip())
-        rec = recurring_map.get(key, {'occurrences': 1, 'last_occurrence': d.get('created_at')})
-        d['occurrences'] = rec['occurrences']
-        d['last_occurrence'] = rec['last_occurrence']
-        d['recurring'] = rec['occurrences'] >= 3
-
-        result.append(d)
-
-    return jsonify(result)
-
-
-@app.route('/api/mcc/assess', methods=['POST'])
-def mcc_assess_defect():
-    data = request.get_json() or {}
-    request_id = data.get('request_id')
-    decision = data.get('decision')
-    comment = (data.get('comment') or '').strip()
-
-    if not request_id or not decision:
-        return jsonify({'error': 'Не переданы обязательные данные'}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, status, aircraft FROM requests WHERE id = ?", (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': 'Заявка не найдена'}), 404
-
-    # Маппинг решения DCE → внутренние статусы
-    decision_map = {
-        'DEFER':         ('MEL',          'new'),
-        'RECTIFY':       ('REPAIRED',     'new'),
-        'AOG':           ('AOG',          'aog_waiting'),
-        'ESCALATE':      ('ESCALATED',    'new'),
-        'WITHIN_LIMITS': ('WITHIN_LIMITS','new'),
-    }
-    mcc_status, new_status = decision_map.get(
-        decision, (decision, 'new')
-    )
-
-    # Купол-референс
-    kupol_ref = 'KP-' + str(int(time.time()))
-    dce_name = data.get('dce_name') or 'DCE'
-    aog_since = "CURRENT_TIMESTAMP" if decision == 'AOG' else None
-    etr = data.get('etr') or ''
-
-    # Формируем SET для всех полей визарда
-    cur.execute("""
-        UPDATE requests SET
-            mcc_status = ?,
-            mcc_decision = ?,
-            mcc_comment = ?,
-            status = ?,
-            mcc_ata = COALESCE(?, mcc_ata),
-            mcc_mel_choice = COALESCE(?, mcc_mel_choice),
-            mcc_mel_ref = COALESCE(?, mcc_mel_ref),
-            mcc_amm_verdict = COALESCE(?, mcc_amm_verdict),
-            mcc_proc_o = ?,
-            mcc_proc_m = ?,
-            mcc_proc_mh = ?,
-            mcc_mel_category = COALESCE(?, mcc_mel_category),
-            mcc_due_date = COALESCE(?, mcc_due_date),
-            mcc_combined_check = COALESCE(?, mcc_combined_check),
-            mcc_recurring_action = COALESCE(?, mcc_recurring_action),
-            mcc_escalation = COALESCE(?, mcc_escalation),
-            mcc_dce_name = ?,
-            mcc_kupol_ref = ?,
-            etr = COALESCE(?, etr),
-            aog_since = CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP ELSE aog_since END
-        WHERE id = ?
-    """, (
-        mcc_status,
-        decision,
-        comment,
-        new_status,
-        data.get('ata'),
-        data.get('mel_choice'),
-        data.get('mel_ref'),
-        data.get('amm_verdict'),
-        1 if data.get('proc_o') else 0,
-        1 if data.get('proc_m') else 0,
-        1 if data.get('proc_mh') else 0,
-        data.get('mel_category'),
-        data.get('mel_due_date'),
-        data.get('combined_check'),
-        data.get('recurring_action'),
-        data.get('escalation'),
-        dce_name,
-        kupol_ref,
-        etr or None,
-        aog_since,
-        request_id
-    ))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        'success': True,
-        'request_id': request_id,
-        'mcc_status': mcc_status,
-        'new_status': new_status,
-        'kupol_ref': kupol_ref
-    })
-
-
-# ============================================================
-# [MCC] Очистка разделов
-# ============================================================
-@app.route('/api/mcc/clear/<clear_type>', methods=['POST'])
-def mcc_clear(clear_type):
-    """
-    Очистка раздела MCC.
-    clear_type: queue | deferred | recurring | aog | history | all
-    """
-    valid_types = ('queue', 'deferred', 'recurring', 'aog', 'history', 'all')
-    if clear_type not in valid_types:
-        return jsonify({
-            'success': False,
-            'error': f'Unknown clear type: {clear_type}. '
-                     f'Allowed: {", ".join(valid_types)}'
-        }), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    try:
-        deleted = 0
-
-        if clear_type == 'queue':
-            # Все PENDING в очереди DCE
-            cur.execute("""
-                DELETE FROM requests
-                WHERE mcc_status = 'PENDING'
-                  AND status IN ('new', 'pending_assessment')
-            """)
-            deleted = cur.rowcount
-
-        elif clear_type == 'deferred':
-            # Все отложенные (MEL)
-            cur.execute("DELETE FROM requests WHERE mcc_status = 'MEL'")
-            deleted = cur.rowcount
-
-        elif clear_type == 'recurring':
-            # Все, что попадает под критерий повторяемости
-            # Сначала определим какие (aircraft, fault_type) попадают
-            recurring_map = _compute_recurring_map(conn)
-            keys_to_delete = [k for k, v in recurring_map.items()
-                              if v['occurrences'] >= 3]
-            for aircraft, fault_type in keys_to_delete:
-                cur.execute("""
-                    DELETE FROM requests
-                    WHERE aircraft = ? AND fault_type = ?
-                """, (aircraft, fault_type))
-                deleted += cur.rowcount
-
-        elif clear_type == 'aog':
-            cur.execute("DELETE FROM requests WHERE mcc_status = 'AOG'")
-            deleted = cur.rowcount
-
-        elif clear_type == 'history':
-            cur.execute("""
-                DELETE FROM requests
-                WHERE mcc_status IN ('APPROVED', 'REPAIRED',
-                                     'DEFERRED_ADD', 'WITHIN_LIMITS')
-            """)
-            deleted = cur.rowcount
-
-        elif clear_type == 'all':
-            cur.execute("DELETE FROM requests WHERE status != 'draft'")
-            deleted = cur.rowcount
-
-        conn.commit()
-        print(f'[MCC-CLEAR] type={clear_type} deleted={deleted}')
-        return jsonify({'success': True, 'deleted': deleted})
-
-    except Exception as e:
-        conn.rollback()
-        print(f'[MCC-CLEAR] ERROR: {e}')
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         conn.close()
 
 
-<<<<<<< HEAD
 @app.route('/api/pilot/confirm/<rid>', methods=['POST'])
+@roles('pilot')
 def confirm_pilot_request(rid):
     conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id, engineer_id, pilot_name FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close(); return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     cur.execute("UPDATE requests SET status='new', mcc_status='PENDING' WHERE id=?", (rid,))
     conn.commit(); conn.close()
-=======
-# ============================================================
-# [API] Подтверждение пилотом (Draft -> New)
-# ============================================================
-@app.route('/api/pilot/confirm/<request_id>', methods=['POST'])
-def confirm_pilot_request(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE requests SET status = 'new', mcc_status = 'PENDING'
-        WHERE id = ?
-    """, (request_id,))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # Engineers
 # ============================================================
 @app.route('/api/engineers', methods=['GET'])
+@roles('dispatcher', 'mcc', 'cpu', 'shift_supervisor', 'foreman', 'engineer')
 def get_engineers():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
                    status,task,phone FROM engineers""")
     rows = cur.fetchall(); conn.close()
     res = []
-=======
-# Инженеры — CRUD
-# ============================================================
-@app.route('/api/engineers', methods=['GET'])
-def get_engineers():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, device_id, specialization, coords_lat, coords_lng,
-               status, task, phone
-        FROM engineers
-    """)
-    rows = cur.fetchall()
-    conn.close()
-
-    result = []
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     for r in rows:
         d = dict(r)
         num = get_engineer_number_from_device(d.get('device_id'))
         d['number'] = num
         d['device_id'] = normalize_device_id(d.get('device_id'), num)
-<<<<<<< HEAD
         res.append(d)
     res.sort(key=lambda x: x.get('number') or 0)
     return jsonify(res)
-=======
-        result.append(d)
-
-    result.sort(key=lambda x: x.get('number') or 0)
-    return jsonify(result)
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/engineers/me', methods=['GET'])
+@roles('engineer')
 def get_my_engineer():
-<<<<<<< HEAD
     eid = request.args.get('id')
     if not eid:
         return jsonify({'error': 'Не указан id'}), 400
@@ -2286,22 +1868,6 @@ def get_my_engineer():
     row = cur.fetchone(); conn.close()
     if not row:
         return jsonify({'error': 'Не найден'}), 404
-=======
-    engineer_id = request.args.get('id')
-    if not engineer_id:
-        return jsonify({'error': 'Не указан id инженера'}), 400
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, device_id, specialization, coords_lat, coords_lng,
-               status, task, phone
-        FROM engineers WHERE id = ?
-    """, (engineer_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return jsonify({'error': 'Инженер не найден'}), 404
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     d = dict(row)
     num = get_engineer_number_from_device(d.get('device_id'))
     d['number'] = num
@@ -2310,27 +1876,14 @@ def get_my_engineer():
 
 
 @app.route('/api/engineers/<eng_id>', methods=['GET'])
+@roles('dispatcher', 'engineer')
 def get_engineer(eng_id):
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
                    status,task,phone FROM engineers WHERE id=?""", (eng_id,))
     row = cur.fetchone(); conn.close()
     if not row:
         return jsonify({'error': 'Не найден'}), 404
-=======
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, device_id, specialization, coords_lat, coords_lng,
-               status, task, phone
-        FROM engineers WHERE id = ?
-    """, (eng_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return jsonify({'error': 'Инженер не найден'}), 404
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     d = dict(row)
     num = get_engineer_number_from_device(d.get('device_id'))
     d['number'] = num
@@ -2339,11 +1892,11 @@ def get_engineer(eng_id):
 
 
 @app.route('/api/engineers', methods=['POST'])
+@roles('admin')
 def create_engineer():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     email = (data.get('email') or '').strip().lower()
-<<<<<<< HEAD
     if not name or not email:
         return jsonify({'error': 'Имя и email обязательны'}), 400
     conn = get_db(); cur = conn.cursor()
@@ -2361,54 +1914,22 @@ def create_engineer():
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (eid, name, dev, data.get('specialization','general'),
                  lat, lng, data.get('status','free'), data.get('phone','')))
+    password = (data.get('password') or '').strip() or 'eng123'
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'eng123',?,'engineer','🔧','offline')""",
-                (eid, email, name))
+                   VALUES (?,?,?,?,'engineer','🔧','offline')""",
+                (eid, email, hash_password(password), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': eid, 'device_id': dev, 'number': num})
-=======
-
-    if not name or not email:
-        return jsonify({'error': 'Имя и email обязательны'}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM users WHERE email = ?", (email,))
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Инженер с таким email уже существует'}), 400
-
-    number = next_engineer_number(conn)
-    eng_id = f'eng_{number}'
-    device_id = f'EN-{number:03d}'
-
-    cur.execute("SELECT COUNT(*) FROM engineers")
-    total = cur.fetchone()[0]
-    base_lat = 55.975 + (total % 6) * 0.0008
-    base_lng = 37.410 + (total % 6) * 0.0008
-
-    cur.execute("""
-        INSERT INTO engineers (id, name, device_id, specialization, coords_lat, coords_lng, status, phone)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (eng_id, name, device_id, data.get('specialization', 'general'),
-          base_lat, base_lng, data.get('status', 'free'), data.get('phone', '')))
-
-    cur.execute("""
-        INSERT INTO users (id, email, password, name, role, avatar, status)
-        VALUES (?, ?, 'eng123', ?, 'engineer', '🔧', 'offline')
-    """, (eng_id, email, name))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'id': eng_id,
-                    'device_id': device_id, 'number': number})
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/engineers/<eng_id>', methods=['PUT'])
+@roles('admin', 'engineer')
 def update_engineer(eng_id):
+    # инженер правит только свою карточку (admin — любую)
+    current = session.get('user') or {}
+    if current.get('role') == 'engineer' and current.get('id') != eng_id:
+        return jsonify({'error': 'Можно менять только свой профиль'}), 403
     data = request.get_json() or {}
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id FROM engineers WHERE id=?", (eng_id,))
     if not cur.fetchone():
@@ -2421,51 +1942,26 @@ def update_engineer(eng_id):
     if data.get('name'):
         cur.execute("UPDATE users SET name=? WHERE id=?", (data['name'], eng_id))
     conn.commit(); conn.close()
-=======
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM engineers WHERE id = ?", (eng_id,))
-    if not cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Инженер не найден'}), 404
-
-    cur.execute("""
-        UPDATE engineers SET name = ?, specialization = ?, status = ?, task = ?, phone = ?
-        WHERE id = ?
-    """, (data.get('name'), data.get('specialization', 'general'),
-          data.get('status', 'free'), data.get('task'), data.get('phone', ''), eng_id))
-
-    if data.get('name'):
-        cur.execute("UPDATE users SET name = ? WHERE id = ?", (data.get('name'), eng_id))
-
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 @app.route('/api/engineers/<eng_id>', methods=['DELETE'])
+@roles('admin')
 def delete_engineer(eng_id):
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM engineers WHERE id=?", (eng_id,))
     cur.execute("DELETE FROM users WHERE id=?", (eng_id,))
     conn.commit(); conn.close()
-=======
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM engineers WHERE id = ?", (eng_id,))
-    cur.execute("DELETE FROM users WHERE id = ?", (eng_id,))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])
+@roles('dispatcher', 'engineer')
 def update_engineer_coords(eng_id):
+    user = current_user()
+    if user.get('role') == 'engineer' and user.get('id') != eng_id:
+        return jsonify({'error': 'Это не ваш профиль'}), 403
     data = request.get_json() or {}
-<<<<<<< HEAD
     lat = data.get('lat'); lng = data.get('lng')
     if lat is None or lng is None:
         return jsonify({'error': 'lat/lng обязательны'}), 400
@@ -2473,56 +1969,29 @@ def update_engineer_coords(eng_id):
     cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
                 (lat, lng, eng_id))
     conn.commit(); conn.close()
-=======
-    lat = data.get('lat')
-    lng = data.get('lng')
-    if lat is None or lng is None:
-        return jsonify({'error': 'lat/lng обязательны'}), 400
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE engineers SET coords_lat = ?, coords_lng = ? WHERE id = ?",
-                (lat, lng, eng_id))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # Pilots
 # ============================================================
 @app.route('/api/pilots', methods=['GET'])
+@roles('admin')
 def get_pilots():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,name,email,phone,aircraft,rank,status FROM pilots ORDER BY name")
     res = [dict(r) for r in cur.fetchall()]; conn.close()
     return jsonify(res)
-=======
-# Пилоты — CRUD
-# ============================================================
-@app.route('/api/pilots', methods=['GET'])
-def get_pilots():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, email, phone, aircraft, rank, status
-        FROM pilots ORDER BY name
-    """)
-    rows = cur.fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/pilots', methods=['POST'])
+@roles('admin')
 def create_pilot():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     email = (data.get('email') or '').strip().lower()
     if not name or not email:
         return jsonify({'error': 'Имя и email обязательны'}), 400
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id FROM pilots WHERE email=?", (email,))
     if cur.fetchone():
@@ -2532,14 +2001,16 @@ def create_pilot():
                    VALUES (?,?,?,?,?,?,?)""",
                 (pid, name, email, data.get('phone',''), data.get('aircraft',''),
                  data.get('rank','pilot'), data.get('status','active')))
+    password = (data.get('password') or '').strip() or 'pilot123'
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""",
-                (pid, email, name))
+                   VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
+                (pid, email, hash_password(password), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': pid})
 
 
 @app.route('/api/pilots/<pid>', methods=['PUT'])
+@roles('admin')
 def update_pilot(pid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
@@ -2556,106 +2027,31 @@ def update_pilot(pid):
 
 
 @app.route('/api/pilots/<pid>', methods=['DELETE'])
+@roles('admin')
 def delete_pilot(pid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM pilots WHERE id=?", (pid,))
     cur.execute("DELETE FROM users WHERE id=?", (pid,))
     conn.commit(); conn.close()
-=======
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM pilots WHERE email = ?", (email,))
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Пилот с таким email уже существует'}), 400
-
-    pilot_id = 'pilot_' + str(int(time.time() * 1000))
-    cur.execute("""
-        INSERT INTO pilots (id, name, email, phone, aircraft, rank, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (pilot_id, name, email, data.get('phone', ''),
-          data.get('aircraft', ''), data.get('rank', 'pilot'),
-          data.get('status', 'active')))
-
-    cur.execute("""
-        INSERT INTO users (id, email, password, name, role, avatar, status)
-        VALUES (?, ?, 'pilot123', ?, 'pilot', '👨‍✈️', 'offline')
-    """, (pilot_id, email, name))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'id': pilot_id})
-
-
-@app.route('/api/pilots/<pilot_id>', methods=['PUT'])
-def update_pilot(pilot_id):
-    data = request.get_json() or {}
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM pilots WHERE id = ?", (pilot_id,))
-    if not cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Пилот не найден'}), 404
-
-    cur.execute("""
-        UPDATE pilots SET name = ?, phone = ?, aircraft = ?, rank = ?, status = ?
-        WHERE id = ?
-    """, (data.get('name'), data.get('phone', ''), data.get('aircraft', ''),
-          data.get('rank', 'pilot'), data.get('status', 'active'), pilot_id))
-
-    if data.get('name'):
-        cur.execute("UPDATE users SET name = ? WHERE id = ?",
-                    (data.get('name'), pilot_id))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-
-@app.route('/api/pilots/<pilot_id>', methods=['DELETE'])
-def delete_pilot(pilot_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pilots WHERE id = ?", (pilot_id,))
-    cur.execute("DELETE FROM users WHERE id = ?", (pilot_id,))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # Transport
 # ============================================================
 @app.route('/api/transport', methods=['GET'])
+@roles('dispatcher')
 def get_transport():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,device_id,lat,lng,speed,assigned_to FROM transport ORDER BY id")
     res = [dict(r) for r in cur.fetchall()]; conn.close()
     return jsonify(res)
-=======
-# Транспорт — CRUD
-# ============================================================
-@app.route('/api/transport', methods=['GET'])
-def get_transport():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, device_id, lat, lng, speed, assigned_to
-        FROM transport ORDER BY id
-    """)
-    rows = cur.fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/transport', methods=['POST'])
+@roles('dispatcher')
 def create_transport():
     data = request.get_json() or {}
-<<<<<<< HEAD
     dev = (data.get('device_id') or '').strip()
     lat = data.get('lat'); lng = data.get('lng')
     if not dev or lat is None or lng is None:
@@ -2672,6 +2068,7 @@ def create_transport():
 
 
 @app.route('/api/transport/<int:tid>', methods=['PUT'])
+@roles('dispatcher')
 def update_transport(tid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
@@ -2687,6 +2084,7 @@ def update_transport(tid):
 
 
 @app.route('/api/transport/<int:tid>/coords', methods=['PUT'])
+@roles('dispatcher')
 def update_transport_coords(tid):
     data = request.get_json() or {}
     lat = data.get('lat'); lng = data.get('lng')
@@ -2707,70 +2105,22 @@ def update_transport_coords(tid):
 
 
 @app.route('/api/transport/<int:tid>', methods=['DELETE'])
+@roles('dispatcher')
 def delete_transport(tid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM transport WHERE id=?", (tid,))
     conn.commit(); conn.close()
-=======
-    device_id = (data.get('device_id') or '').strip()
-    lat = data.get('lat')
-    lng = data.get('lng')
-    if not device_id or lat is None or lng is None:
-        return jsonify({'error': 'device_id, lat, lng обязательны'}), 400
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM transport WHERE device_id = ?", (device_id,))
-    if cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Транспорт с таким device_id уже существует'}), 400
-    cur.execute("""
-        INSERT INTO transport (device_id, lat, lng, speed, assigned_to)
-        VALUES (?, ?, ?, ?, ?)
-    """, (device_id, lat, lng, data.get('speed', 50), data.get('assigned_to')))
-    conn.commit()
-    transport_id = cur.lastrowid
-    conn.close()
-    return jsonify({'success': True, 'id': transport_id})
-
-
-@app.route('/api/transport/<int:transport_id>', methods=['PUT'])
-def update_transport(transport_id):
-    data = request.get_json() or {}
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM transport WHERE id = ?", (transport_id,))
-    if not cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Транспорт не найден'}), 404
-    cur.execute("""
-        UPDATE transport SET device_id = ?, lat = ?, lng = ?, speed = ?, assigned_to = ?
-        WHERE id = ?
-    """, (data.get('device_id'), data.get('lat'), data.get('lng'),
-          data.get('speed', 50), data.get('assigned_to'), transport_id))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-
-@app.route('/api/transport/<int:transport_id>', methods=['DELETE'])
-def delete_transport(transport_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM transport WHERE id = ?", (transport_id,))
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # Requests
 # ============================================================
 @app.route('/api/requests', methods=['GET'])
+@roles('dispatcher', 'engineer')
 def get_requests():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""SELECT id, aircraft, fault_type, severity, terminal, parking_id,
+    user = session.get('user') or {}
+    sql = """SELECT id, aircraft, fault_type, severity, terminal, parking_id,
         description, source, engineer_id, engineer_name,
         travel_time, using_car, walk_to_car, car_time, best_car,
         status, criticality, engineer_comment, created_at,
@@ -2781,18 +2131,31 @@ def get_requests():
         delay_approved_by, flight_cancelled, flight_cancel_reason,
         flight_cancelled_at, all_rejected, mcc_status, mcc_decision, mcc_comment,
         engineer_verdict, engineer_verdict_at, aog_action, inspection_assigned_at
-        FROM requests ORDER BY created_at DESC""")
+        FROM requests"""
+    params = []
+    # инженеру — только его заявки; диспетчер и admin видят все
+    if user.get('role') == 'engineer':
+        sql += " WHERE engineer_id = ?"
+        params.append(user.get('id') or '')
+    sql += " ORDER BY created_at DESC"
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(sql, params)
     res = [dict(r) for r in cur.fetchall()]; conn.close()
     return jsonify(res)
 
 
 @app.route('/api/requests/<rid>', methods=['PUT'])
+@roles('dispatcher', 'pilot')
 def update_request(rid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id FROM requests WHERE id=?", (rid,))
-    if not cur.fetchone():
+    cur.execute("SELECT id, engineer_id, pilot_name FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
         conn.close(); return jsonify({'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close(); return jsonify({'error': 'Это не ваша заявка'}), 403
     cur.execute("""UPDATE requests
         SET status=COALESCE(?,status), criticality=COALESCE(?,criticality),
             engineer_comment=COALESCE(?,engineer_comment),
@@ -2818,6 +2181,7 @@ def update_request(rid):
 
 
 @app.route('/api/requests/<rid>', methods=['DELETE'])
+@roles('dispatcher')
 def delete_request(rid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id, engineer_id, status FROM requests WHERE id=?", (rid,))
@@ -2832,133 +2196,31 @@ def delete_request(rid):
         if other == 0:
             set_engineer_free(conn, eng_id)
     conn.commit(); conn.close()
-=======
-# Заявки — GET / PUT / DELETE
-# ============================================================
-@app.route('/api/requests', methods=['GET'])
-def get_requests():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, aircraft, fault_type, severity, terminal, parking_id,
-               description, source, engineer_id, engineer_name,
-               travel_time, using_car, walk_to_car, car_time, best_car,
-               status, criticality, engineer_comment, created_at,
-               pilot_name, pilot_rank, pilot_audio, pilot_audio_mime,
-               pilot_audio_duration, pilot_audio_text, rejected_by,
-               cancel_reason, cancelled_by_name, cancelled_at,
-               replaces_request_id, delay_minutes, delay_reason, delay_started_at,
-               delay_approved_by, flight_cancelled, flight_cancel_reason,
-               flight_cancelled_at, all_rejected,
-               mcc_status, mcc_decision, mcc_comment
-        FROM requests ORDER BY created_at DESC
-    """)
-    rows = cur.fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-
-@app.route('/api/requests/<request_id>', methods=['PUT'])
-def update_request(request_id):
-    data = request.get_json() or {}
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id FROM requests WHERE id = ?", (request_id,))
-    if not cur.fetchone():
-        conn.close()
-        return jsonify({'error': 'Заявка не найдена'}), 404
-
-    cur.execute("""
-        UPDATE requests
-        SET status = COALESCE(?, status),
-            criticality = COALESCE(?, criticality),
-            engineer_comment = COALESCE(?, engineer_comment),
-            aircraft = COALESCE(?, aircraft),
-            fault_type = COALESCE(?, fault_type),
-            terminal = COALESCE(?, terminal),
-            parking_id = COALESCE(?, parking_id)
-        WHERE id = ?
-    """, (data.get('status'), data.get('criticality'),
-          data.get('engineer_comment'), data.get('aircraft'),
-          data.get('fault_type'), data.get('terminal'),
-          data.get('parking_id'), request_id))
-
-    new_status = data.get('status')
-
-    if new_status in ('cancelled', 'completed'):
-        cur.execute("SELECT engineer_id FROM requests WHERE id = ?", (request_id,))
-        r = cur.fetchone()
-        if r and r['engineer_id']:
-            other = engineer_has_active_requests(conn, r['engineer_id'], request_id)
-            if other == 0:
-                cur.execute("UPDATE engineers SET status = 'free', task = NULL WHERE id = ?",
-                            (r['engineer_id'],))
-        cur.execute("UPDATE transport SET assigned_to = NULL WHERE assigned_to = ?",
-                    (request_id,))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-
-@app.route('/api/requests/<request_id>', methods=['DELETE'])
-def delete_request(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, engineer_id, status FROM requests WHERE id = ?", (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': 'Заявка не найдена'}), 404
-
-    engineer_id = row['engineer_id']
-    old_status = row['status']
-
-    cur.execute("DELETE FROM requests WHERE id = ?", (request_id,))
-    cur.execute("UPDATE transport SET assigned_to = NULL WHERE assigned_to = ?",
-                (request_id,))
-
-    if engineer_id and old_status not in ('completed', 'cancelled', 'flight_cancelled'):
-        other = engineer_has_active_requests(conn, engineer_id, request_id)
-        if other == 0:
-            set_engineer_free(conn, engineer_id)
-
-    conn.commit()
-    conn.close()
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     try_reassign_queued()
     return jsonify({'success': True})
 
 
 # ============================================================
-<<<<<<< HEAD
 # DISPATCH
-=======
-# Диспетчеризация
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ============================================================
 @app.route('/api/dispatch', methods=['POST'])
+@roles('dispatcher', 'pilot')
 def dispatch():
     data = request.get_json() or {}
     source = data.get('source', 'dispatcher')
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
-=======
-    conn = get_db()
-    cur = conn.cursor()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
     if source == 'pilot':
         pilot_name = (data.get('pilot_name') or '').strip() or 'Пилот'
         pilot_rank = (data.get('pilot_rank') or '').strip() or 'КВС'
         aircraft = (data.get('aircraft') or '').strip() or None
-<<<<<<< HEAD
         pilot_audio = data.get('pilot_audio') or ''
-        if not pilot_audio:
+        pilot_description = (data.get('description') or '').strip()
+        # текстовая заявка допустима без аудио — достаточно описания
+        if not pilot_audio and not pilot_description:
             conn.close()
-            return jsonify({'success': False, 'error': 'Аудиозапись не передана'}), 400
+            return jsonify({'success': False,
+                            'error': 'Нужна аудиозапись или текстовое описание'}), 400
         is_draft = data.get('is_draft', False)
         st = 'draft' if is_draft else 'new'
         mcc = 'DRAFT' if is_draft else 'PENDING'
@@ -2966,62 +2228,21 @@ def dispatch():
         cur.execute("""INSERT INTO requests (id, aircraft, fault_type, severity, terminal,
             parking_id, description, source, engineer_id, engineer_name, travel_time,
             status, criticality, pilot_name, pilot_rank, pilot_audio,
-            pilot_audio_mime, pilot_audio_duration, mcc_status)
-            VALUES (?,?,?,'medium',NULL,NULL,?,'pilot',NULL,NULL,0,?,'medium',?,?,?,?,?,?)""",
-            (rid, aircraft, 'pilot_voice', 'Голосовая заявка от командира ВС',
+            pilot_audio_mime, pilot_audio_duration, mcc_status, chain_stage)
+            VALUES (?,?,?,'medium',NULL,?,?,'pilot',NULL,NULL,0,?,'medium',?,?,?,?,?,?,'mcc')""",
+            (rid, aircraft, data.get('fault_type') or 'pilot_voice',
+             str(data.get('parking_id') or '') or None,
+             pilot_description or 'Голосовая заявка от командира ВС',
              st, pilot_name, pilot_rank, pilot_audio,
              data.get('pilot_audio_mime') or 'audio/webm',
              data.get('pilot_audio_duration') or 0, mcc))
+        chain_log(conn, rid, 'mcc', 'Пилот', pilot_name,
+                  'Дефект зарегистрирован и передан в MCC')
         conn.commit(); conn.close()
         return jsonify({'success': True, 'request_id': rid, 'requestId': rid, 'id': rid})
 
     aircraft = (data.get('aircraft') or '').strip()
     fault = data.get('fault_type', 'engine_failure')
-=======
-        engineer_id = data.get('engineer_id')
-        pilot_audio = data.get('pilot_audio') or ''
-        pilot_audio_mime = data.get('pilot_audio_mime') or 'audio/webm'
-        pilot_audio_duration = data.get('pilot_audio_duration') or 0
-
-        if not pilot_audio:
-            conn.close()
-            return jsonify({'success': False, 'error': 'Аудиозапись не передана'}), 400
-
-        if engineer_id:
-            cur.execute("SELECT name, rank, aircraft FROM pilots WHERE id = ?", (engineer_id,))
-            p = cur.fetchone()
-            if p:
-                pilot_name = p['name'] or pilot_name
-                pilot_rank = p['rank'] or pilot_rank
-                aircraft = aircraft or p['aircraft']
-
-        is_draft = data.get('is_draft', False)
-        status_val = 'draft' if is_draft else 'new'
-        mcc_status_val = 'DRAFT' if is_draft else 'PENDING'
-
-        request_id = 'req_' + str(int(time.time() * 1000))
-        cur.execute("""
-            INSERT INTO requests (
-                id, aircraft, fault_type, severity, terminal, parking_id,
-                description, source, engineer_id, engineer_name, travel_time,
-                status, criticality, pilot_name, pilot_rank, pilot_audio,
-                pilot_audio_mime, pilot_audio_duration, mcc_status
-            )
-            VALUES (?, ?, ?, 'medium', NULL, NULL, ?, 'pilot', NULL, NULL, 0,
-                    ?, 'medium', ?, ?, ?, ?, ?, ?)
-        """, (request_id, aircraft, 'pilot_voice',
-              'Голосовая заявка от командира ВС', status_val, pilot_name,
-              pilot_rank, pilot_audio, pilot_audio_mime,
-              pilot_audio_duration, mcc_status_val))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'request_id': request_id,
-                        'requestId': request_id, 'id': request_id})
-
-    # === Ветка диспетчера ===
-    aircraft = (data.get('aircraft') or '').strip()
-    fault_type = data.get('fault_type', 'engine_failure')
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     severity = data.get('severity', 'medium')
     terminal = data.get('terminal', 'D')
     parking_id = str(data.get('parking_id') or '')
@@ -3032,7 +2253,6 @@ def dispatch():
         return jsonify({'success': False, 'error': 'Не указан рейс или стоянка'}), 400
 
     target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
-<<<<<<< HEAD
     eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL, target[0], target[1])
     rid = 'req_' + str(int(time.time() * 1000))
 
@@ -3043,6 +2263,8 @@ def dispatch():
             VALUES (?,?,?,?,?,?,?,'dispatcher','queued',?,'',CURRENT_TIMESTAMP,
             'Ожидание инженера',1,'APPROVED')""",
             (rid, aircraft, fault, severity, terminal, parking_id, description, severity))
+        chain_log(conn, rid, 'mcc', 'Диспетчер', data.get('dispatcher_name') or 'Диспетчер',
+                  'Нет свободных инженеров — заявка ожидает назначения')
         conn.commit(); conn.close()
         return jsonify({'success': True, 'request_id': rid, 'queued': True,
                         'delay_started': True,
@@ -3054,14 +2276,16 @@ def dispatch():
     cur.execute("""INSERT INTO requests (id, aircraft, fault_type, severity, terminal,
         parking_id, description, source, engineer_id, engineer_name, travel_time,
         using_car, walk_to_car, car_time, best_car, status, criticality,
-        rejected_by, all_rejected, mcc_status)
-        VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,'',0,'APPROVED')""",
+        rejected_by, all_rejected, mcc_status, chain_stage)
+        VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,'',0,'APPROVED','tech')""",
         (rid, aircraft, fault, severity, terminal, parking_id, description,
          eng['id'], eng['name'], tt, 1 if uc else 0, route['walk_to_car'],
          route['best_car_time'], bc['device_id'] if bc else None, severity))
     if uc and bc:
         cur.execute("UPDATE transport SET assigned_to=? WHERE id=?", (rid, bc['id']))
     set_engineer_busy(conn, eng['id'], 'ВС ' + aircraft)
+    chain_log(conn, rid, 'tech', 'Диспетчер', data.get('dispatcher_name') or 'Диспетчер',
+              'Заявка создана диспетчером, назначен ' + eng['name'])
     conn.commit(); conn.close()
 
     return jsonify({
@@ -3084,87 +2308,15 @@ def dispatch():
                 'lat': bc['lat'], 'lng': bc['lng'], 'speed': bc['speed']
             } if uc else None,
             'path': route.get('path_coords')
-=======
-    target_lat, target_lng = target
-
-    engineer, route = get_free_engineer_for(conn, fault_type, FAULT_SKILL,
-                                            target_lat, target_lng)
-    request_id = 'req_' + str(int(time.time() * 1000))
-
-    if not engineer:
-        cur.execute("""
-            INSERT INTO requests (
-                id, aircraft, fault_type, severity, terminal, parking_id,
-                description, source, status, criticality, rejected_by,
-                delay_started_at, delay_reason, all_rejected, mcc_status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'dispatcher', 'queued', ?, '',
-                    CURRENT_TIMESTAMP, 'Ожидание инженера', 1, 'APPROVED')
-        """, (request_id, aircraft, fault_type, severity, terminal, parking_id,
-              description, severity))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'request_id': request_id, 'queued': True,
-                        'delay_started': True,
-                        'message': 'Нет свободных инженеров. Заявка в очереди.'})
-
-    travel_time = route['travel_time']
-    using_car = route['using_car']
-    best_car = route['best_car']
-
-    cur.execute("""
-        INSERT INTO requests (
-            id, aircraft, fault_type, severity, terminal, parking_id,
-            description, source, engineer_id, engineer_name,
-            travel_time, using_car, walk_to_car, car_time, best_car,
-            status, criticality, rejected_by, all_rejected, mcc_status
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'dispatcher', ?, ?, ?, ?, ?, ?, ?,
-                'assigned', ?, '', 0, 'APPROVED')
-    """, (request_id, aircraft, fault_type, severity, terminal, parking_id,
-          description, engineer['id'], engineer['name'], travel_time,
-          1 if using_car else 0, route['walk_to_car'], route['best_car_time'],
-          best_car['device_id'] if best_car else None, severity))
-
-    if using_car and best_car:
-        cur.execute("UPDATE transport SET assigned_to = ? WHERE id = ?",
-                    (request_id, best_car['id']))
-
-    set_engineer_busy(conn, engineer['id'], 'ВС ' + aircraft)
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        'success': True, 'request_id': request_id,
-        'selected': {
-            'engineer': {
-                'id': engineer['id'], 'name': engineer['name'],
-                'device_id': normalize_device_id(
-                    engineer['device_id'],
-                    get_engineer_number_from_device(engineer['device_id'])),
-                'specialization': engineer['specialization'],
-                'coords_lat': engineer['coords_lat'],
-                'coords_lng': engineer['coords_lng']
-            },
-            'travel_time': travel_time, 'using_car': using_car,
-            'walk_time': route['walk_time'], 'walk_to_car': route['walk_to_car'],
-            'car_time': route['best_car_time'],
-            'best_car': best_car['device_id'] if using_car else None,
-            'best_car_obj': {
-                'id': best_car['id'], 'deviceId': best_car['device_id'],
-                'lat': best_car['lat'], 'lng': best_car['lng'],
-                'speed': best_car['speed']
-            } if using_car else None
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         }
     })
 
 
 # ============================================================
-<<<<<<< HEAD
 # /api/route — пересчёт маршрута
 # ============================================================
 @app.route('/api/route', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def compute_route():
     data = request.get_json() or {}
     try:
@@ -3199,6 +2351,7 @@ def compute_route():
 # Отмена / Отказ
 # ============================================================
 @app.route('/api/requests/<rid>/cancel', methods=['POST'])
+@roles('dispatcher', 'engineer', 'pilot')
 def cancel_request(rid):
     data = request.get_json() or {}
     engineer_id = str(data.get('engineer_id') or '').strip()
@@ -3207,50 +2360,23 @@ def cancel_request(rid):
         return jsonify({'success': False, 'error': 'Укажите причину'}), 400
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,aircraft,fault_type,severity,terminal,parking_id,
-        description,engineer_id,engineer_name,status,rejected_by,created_at
+        description,engineer_id,engineer_name,status,rejected_by,created_at,
+        pilot_name,source
         FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     if row['status'] == 'completed':
         conn.close(); return jsonify({'success': False, 'error': 'Уже выполнена'}), 400
     if row['status'] == 'cancelled':
         conn.close(); return jsonify({'success': False, 'error': 'Уже отменена'}), 400
-=======
-# Отмена / Отказ
-# ============================================================
-@app.route('/api/requests/<request_id>/cancel', methods=['POST'])
-def cancel_request(request_id):
-    data = request.get_json() or {}
-    engineer_id = str(data.get('engineer_id') or '').strip()
-    reason = (data.get('reason') or '').strip()
-
-    if not reason:
-        return jsonify({'success': False, 'error': 'Укажите причину отмены'}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, aircraft, fault_type, severity, terminal, parking_id,
-               description, engineer_id, engineer_name, status, rejected_by, created_at
-        FROM requests WHERE id = ?
-    """, (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['status'] == 'completed':
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка уже выполнена'}), 400
-    if row['status'] == 'cancelled':
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка уже отменена'}), 400
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
     who_id = engineer_id or row['engineer_id']
     who_name = row['engineer_name'] or ''
     if who_id:
-<<<<<<< HEAD
         cur.execute("SELECT name FROM engineers WHERE id=?", (who_id,))
         e = cur.fetchone()
         if e and e['name']:
@@ -3314,97 +2440,11 @@ def cancel_request(request_id):
                     'specialization': new_eng['specialization'],
                     'coords_lat': new_eng['coords_lat'],
                     'coords_lng': new_eng['coords_lng']
-=======
-        cur.execute("SELECT name FROM engineers WHERE id = ?", (who_id,))
-        e = cur.fetchone()
-        if e and e['name']:
-            who_name = e['name']
-
-    old_engineer_id = row['engineer_id']
-    if old_engineer_id:
-        cur.execute("UPDATE engineers SET status = 'free', task = NULL WHERE id = ?",
-                    (old_engineer_id,))
-    cur.execute("UPDATE transport SET assigned_to = NULL WHERE assigned_to = ?",
-                (request_id,))
-
-    rejected_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
-    if who_id:
-        rejected_prev.add(str(who_id))
-    rejected_str = ','.join(sorted(rejected_prev))
-
-    fault_type = row['fault_type'] or 'engine_failure'
-    parking_id = str(row['parking_id'] or '')
-    aircraft = row['aircraft'] or 'ВС'
-    target_lat, target_lng = PARKING_COORDS.get(parking_id, (55.975, 37.410))
-
-    cur.execute("""
-        SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed', 'cancelled', 'flight_cancelled')
-          AND engineer_id IS NOT NULL AND id != ?
-    """, (request_id,))
-    busy_engineers = {r['engineer_id'] for r in cur.fetchall()}
-
-    new_engineer, route = get_free_engineer_for(
-        conn, fault_type, FAULT_SKILL, target_lat, target_lng,
-        exclude_ids=rejected_prev | busy_engineers
-    )
-
-    cur.execute("""
-        UPDATE requests
-        SET status = 'cancelled', cancel_reason = ?, cancelled_by_name = ?,
-            cancelled_at = CURRENT_TIMESTAMP, rejected_by = ?
-        WHERE id = ?
-    """, (reason, who_name, rejected_str, request_id))
-
-    if new_engineer:
-        new_request_id = 'req_' + str(int(time.time() * 1000)) + '_r'
-        cur.execute("""
-            INSERT INTO requests (
-                id, aircraft, fault_type, severity, terminal, parking_id,
-                description, source, engineer_id, engineer_name,
-                travel_time, using_car, walk_to_car, car_time, best_car,
-                status, criticality, rejected_by, replaces_request_id,
-                all_rejected, mcc_status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'dispatcher', ?, ?, ?, ?, ?, ?, ?,
-                    'assigned', ?, ?, ?, 0, 'APPROVED')
-        """, (new_request_id, aircraft, fault_type, row['severity'],
-              row['terminal'], parking_id, row['description'],
-              new_engineer['id'], new_engineer['name'], route['travel_time'],
-              1 if route['using_car'] else 0, route['walk_to_car'],
-              route['best_car_time'],
-              route['best_car']['device_id'] if route['best_car'] else None,
-              row['severity'], rejected_str, request_id))
-
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to = ? WHERE id = ?",
-                        (new_request_id, route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status = 'busy', task = ? WHERE id = ?",
-                    ('ВС ' + aircraft, new_engineer['id']))
-
-        conn.commit()
-        conn.close()
-        return jsonify({
-            'success': True, 'request_id': request_id,
-            'cancelled_by_name': who_name, 'reason': reason,
-            'reassigned': True, 'new_request_id': new_request_id,
-            'selected': {
-                'request_id': new_request_id,
-                'engineer': {
-                    'id': new_engineer['id'], 'name': new_engineer['name'],
-                    'device_id': normalize_device_id(
-                        new_engineer['device_id'],
-                        get_engineer_number_from_device(new_engineer['device_id'])),
-                    'specialization': new_engineer['specialization'],
-                    'coords_lat': new_engineer['coords_lat'],
-                    'coords_lng': new_engineer['coords_lng']
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
                 },
                 'travel_time': route['travel_time'],
                 'using_car': route['using_car'],
                 'walk_to_car': route['walk_to_car'],
                 'car_time': route['best_car_time'],
-<<<<<<< HEAD
                 'best_car': route['best_car']['device_id'] if route['using_car'] else None,
                 'path': route.get('path_coords')
             }
@@ -3432,6 +2472,7 @@ def cancel_request(request_id):
 
 
 @app.route('/api/requests/<rid>/reject', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def reject_request(rid):
     data = request.get_json() or {}
     rejected_by = str(data.get('engineer_id') or '')
@@ -3442,8 +2483,14 @@ def reject_request(rid):
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     if row['status'] == 'completed':
         conn.close(); return jsonify({'success': False, 'error': 'Уже выполнена'}), 400
+    if current_user().get('role') == 'engineer':
+        # отказ засчитываем тому, кто его нажал, а не присланному id
+        rejected_by = str(current_user().get('id') or '')
     if not rejected_by:
         rejected_by = str(row['engineer_id'] or '')
 
@@ -3482,144 +2529,23 @@ def reject_request(rid):
                         (rid, route['best_car']['id']))
         set_engineer_busy(conn, new_eng['id'], 'ВС ' + aircraft)
         conn.commit(); conn.close()
-=======
-                'best_car': route['best_car']['device_id'] if route['using_car'] else None
-            }
-        })
-
-    required_skill = FAULT_SKILL.get(fault_type, 'general')
-    cur.execute("SELECT id, status FROM engineers WHERE specialization = ?",
-                (required_skill,))
-    all_spec = [dict(r) for r in cur.fetchall()]
-    busy_spec = [e for e in all_spec if e['status'] == 'busy']
-    free_spec = [e for e in all_spec if e['status'] == 'free']
-    all_rejected = 1 if not [e for e in free_spec
-                             if str(e['id']) not in rejected_prev] else 0
-
-    cur.execute("""
-        UPDATE requests
-        SET status = 'queued',
-            all_rejected = ?,
-            delay_started_at = COALESCE(delay_started_at, CURRENT_TIMESTAMP),
-            delay_reason = CASE
-                WHEN delay_reason = '' OR delay_reason IS NULL THEN 'Ожидание инженера'
-                ELSE delay_reason
-            END
-        WHERE id = ?
-    """, (all_rejected, request_id))
-    conn.commit()
-    conn.close()
-
-    if busy_spec:
-        _schedule_recheck(request_id)
-    return jsonify({
-        'success': True, 'request_id': request_id,
-        'cancelled_by_name': who_name, 'reason': reason,
-        'reassigned': False, 'queued': True,
-        'all_rejected': bool(all_rejected)
-    })
-
-
-@app.route('/api/requests/<request_id>/reject', methods=['POST'])
-def reject_request(request_id):
-    data = request.get_json() or {}
-    rejected_by = str(data.get('engineer_id') or '')
-    reason = (data.get('reason') or '').strip()
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, aircraft, fault_type, severity, terminal, parking_id,
-               description, engineer_id, rejected_by, status
-        FROM requests WHERE id = ?
-    """, (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['status'] == 'completed':
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка уже выполнена'}), 400
-
-    if not rejected_by:
-        rejected_by = str(row['engineer_id'] or '')
-
-    fault_type = row['fault_type'] or 'engine_failure'
-    parking_id = str(row['parking_id'] or '')
-    aircraft = row['aircraft'] or 'ВС'
-    target_lat, target_lng = PARKING_COORDS.get(parking_id, (55.975, 37.410))
-
-    old_engineer_id = row['engineer_id']
-    rejected_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
-    if rejected_by:
-        rejected_prev.add(rejected_by)
-    rejected_str = ','.join(sorted(rejected_prev))
-
-    if old_engineer_id:
-        set_engineer_free(conn, old_engineer_id)
-    cur.execute("UPDATE transport SET assigned_to = NULL WHERE assigned_to = ?",
-                (request_id,))
-
-    cur.execute("""
-        SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed', 'cancelled', 'flight_cancelled')
-          AND engineer_id IS NOT NULL AND id != ?
-    """, (request_id,))
-    busy_engineers = {r['engineer_id'] for r in cur.fetchall()}
-
-    new_engineer, route = get_free_engineer_for(
-        conn, fault_type, FAULT_SKILL, target_lat, target_lng,
-        exclude_ids=rejected_prev | busy_engineers
-    )
-
-    if new_engineer:
-        cur.execute("""
-            UPDATE requests
-            SET engineer_id = ?, engineer_name = ?, travel_time = ?, using_car = ?,
-                walk_to_car = ?, car_time = ?, best_car = ?, status = 'assigned',
-                rejected_by = ?, all_rejected = 0
-            WHERE id = ?
-        """, (new_engineer['id'], new_engineer['name'], route['travel_time'],
-              1 if route['using_car'] else 0, route['walk_to_car'],
-              route['best_car_time'],
-              route['best_car']['device_id'] if route['best_car'] else None,
-              rejected_str, request_id))
-
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to = ? WHERE id = ?",
-                        (request_id, route['best_car']['id']))
-        set_engineer_busy(conn, new_engineer['id'], 'ВС ' + aircraft)
-        conn.commit()
-        conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         return jsonify({
             'success': True, 'reassigned': True,
             'rejected_engineer_id': rejected_by,
             'selected': {
                 'engineer': {
-<<<<<<< HEAD
                     'id': new_eng['id'], 'name': new_eng['name'],
                     'device_id': normalize_device_id(new_eng['device_id'],
                         get_engineer_number_from_device(new_eng['device_id'])),
                     'specialization': new_eng['specialization'],
                     'coords_lat': new_eng['coords_lat'],
                     'coords_lng': new_eng['coords_lng']
-=======
-                    'id': new_engineer['id'], 'name': new_engineer['name'],
-                    'device_id': normalize_device_id(
-                        new_engineer['device_id'],
-                        get_engineer_number_from_device(new_engineer['device_id'])),
-                    'specialization': new_engineer['specialization'],
-                    'coords_lat': new_engineer['coords_lat'],
-                    'coords_lng': new_engineer['coords_lng']
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
                 },
                 'travel_time': route['travel_time'],
                 'using_car': route['using_car'],
                 'walk_time': route['walk_time'],
                 'walk_to_car': route['walk_to_car'],
                 'car_time': route['best_car_time'],
-<<<<<<< HEAD
                 'best_car': route['best_car']['device_id'] if route['using_car'] else None,
                 'path': route.get('path_coords')
             }
@@ -3660,81 +2586,16 @@ def _schedule_recheck(rid):
 
 
 @app.route('/api/requests/<rid>/approve_delay', methods=['POST'])
+@roles('dispatcher')
 def approve_delay(rid):
     data = request.get_json() or {}
     minutes = int(data.get('minutes') or 0)
     reason = (data.get('reason') or '').strip()
     dispatcher = (data.get('dispatcher_name') or 'Диспетчер').strip()
-=======
-                'best_car': route['best_car']['device_id'] if route['using_car'] else None
-            }
-        })
-
-    required_skill = FAULT_SKILL.get(fault_type, 'general')
-    cur.execute("SELECT id, status FROM engineers WHERE specialization = ?",
-                (required_skill,))
-    all_spec = [dict(r) for r in cur.fetchall()]
-    busy_spec = [e for e in all_spec if e['status'] == 'busy']
-    free_spec = [e for e in all_spec if e['status'] == 'free']
-    all_rejected = 1 if not [e for e in free_spec
-                             if str(e['id']) not in rejected_prev] else 0
-
-    cur.execute("""
-        UPDATE requests
-        SET status = 'queued', engineer_id = NULL, engineer_name = NULL,
-            travel_time = 0, using_car = 0, walk_to_car = 0, car_time = 0,
-            best_car = NULL, rejected_by = ?, all_rejected = ?,
-            delay_started_at = COALESCE(delay_started_at, CURRENT_TIMESTAMP),
-            delay_reason = CASE
-                WHEN delay_reason = '' OR delay_reason IS NULL THEN 'Ожидание инженера'
-                ELSE delay_reason
-            END
-        WHERE id = ?
-    """, (rejected_str, all_rejected, request_id))
-    conn.commit()
-    conn.close()
-
-    if busy_spec:
-        _schedule_recheck(request_id)
-    return jsonify({
-        'success': True, 'reassigned': False, 'queued': True,
-        'all_rejected': bool(all_rejected)
-    })
-
-
-def _schedule_recheck(request_id):
-    def worker():
-        time.sleep(RECHECK_DELAY_SEC)
-        try:
-            conn2 = get_db()
-            cur2 = conn2.cursor()
-            cur2.execute("SELECT status, flight_cancelled FROM requests WHERE id = ?",
-                         (request_id,))
-            r = cur2.fetchone()
-            conn2.close()
-            if r and r['status'] == 'queued' and not r['flight_cancelled']:
-                try_reassign_queued()
-        except Exception as e:
-            print(f'[RECHECK] ошибка: {e}')
-    threading.Thread(target=worker, daemon=True).start()
-
-
-# ============================================================
-# Задержка и отмена рейса
-# ============================================================
-@app.route('/api/requests/<request_id>/approve_delay', methods=['POST'])
-def approve_delay(request_id):
-    data = request.get_json() or {}
-    minutes = int(data.get('minutes') or 0)
-    reason = (data.get('reason') or '').strip()
-    dispatcher_name = (data.get('dispatcher_name') or 'Диспетчер').strip()
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     if minutes <= 0 or minutes > 720:
         return jsonify({'success': False, 'error': 'Некорректная длительность'}), 400
     if not reason:
         return jsonify({'success': False, 'error': 'Укажите причину'}), 400
-<<<<<<< HEAD
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id, flight_cancelled FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
@@ -3752,6 +2613,7 @@ def approve_delay(request_id):
 
 
 @app.route('/api/requests/<rid>/cancel_flight', methods=['POST'])
+@roles('dispatcher')
 def cancel_flight(rid):
     data = request.get_json() or {}
     reason = (data.get('reason') or '').strip()
@@ -3777,84 +2639,14 @@ def cancel_flight(rid):
     return jsonify({'success': True, 'request_id': rid,
                     'flight_cancelled': True, 'deleted': True,
                     'reason': reason, 'cancelled_by': dispatcher})
-=======
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, flight_cancelled FROM requests WHERE id = ?", (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['flight_cancelled']:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Рейс уже отменён'}), 400
-
-    cur.execute("""
-        UPDATE requests
-        SET delay_minutes = ?, delay_reason = ?, delay_approved_by = ?,
-            delay_started_at = COALESCE(delay_started_at, CURRENT_TIMESTAMP)
-        WHERE id = ?
-    """, (minutes, reason, dispatcher_name, request_id))
-    conn.commit()
-    conn.close()
-    return jsonify({
-        'success': True, 'request_id': request_id,
-        'delay_minutes': minutes, 'delay_reason': reason,
-        'delay_approved_by': dispatcher_name
-    })
-
-
-@app.route('/api/requests/<request_id>/cancel_flight', methods=['POST'])
-def cancel_flight(request_id):
-    data = request.get_json() or {}
-    reason = (data.get('reason') or '').strip()
-    dispatcher_name = (data.get('dispatcher_name') or 'Диспетчер').strip()
-
-    if not reason:
-        return jsonify({'success': False, 'error': 'Укажите причину отмены рейса'}), 400
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, aircraft, engineer_id, flight_cancelled, status
-        FROM requests WHERE id = ?
-    """, (request_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['flight_cancelled']:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Рейс уже отменён'}), 400
-
-    engineer_id = row['engineer_id']
-    aircraft = row['aircraft'] or 'ВС'
-
-    if engineer_id:
-        other = engineer_has_active_requests(conn, engineer_id, request_id)
-        if other == 0:
-            cur.execute("UPDATE engineers SET status = 'free', task = NULL WHERE id = ?",
-                        (engineer_id,))
-
-    cur.execute("UPDATE transport SET assigned_to = NULL WHERE assigned_to = ?",
-                (request_id,))
-    cur.execute("DELETE FROM requests WHERE id = ?", (request_id,))
-    conn.commit()
-    conn.close()
-
-    try_reassign_queued()
-    return jsonify({
-        'success': True, 'request_id': request_id,
-        'flight_cancelled': True, 'deleted': True,
-        'reason': reason, 'cancelled_by': dispatcher_name
-    })
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 
 
 @app.route('/api/complete/<eng_id>', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def complete_engineer(eng_id):
-<<<<<<< HEAD
+    user = current_user()
+    if user.get('role') == 'engineer' and user.get('id') != eng_id:
+        return jsonify({'success': False, 'error': 'Это не ваш профиль'}), 403
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id FROM requests WHERE engineer_id=?
         AND status NOT IN ('completed','cancelled','flight_cancelled')""", (eng_id,))
@@ -3865,36 +2657,15 @@ def complete_engineer(eng_id):
     cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (eng_id,))
     ok = cur.rowcount > 0
     conn.commit(); conn.close()
-=======
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id FROM requests
-        WHERE engineer_id = ? AND status NOT IN ('completed', 'cancelled', 'flight_cancelled')
-    """, (eng_id,))
-    if cur.fetchall():
-        conn.close()
-        return jsonify({'success': False, 'reason': 'has_active_requests'})
-
-    cur.execute("""
-        UPDATE transport SET assigned_to = NULL
-        WHERE assigned_to IN (SELECT id FROM requests WHERE engineer_id = ?)
-    """, (eng_id,))
-    cur.execute("UPDATE engineers SET status = 'free', task = NULL WHERE id = ?",
-                (eng_id,))
-    ok = cur.rowcount > 0
-    conn.commit()
-    conn.close()
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     try_reassign_queued()
     return jsonify({'success': ok})
 
 
 # ============================================================
-<<<<<<< HEAD
 # Очистка
 # ============================================================
 @app.route('/api/clear_all_requests', methods=['POST'])
+@roles('dispatcher')
 def clear_all_requests():
     conn = get_db(); cur = conn.cursor()
     try:
@@ -3914,6 +2685,7 @@ def clear_all_requests():
 
 
 @app.route('/api/clear_all_pilot_requests', methods=['POST'])
+@roles('dispatcher')
 def clear_all_pilot_requests():
     conn = get_db(); cur = conn.cursor()
     try:
@@ -3932,9 +2704,6 @@ def clear_all_pilot_requests():
 
 # ============================================================
 # Whisper & Audio
-=======
-# Whisper и Аудио
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 # ============================================================
 def _decode_data_url(data_url):
     if not data_url:
@@ -3944,31 +2713,23 @@ def _decode_data_url(data_url):
     return base64.b64decode(data_url)
 
 
-<<<<<<< HEAD
 @app.route('/api/requests/<rid>/audio', methods=['GET'])
+@roles('dispatcher', 'engineer', 'pilot')
 def stream_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone(); conn.close()
-=======
-@app.route('/api/requests/<request_id>/audio', methods=['GET'])
-def stream_pilot_audio(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, source, pilot_audio, pilot_audio_mime
-        FROM requests WHERE id = ?
-    """, (request_id,))
+    cur.execute("""SELECT id,source,pilot_audio,pilot_audio_mime,
+                   engineer_id,pilot_name FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
+    if not row:
+        conn.close(); abort(404)
+    if not owns_request(conn, row):
+        conn.close(); abort(403)
     conn.close()
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
-    if not row or row['source'] != 'pilot' or not row['pilot_audio']:
+    if row['source'] != 'pilot' or not row['pilot_audio']:
         abort(404)
     raw = _decode_data_url(row['pilot_audio'])
     if not raw:
         abort(404)
-<<<<<<< HEAD
     mime = row['pilot_audio_mime'] or 'audio/webm'
     total = len(raw)
     range_header = request.headers.get('Range')
@@ -3982,25 +2743,6 @@ def stream_pilot_audio(request_id):
             if start > end or start < 0:
                 start = 0
             chunk = raw[start:end+1]
-=======
-
-    mime = row['pilot_audio_mime'] or 'audio/webm'
-    total = len(raw)
-    range_header = request.headers.get('Range', None)
-
-    if range_header:
-        try:
-            units, _, ranges = range_header.partition('=')
-            start_s, _, end_s = ranges.partition('-')
-            start = int(start_s) if start_s else 0
-            end = int(end_s) if end_s else total - 1
-            if end >= total:
-                end = total - 1
-            if start > end or start < 0:
-                start = 0
-            chunk = raw[start:end + 1]
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
             resp = Response(chunk, 206, mimetype=mime, direct_passthrough=True)
             resp.headers['Content-Range'] = f'bytes {start}-{end}/{total}'
             resp.headers['Accept-Ranges'] = 'bytes'
@@ -4008,10 +2750,6 @@ def stream_pilot_audio(request_id):
             return resp
         except Exception:
             pass
-<<<<<<< HEAD
-=======
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     resp = Response(raw, 200, mimetype=mime, direct_passthrough=True)
     resp.headers['Accept-Ranges'] = 'bytes'
     resp.headers['Content-Length'] = str(total)
@@ -4030,12 +2768,7 @@ def get_whisper():
         return _whisper_model
     try:
         import whisper
-<<<<<<< HEAD
         _whisper_model = whisper.load_model(os.environ.get('WHISPER_MODEL', 'small'))
-=======
-        model_name = os.environ.get('WHISPER_MODEL', 'small')
-        _whisper_model = whisper.load_model(model_name)
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
         _whisper_available = True
         return _whisper_model
     except Exception:
@@ -4044,8 +2777,7 @@ def get_whisper():
 
 
 def _convert_to_wav(input_path):
-<<<<<<< HEAD
-    ff = FFMPEG_PATH if os.path.exists(FFMPEG_PATH) else shutil.which('ffmpeg')
+    ff = FFMPEG_PATH or _resolve_ffmpeg()
     if not ff:
         return None
     out = input_path + '.wav'
@@ -4055,27 +2787,11 @@ def _convert_to_wav(input_path):
                            capture_output=True, timeout=120)
         return out if (r.returncode == 0 and os.path.exists(out)
                        and os.path.getsize(out) > 100) else None
-=======
-    ffmpeg_bin = FFMPEG_PATH if os.path.exists(FFMPEG_PATH) else shutil.which('ffmpeg')
-    if not ffmpeg_bin:
-        return None
-    out_path = input_path + '.wav'
-    try:
-        result = subprocess.run(
-            [ffmpeg_bin, '-y', '-i', input_path, '-ac', '1', '-ar', '16000',
-             '-f', 'wav', '-loglevel', 'error', out_path],
-            capture_output=True, timeout=120
-        )
-        return out_path if (result.returncode == 0
-                            and os.path.exists(out_path)
-                            and os.path.getsize(out_path) > 100) else None
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     except Exception:
         return None
 
 
 FAULT_KEYWORDS = [
-<<<<<<< HEAD
     (['утечка масла','масл'], 'engine_oil'),
     (['перегрев двигател','перегрев'], 'engine_overheat'),
     (['вибрац','тряс'], 'engine_vibration'),
@@ -4110,131 +2826,59 @@ FAULT_KEYWORDS = [
     (['кислород','oxygen'], 'oxygen_system'),
     (['пожар','огн','fire'], 'fire_system'),
     (['противообледен','обледен','deic'], 'deicing_system'),
-=======
-    (['утечка масла', 'масл'], 'engine_oil'),
-    (['перегрев двигател', 'перегрев'], 'engine_overheat'),
-    (['вибрац', 'тряс'], 'engine_vibration'),
-    (['не запускается двигател', 'запуск двигател'], 'engine_start'),
-    (['утечка топлив', 'топлив'], 'fuel_leak'),
-    (['топливн', 'fuel'], 'fuel_system'),
-    (['отказ двигател', 'двигател', 'engine'], 'engine_failure'),
-    (['навигац', 'nav', 'курс'], 'avionics_nav'),
-    (['радиосвяз', 'радио', 'связь'], 'avionics_radio'),
-    (['автопилот'], 'avionics_autopilot'),
-    (['транспондер', 'ответчик'], 'avionics_transponder'),
-    (['дисплей', 'экран'], 'avionics_display'),
-    (['gps'], 'avionics_gps'),
-    (['утечка гидравлик', 'гидравлик'], 'hydraulic_leak'),
-    (['давление гидравлик'], 'hydraulic_pressure'),
-    (['генератор'], 'electrical_generator'),
-    (['аккумулятор', 'батаре'], 'electrical_battery'),
-    (['короткое замыкание', 'кз'], 'electrical_short'),
-    (['освещени', 'свет'], 'electrical_lighting'),
-    (['электроснабж', 'электрик', 'electr'], 'electrical'),
-    (['шасси', 'landing gear', 'стойк'], 'landing_gear'),
-    (['тормоз'], 'brake_system'),
-    (['закрылк', 'flap'], 'flap_issue'),
-    (['элерон'], 'aileron_issue'),
-    (['руль направлени', 'rudder'], 'rudder_issue'),
-    (['крыл', 'wing'], 'wing_damage'),
-    (['фюзеляж', 'fuselage'], 'fuselage_damage'),
-    (['двер', 'door'], 'door_issue'),
-    (['пневматик', 'pneumatic'], 'pneumatic'),
-    (['кондиционер', 'air condition', 'климат'], 'air_condition'),
-    (['разгерметизац', 'герметичн', 'pressur'], 'pressurization'),
-    (['кислород', 'oxygen'], 'oxygen_system'),
-    (['пожар', 'огн', 'fire'], 'fire_system'),
-    (['противообледен', 'обледен', 'deic'], 'deicing_system'),
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
 ]
 
 
 def parse_pilot_text(text):
-<<<<<<< HEAD
     result = {'aircraft': None, 'fault_type': None, 'terminal': None, 'parking_id': None}
     if not text:
         return result
     lower = text.lower()
-=======
-    result = {'aircraft': None, 'fault_type': None,
-              'terminal': None, 'parking_id': None}
-    if not text:
-        return result
-    lower = text.lower()
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     m = (re.search(r'\b(su[\s\-]?(\d{3,4}))\b', lower)
          or re.search(r'\bборт[а-я]*\s+(\d{3,4})\b', lower)
          or re.search(r'\b(\d{4})\b', text))
     if m:
         result['aircraft'] = 'SU-' + (m.group(2) if m.lastindex == 2 else m.group(1))
-<<<<<<< HEAD
-=======
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     for keys, code in FAULT_KEYWORDS:
         if any(k in lower for k in keys):
             result['fault_type'] = code
             break
-<<<<<<< HEAD
     m = re.search(r'терминал[аеуы]?\s*([a-fA-Fа-яА-Я])', lower)
     if m:
         t = m.group(1).upper()
         tmap = {'А':'A','Б':'B','В':'B','С':'C','Д':'D','Е':'E','Ф':'F'}
         result['terminal'] = t if t in 'ABCDEF' else tmap.get(t)
-=======
-
-    m = re.search(r'терминал[аеуы]?\s*([a-fA-Fа-яА-Я])', lower)
-    if m:
-        t = m.group(1).upper()
-        t_map = {'А': 'A', 'Б': 'B', 'В': 'B', 'С': 'C', 'Д': 'D', 'Е': 'E', 'Ф': 'F'}
-        result['terminal'] = t if t in 'ABCDEF' else t_map.get(t)
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     else:
         m = re.search(r'\b([bcdef])\b', lower)
         if m:
             result['terminal'] = m.group(1).upper()
-<<<<<<< HEAD
-=======
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     m = (re.search(r'(стоянк[аеуи]|выход[аеу]?)\s*(\d{1,3})', lower)
          or re.search(r'\b(1[0-4]\d)\b', text)
          or re.search(r'\b([1-5]\d|60)\b', text))
     if m:
         result['parking_id'] = m.group(2) if m.lastindex == 2 else m.group(1)
-<<<<<<< HEAD
     return result
 
 
 @app.route('/api/requests/<rid>/transcribe', methods=['POST'])
+@roles('dispatcher', 'engineer', 'pilot')
 def transcribe_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone(); conn.close()
-=======
-
-    return result
-
-
-@app.route('/api/requests/<request_id>/transcribe', methods=['POST'])
-def transcribe_pilot_audio(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, source, pilot_audio, pilot_audio_mime
-        FROM requests WHERE id = ?
-    """, (request_id,))
+    cur.execute("""SELECT id,source,pilot_audio,pilot_audio_mime,
+                   engineer_id,pilot_name FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нет аудиозаписи'}), 400
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
     conn.close()
-
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
-    if not row or row['source'] != 'pilot' or not row['pilot_audio']:
+    if row['source'] != 'pilot' or not row['pilot_audio']:
         return jsonify({'success': False, 'error': 'Нет аудиозаписи'}), 400
     model = get_whisper()
     if model is None:
         return jsonify({'success': False, 'error': 'whisper_unavailable'}), 200
-<<<<<<< HEAD
     raw = _decode_data_url(row['pilot_audio'])
     ext = 'webm' if 'webm' in (row['pilot_audio_mime'] or '') else 'wav'
     tmp_path = wav_path = None
@@ -4256,50 +2900,642 @@ def transcribe_pilot_audio(request_id):
              parsed['terminal'], parsed['parking_id'], rid))
         conn.commit(); conn.close()
         return jsonify({'success': True, 'text': text, 'engine': 'whisper', 'parsed': parsed})
-=======
-
-    raw = _decode_data_url(row['pilot_audio'])
-    ext = 'webm' if 'webm' in row['pilot_audio_mime'] else 'wav'
-    tmp_path = wav_path = None
-
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.' + ext) as f:
-            f.write(raw)
-            tmp_path = f.name
-        wav_path = _convert_to_wav(tmp_path)
-        result = model.transcribe(
-            wav_path or tmp_path, language='ru', fp16=False,
-            condition_on_previous_text=False,
-            no_speech_threshold=0.6, logprob_threshold=-1.0
-        )
-        text = (result.get('text') or '').strip()
-        parsed = parse_pilot_text(text)
-
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE requests
-            SET pilot_audio_text = ?,
-                aircraft = COALESCE(?, aircraft),
-                fault_type = COALESCE(?, fault_type),
-                terminal = COALESCE(?, terminal),
-                parking_id = COALESCE(?, parking_id)
-            WHERE id = ?
-        """, (text, parsed['aircraft'], parsed['fault_type'],
-              parsed['terminal'], parsed['parking_id'], request_id))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'text': text, 'engine': 'whisper',
-                        'parsed': parsed})
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         for p in (tmp_path, wav_path):
             if p:
-<<<<<<< HEAD
                 try: os.unlink(p)
                 except Exception: pass
+
+
+# ============================================================
+# [CHAIN] Сквозная цепочка: MCC → ЦПУ → нач. смены → бригадир → техник → MCC
+# ============================================================
+CHAIN_STAGE_LABELS = {
+    'mcc': 'Очередь MCC',
+    'cpu': 'В ЦПУ',
+    'shift': 'Начальник смены',
+    'foreman': 'Бригадир',
+    'tech': 'Техник назначен',
+    'verdict': 'Вердикт техника',
+    'closed': 'Закрыто',
+}
+
+# этап цепочки → статус, который рисует интерфейс МЦЦ
+CHAIN_STAGE_TO_UI = {
+    'mcc': 'open',
+    'cpu': 'to_cpu',
+    'shift': 'to_shift',
+    'foreman': 'to_foreman',
+    'tech': 'assigned',
+    'verdict': 'assigned',
+    'closed': 'repaired',
+}
+
+DECISION_TO_UI = {
+    'MEL_DEFER': 'deferred',
+    'AOG_RECOVERY': 'in_work',
+    'CLOSE': 'repaired',
+}
+
+
+def chain_log(conn, rid, stage, actor_role, actor_name, note=''):
+    conn.execute("""INSERT INTO chain_log (request_id, stage, actor_role, actor_name, note)
+                    VALUES (?,?,?,?,?)""", (rid, stage, actor_role, actor_name or '', note or ''))
+
+
+def _iso_ts(value):
+    """SQLite пишет CURRENT_TIMESTAMP в UTC без пояса — помечаем как UTC,
+    иначе браузер считает время локальным и врёт с возрастом заявки."""
+    if not value:
+        return value
+    text = str(value)
+    if 'T' in text:
+        return text if text.endswith('Z') else text + 'Z'
+    return text.replace(' ', 'T') + 'Z'
+
+
+def _chain_entry(row, history):
+    """Запись в форме, которую ожидает интерфейс МЦЦ (формат прежнего ATLB)."""
+    stage = row.get('chain_stage') or 'mcc'
+    status = CHAIN_STAGE_TO_UI.get(stage, 'open')
+    if stage == 'closed':
+        status = DECISION_TO_UI.get(row.get('mcc_decision') or '', 'repaired')
+    return {
+        'id': row['id'],
+        'requestId': row['id'],
+        'aircraft': row.get('aircraft') or '—',
+        'faultType': row.get('fault_type') or '',
+        'defect': row.get('description') or row.get('pilot_audio_text') or '',
+        'severity': row.get('severity') or 'medium',
+        'parking': row.get('parking_id') or '',
+        'terminal': row.get('terminal') or '',
+        'source': 'pilot' if row.get('source') == 'pilot' else 'manual',
+        'createdAt': _iso_ts(row.get('created_at')),
+        'status': status,
+        'chainStage': stage,
+        'chainStageLabel': CHAIN_STAGE_LABELS.get(stage, stage),
+        'cpuSentAt': _iso_ts(row.get('cpu_at')),
+        'shiftSupervisorId': row.get('shift_supervisor_id') or '',
+        'shiftSupervisorName': row.get('shift_supervisor_name') or '',
+        'shiftAssignedAt': _iso_ts(row.get('shift_assigned_at')),
+        'foremanId': row.get('foreman_id') or '',
+        'foremanName': row.get('foreman_name') or '',
+        'foremanAssignedAt': _iso_ts(row.get('foreman_assigned_at')),
+        'engineerName': row.get('engineer_name') or '',
+        'technicianAssignedAt': _iso_ts(row.get('technician_assigned_at')),
+        'engineerId': row.get('engineer_id') or '',
+        'verdict': row.get('engineer_verdict') or '',
+        'verdictAt': _iso_ts(row.get('engineer_verdict_at')),
+        'mccDecision': row.get('mcc_decision') or '',
+        'mccComment': row.get('mcc_comment') or '',
+        'melRef': row.get('mcc_mel_ref') or '',
+        'melCategory': row.get('mcc_mel_category') or '',
+        'etr': row.get('etr') or '',
+        'aogConfirmed': (row.get('mcc_decision') or '') == 'AOG_RECOVERY',
+        'aogEtr': row.get('etr') or '',
+        'aogAction': row.get('aog_action') or '',
+        'aogSince': _iso_ts(row.get('aog_since')),
+        'engineerComment': row.get('engineer_comment') or '',
+        'flightNumber': '',
+        'closedAt': _iso_ts(row.get('chain_closed_at')),
+        'pilotName': row.get('pilot_name') or '',
+        'pilotRank': row.get('pilot_rank') or '',
+        'history': history,
+    }
+
+
+def _chain_take(conn, rid, expected_stage):
+    """Возвращает запись, если она на нужном этапе цепочки."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        return None, 'Заявка не найдена'
+    stage = row['chain_stage'] or 'mcc'
+    if stage != expected_stage:
+        return None, ('Заявка на этапе «%s», ожидался «%s»'
+                      % (CHAIN_STAGE_LABELS.get(stage, stage),
+                         CHAIN_STAGE_LABELS.get(expected_stage, expected_stage)))
+    return dict(row), None
+
+
+@app.route('/api/staff', methods=['GET'])
+@roles('mcc', 'cpu', 'shift_supervisor', 'foreman')
+def get_staff():
+    role = request.args.get('role', '')
+    conn = get_db(); cur = conn.cursor()
+    # пароли в справочник не отдаём — даже в виде хэшей
+    columns = "id,name,role,shift,status,email"
+    if role:
+        cur.execute(f"SELECT {columns} FROM staff WHERE role=? ORDER BY name", (role,))
+    else:
+        cur.execute(f"SELECT {columns} FROM staff ORDER BY role, name")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/chain', methods=['GET'])
+@roles('mcc', 'cpu', 'shift_supervisor', 'foreman')
+def get_chain():
+    user = session.get('user') or {}
+    role = user.get('role')
+    sql = """SELECT * FROM requests
+             WHERE COALESCE(flight_cancelled, 0) = 0
+               AND status NOT IN ('cancelled', 'draft')"""
+    params = []
+    # ЦПУ видит всё, что уже вышло из MCC; звенья — только назначенные им.
+    # MCC и admin видят всю цепочку.
+    if role == 'cpu':
+        sql += " AND chain_stage != 'mcc'"
+    elif role == 'shift_supervisor':
+        sql += " AND shift_supervisor_id = ?"
+        params.append(user.get('id') or '')
+    elif role == 'foreman':
+        sql += " AND foreman_id = ?"
+        params.append(user.get('id') or '')
+    sql += " ORDER BY created_at DESC"
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(sql, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    rec_map = _compute_recurring_map(conn)
+    hist = {}
+    cur.execute("""SELECT request_id, stage, actor_role, actor_name, note, created_at
+                   FROM chain_log ORDER BY id ASC""")
+    for h in cur.fetchall():
+        hist.setdefault(h['request_id'], []).append({
+            'at': _iso_ts(h['created_at']), 'to': h['stage'], 'role': h['actor_role'],
+            'note': h['note'], 'actor': h['actor_name'],
+        })
+    conn.close()
+    out = []
+    for r in rows:
+        entry = _chain_entry(r, hist.get(r['id'], []))
+        key = (str(r.get('aircraft') or '').strip(), str(r.get('fault_type') or '').strip())
+        rec = rec_map.get(key, {'occurrences': 1, 'last_occurrence': r.get('created_at')})
+        entry['occurrences'] = rec['occurrences']
+        entry['lastOccurrence'] = _iso_ts(rec['last_occurrence'])
+        entry['recurring'] = rec['occurrences'] >= 3
+        out.append(entry)
+    return jsonify(out)
+
+
+@app.route('/api/chain/<rid>/to_cpu', methods=['POST'])
+@roles('mcc')
+def chain_to_cpu(rid):
+    data = request.get_json() or {}
+    actor = (data.get('actor') or 'MCC').strip()
+    comment = (data.get('comment') or '').strip()
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'mcc')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='cpu', cpu_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (rid,))
+    chain_log(conn, rid, 'cpu', 'MCC', actor,
+              comment or 'Передано в ЦПУ для назначения цепочки')
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'cpu'})
+
+
+@app.route('/api/chain/<rid>/assign_shift', methods=['POST'])
+@roles('cpu', 'mcc')
+def chain_assign_shift(rid):
+    data = request.get_json() or {}
+    staff_id = data.get('staff_id')
+    comment = (data.get('comment') or '').strip()
+    if not staff_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите начальника смены и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'cpu')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM staff WHERE id=? AND role='shift_supervisor'", (staff_id,))
+    st = cur.fetchone()
+    if not st:
+        conn.close(); return jsonify({'success': False, 'error': 'Начальник смены не найден'}), 404
+
+    conn.execute("""UPDATE requests SET chain_stage='shift', shift_supervisor_id=?,
+                    shift_supervisor_name=?, shift_assigned_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (st['id'], st['name'], rid))
+    # актор — оператор ЦПУ, который назначает; назначенный идёт в отдельное поле
+    chain_log(conn, rid, 'shift', 'ЦПУ', data.get('actor') or 'Оператор ЦПУ',
+              comment + ' | Назначен: ' + st['name'])
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'shift', 'name': st['name']})
+
+
+@app.route('/api/chain/<rid>/assign_foreman', methods=['POST'])
+@roles('shift_supervisor', 'mcc')
+def chain_assign_foreman(rid):
+    data = request.get_json() or {}
+    staff_id = data.get('staff_id')
+    comment = (data.get('comment') or '').strip()
+    if not staff_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите бригадира и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'shift')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+    user = current_user()
+    if (user.get('role') == 'shift_supervisor'
+            and str(row.get('shift_supervisor_id') or '') != str(user.get('id') or '')):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому начальнику смены'}), 403
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM staff WHERE id=? AND role='foreman'", (staff_id,))
+    st = cur.fetchone()
+    if not st:
+        conn.close(); return jsonify({'success': False, 'error': 'Бригадир не найден'}), 404
+
+    conn.execute("""UPDATE requests SET chain_stage='foreman', foreman_id=?,
+                    foreman_name=?, foreman_assigned_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (st['id'], st['name'], rid))
+    chain_log(conn, rid, 'foreman', 'Начальник смены',
+              row.get('shift_supervisor_name') or '', comment)
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'foreman', 'name': st['name']})
+
+
+@app.route('/api/chain/<rid>/assign_technician', methods=['POST'])
+@roles('foreman', 'mcc')
+def chain_assign_technician(rid):
+    data = request.get_json() or {}
+    eng_id = data.get('engineer_id')
+    comment = (data.get('comment') or '').strip()
+    if not eng_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите техника и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'foreman')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+    user = current_user()
+    if (user.get('role') == 'foreman'
+            and str(row.get('foreman_id') or '') != str(user.get('id') or '')):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому бригадиру'}), 403
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, status FROM engineers WHERE id=?", (eng_id,))
+    eng = cur.fetchone()
+    if not eng:
+        conn.close(); return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+    if (eng['status'] or 'free') != 'free':
+        conn.close(); return jsonify({'success': False, 'error': 'Инженер уже занят'}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='tech', engineer_id=?, engineer_name=?,
+                    technician_assigned_at=CURRENT_TIMESTAMP, status='inspection',
+                    mcc_status='INSPECTION'
+                    WHERE id=?""", (eng['id'], eng['name'], rid))
+    conn.execute("""UPDATE engineers SET status='busy', task=? WHERE id=?""",
+                 ('Осмотр ВС %s на стоянке %s' % (row.get('aircraft') or '',
+                                                  row.get('parking_id') or ''), eng['id']))
+    chain_log(conn, rid, 'tech', 'Бригадир', row.get('foreman_name') or '', comment)
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'tech', 'name': eng['name']})
+
+
+# ------------------------------------------------------------
+# ATLB пилота — тот же журнал, что в цепочке, но в терминах ATLB
+# ------------------------------------------------------------
+ATLB_STATUS_BY_STAGE = {
+    'mcc': 'open', 'cpu': 'open', 'shift': 'open', 'foreman': 'open',
+    'tech': 'assigned', 'verdict': 'in_work', 'closed': 'repaired',
+}
+ATLB_STATUS_BY_DECISION = {
+    'CLOSE': 'repaired', 'MEL_DEFER': 'deferred', 'AOG_RECOVERY': 'awaiting_parts',
+}
+
+
+def _pilot_atlb_entry(row, history):
+    stage = row.get('chain_stage') or 'mcc'
+    status = ATLB_STATUS_BY_STAGE.get(stage, 'open')
+    if stage == 'closed':
+        status = ATLB_STATUS_BY_DECISION.get(row.get('mcc_decision') or '', 'repaired')
+    if row.get('crs_signed'):
+        status = 'released'
+    return {
+        'id': row['id'],
+        'requestId': row['id'],
+        'aircraft': row.get('aircraft') or '—',
+        'flightNumber': '',
+        'createdAt': _iso_ts(row.get('created_at')),
+        'defect': row.get('description') or row.get('pilot_audio_text') or '',
+        'faultType': row.get('fault_type') or '',
+        'severity': row.get('severity') or 'medium',
+        'parking': row.get('parking_id') or '',
+        'source': 'pilot',
+        'status': status,
+        'chainStage': stage,
+        'engineerName': row.get('engineer_name') or '',
+        'verdict': row.get('engineer_verdict') or '',
+        'rectification': row.get('mcc_comment') or '',
+        'melRef': row.get('mcc_mel_ref') or '',
+        'deferred': (row.get('mcc_decision') or '') == 'MEL_DEFER',
+        'demo': False,
+        'crs': {
+            'signed': bool(row.get('crs_signed')),
+            'signedAt': _iso_ts(row.get('crs_signed_at')),
+            'signedBy': row.get('crs_signed_by') or None,
+            'signature': row.get('crs_signature') or None,
+        },
+        'history': history,
+    }
+
+
+@app.route('/api/pilot/atlb', methods=['GET'])
+@roles('pilot')
+def get_pilot_atlb():
+    user = session.get('user') or {}
+    where = ["source='pilot'", "COALESCE(flight_cancelled, 0) = 0",
+             "status NOT IN ('cancelled', 'draft')"]
+    params = []
+
+    conn = get_db(); cur = conn.cursor()
+    if user.get('role') == 'pilot':
+        # пилот видит только свой журнал; имя берём из базы, а не из запроса:
+        # его можно сменить в профиле, а ?pilot= подделать
+        where.append('pilot_name = ?')
+        params.append(pilot_name_of_session(conn))
+    else:
+        pilot = (request.args.get('pilot') or '').strip()
+        if pilot:
+            where.append('pilot_name = ?')
+            params.append(pilot)
+
+    cur.execute("SELECT * FROM requests WHERE " + " AND ".join(where) +
+                " ORDER BY created_at DESC", params)
+    rows = [dict(r) for r in cur.fetchall()]
+
+    hist = {}
+    cur.execute("""SELECT request_id, stage, actor_role, actor_name, note, created_at
+                   FROM chain_log ORDER BY id ASC""")
+    for h in cur.fetchall():
+        hist.setdefault(h['request_id'], []).append({
+            'at': _iso_ts(h['created_at']), 'from': None, 'to': h['stage'],
+            'role': h['actor_role'], 'note': h['note'], 'actor': h['actor_name'],
+        })
+    conn.close()
+    return jsonify([_pilot_atlb_entry(r, hist.get(r['id'], [])) for r in rows])
+
+
+@app.route('/api/pilot/atlb/sign_crs', methods=['POST'])
+@roles('pilot')
+def pilot_sign_crs():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    pilot = (data.get('pilot_name') or '').strip()
+    signature = data.get('signature') or ''
+    if not rid or not pilot:
+        return jsonify({'success': False, 'error': 'Не указана заявка или пилот'}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if not owns_request(conn, row):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Это не ваша заявка'}), 403
+    if current_user().get('role') == 'pilot':
+        pilot = pilot_name_of_session(conn)
+    if row['chain_stage'] != 'closed':
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Подписать CRS можно только после решения МЦЦ'}), 400
+    if row['crs_signed']:
+        conn.close(); return jsonify({'success': False, 'error': 'CRS уже подписан'}), 400
+
+    conn.execute("""UPDATE requests SET crs_signed=1, crs_signed_at=CURRENT_TIMESTAMP,
+                    crs_signed_by=?, crs_signature=? WHERE id=?""", (pilot, signature, rid))
+    chain_log(conn, rid, 'released', 'Пилот', pilot, 'Подписан CRS')
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'request_id': rid})
+
+
+# ------------------------------------------------------------
+# Отчёты диспетчера — раньше жили только в localStorage
+# ------------------------------------------------------------
+@app.route('/api/reports', methods=['GET'])
+@roles('dispatcher')
+def get_reports():
+    include_deleted = request.args.get('deleted') == '1'
+    conn = get_db(); cur = conn.cursor()
+    sql = "SELECT * FROM reports"
+    if not include_deleted:
+        sql += " WHERE COALESCE(deleted,0)=0"
+    sql += " ORDER BY created_at DESC"
+    cur.execute(sql)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    out = []
+    for r in rows:
+        try:
+            obj = json.loads(r.get('payload') or '{}')
+        except (ValueError, TypeError):
+            obj = {}
+        if not obj:
+            obj = {
+                'id': r['id'], 'requestId': r.get('request_id') or '',
+                'aircraft': r.get('aircraft') or '',
+                'engineer': r.get('engineer_name') or '',
+                'raw': r.get('text') or '',
+            }
+        obj['id'] = r['id']
+        obj['deleted'] = bool(r.get('deleted'))
+        obj['createdAt'] = _iso_ts(r.get('created_at'))
+        out.append(obj)
+    return jsonify(out)
+
+
+@app.route('/api/reports', methods=['POST'])
+@roles('dispatcher')
+def create_report():
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'success': False, 'error': 'Пустой отчёт'}), 400
+    rid = data.get('id') or ('rep_' + str(int(time.time() * 1000)))
+    conn = get_db()
+    conn.execute("""INSERT OR REPLACE INTO reports
+                    (id, request_id, aircraft, engineer_name, text, source, payload)
+                    VALUES (?,?,?,?,?,?,?)""",
+                 (rid, data.get('request_id') or '', data.get('aircraft') or '',
+                  data.get('engineer') or data.get('engineer_name') or '', text,
+                  data.get('source') or 'dispatcher',
+                  json.dumps(data, ensure_ascii=False)))
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'id': rid})
+
+
+@app.route('/api/reports/<rep_id>', methods=['DELETE'])
+@roles('dispatcher')
+def delete_report(rep_id):
+    conn = get_db()
+    conn.execute("UPDATE reports SET deleted=1 WHERE id=?", (rep_id,))
+    conn.commit(); conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/api/chain/<rid>/defer_mel', methods=['POST'])
+@roles('mcc')
+def chain_defer_mel(rid):
+    """Оформление MEL без выезда техника — из очереди MCC."""
+    data = request.get_json() or {}
+    category = (data.get('mel_category') or '').strip()
+    ref = (data.get('mel_ref') or '').strip()
+    due = (data.get('mel_due_date') or '').strip()
+    comment = (data.get('comment') or '').strip()
+    actor = (data.get('actor') or 'MCC').strip()
+
+    if not category or not ref or not comment:
+        return jsonify({'success': False,
+                        'error': 'Укажите MEL-категорию, ссылку и комментарий'}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if (row['chain_stage'] or 'mcc') == 'closed':
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка уже закрыта'}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='closed', chain_closed_at=CURRENT_TIMESTAMP,
+                    mcc_status='MEL', mcc_decision='MEL_DEFER', status='deferred',
+                    mcc_mel_category=?, mcc_mel_ref=?, mcc_due_date=?,
+                    mcc_comment=COALESCE(mcc_comment,'') || ?
+                    WHERE id=?""",
+                 (category, ref, due, '\n[MCC] MEL: ' + comment, rid))
+    if row['engineer_id']:
+        conn.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                     (row['engineer_id'],))
+    chain_log(conn, rid, 'closed', 'MCC', actor,
+              'MEL %s (%s): %s' % (category, ref, comment))
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'closed', 'mcc_decision': 'MEL_DEFER'})
+
+
+# ------------------------------------------------------------
+# Экспорт цепочки в Excel
+# ------------------------------------------------------------
+CHAIN_EXPORT_COLUMNS = [
+    ('Заявка', 'id'),
+    ('Борт', 'aircraft'),
+    ('Стоянка', 'parking_id'),
+    ('Тип неисправности', 'fault_type'),
+    ('Описание', 'description'),
+    ('Источник', 'source'),
+    ('Пилот', 'pilot_name'),
+    ('Создано', 'created_at'),
+    ('Этап', 'chain_stage'),
+    ('Передано в ЦПУ', 'cpu_at'),
+    ('Начальник смены', 'shift_supervisor_name'),
+    ('Назначен', 'shift_assigned_at'),
+    ('Бригадир', 'foreman_name'),
+    ('Назначен', 'foreman_assigned_at'),
+    ('Техник', 'engineer_name'),
+    ('Назначен', 'technician_assigned_at'),
+    ('Вердикт техника', 'engineer_verdict'),
+    ('Вердикт получен', 'engineer_verdict_at'),
+    ('Решение MCC', 'mcc_decision'),
+    ('MEL категория', 'mcc_mel_category'),
+    ('MEL ссылка', 'mcc_mel_ref'),
+    ('ETR', 'etr'),
+    ('Закрыто', 'chain_closed_at'),
+    ('Комментарий MCC', 'mcc_comment'),
+]
+
+
+@app.route('/api/export/xlsx', methods=['GET'])
+@roles('dispatcher', 'mcc')
+def export_chain_xlsx():
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return jsonify({'success': False,
+                        'error': 'openpyxl не установлен: pip install openpyxl'}), 500
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""SELECT * FROM requests
+                   WHERE COALESCE(flight_cancelled, 0) = 0
+                     AND status NOT IN ('cancelled', 'draft')
+                   ORDER BY created_at DESC""")
+    rows = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""SELECT l.*, r.aircraft FROM chain_log l
+                   LEFT JOIN requests r ON r.id = l.request_id
+                   ORDER BY l.id ASC""")
+    log_rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Цепочка'
+
+    head_font = Font(bold=True, color='FFFFFF')
+    head_fill = PatternFill('solid', fgColor='003366')
+    for col, (title, _) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col, value=title)
+        cell.font = head_font
+        cell.fill = head_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    for i, row in enumerate(rows, start=2):
+        for col, (_, key) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+            value = row.get(key)
+            if key == 'chain_stage':
+                value = CHAIN_STAGE_LABELS.get(value or 'mcc', value or '')
+            cell = ws.cell(row=i, column=col, value=value if value is not None else '')
+            cell.alignment = Alignment(vertical='top', wrap_text=(key in ('description', 'mcc_comment')))
+
+    ws.freeze_panes = 'A2'
+    for col, (title, _) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+        width = max(12, min(40, len(title) + 6))
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws2 = wb.create_sheet('Журнал')
+    log_headers = ['Заявка', 'Борт', 'Этап', 'Роль', 'Кто', 'Комментарий', 'Когда']
+    for col, title in enumerate(log_headers, start=1):
+        cell = ws2.cell(row=1, column=col, value=title)
+        cell.font = head_font
+        cell.fill = head_fill
+    for i, log in enumerate(log_rows, start=2):
+        values = [
+            log.get('request_id'), log.get('aircraft') or '',
+            CHAIN_STAGE_LABELS.get(log.get('stage') or '', log.get('stage') or ''),
+            log.get('actor_role') or '', log.get('actor_name') or '',
+            log.get('note') or '', log.get('created_at'),
+        ]
+        for col, value in enumerate(values, start=1):
+            ws2.cell(row=i, column=col, value=value if value is not None else '')
+    ws2.freeze_panes = 'A2'
+    for col, width in enumerate([26, 10, 20, 18, 22, 46, 20], start=1):
+        ws2.column_dimensions[get_column_letter(col)].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    stamp = time.strftime('%Y%m%d_%H%M')
+    return Response(
+        buf.read(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="intravia_chain_%s.xlsx"' % stamp}
+    )
 
 
 # ============================================================
@@ -4315,28 +3551,16 @@ if __name__ == '__main__':
     for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
         methods = ','.join(sorted(rule.methods - {'HEAD', 'OPTIONS'}))
         print(f'  [{methods}] {rule}')
-=======
-                try:
-                    os.unlink(p)
-                except Exception:
-                    pass
-
-
-# ============================================================
-# Точка входа
-# ============================================================
-if __name__ == '__main__':
-    init_db()
-    if os.environ.get('WHISPER_WARMUP') == '1':
-        get_whisper()
-
-    # Печатаем все зарегистрированные маршруты для проверки
-    print('\n[MCC] Зарегистрированные маршруты MCC:')
-    for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
-        if '/mcc/' in str(rule):
-            methods = ','.join(sorted(rule.methods - {'HEAD', 'OPTIONS'}))
-            print(f'  [{methods}] {rule}')
->>>>>>> 5cab79179c03342067b5fc514550b9875a5d5009
     print()
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Отладчик по умолчанию ВЫКЛЮЧЕН: интерактивный debugger Werkzeug
+    # позволяет выполнить код на сервере. Включать только локально:
+    #   set INTRAVIA_DEBUG=1
+    debug = os.environ.get('INTRAVIA_DEBUG') == '1'
+    if not debug and app.secret_key == 'intravia-secret-key-change-in-production':
+        print('[SECURITY] ВНИМАНИЕ: используется ключ сессии по умолчанию.')
+        print('[SECURITY] Задайте INTRAVIA_SECRET перед эксплуатацией.')
+
+    app.run(host=os.environ.get('INTRAVIA_HOST', '127.0.0.1'),
+            port=int(os.environ.get('INTRAVIA_PORT', '5000')),
+            debug=debug)

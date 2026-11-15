@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вектор InTrAvia</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --aero-blue: #003366;
+            --aero-blue-light: #0055aa;
+            --aero-blue-pale: #e8f0fe;
+            --aero-text: #1a2332;
+            --aero-text-light: #4a5a6a;
+            --aero-gray: #8a9bb5;
+            --aero-gray-light: #e8ecf0;
+            --aero-bg: #f0f2f5;
+            --aero-amber: #b45309;
+            --aero-amber-bg: #fef3c7;
+            --aero-red: #dc2626;
+            --aero-gray-dark: #6b7280;
+            --aero-gray-soft: #f3f4f6;
+            --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.04);
+            --shadow-card: 0 4px 20px rgba(0, 51, 102, 0.08);
+            --transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--aero-bg);
+            color: var(--aero-text);
+            display: flex;
+            min-height: 100vh;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--aero-gray); border-radius: 4px; }
+
+        .sidebar {
+            width: 260px;
+            background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%);
+            padding: 20px 16px;
+            height: 100vh;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-brand {
+            display: flex; align-items: center; gap: 12px;
+            padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 14px;
+        }
+        .sidebar-brand .brand-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%);
+            border-radius: 12px; display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 18px; flex-shrink: 0;
+        }
+        .sidebar-brand .brand-text { font-size: 16px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2; }
+        .sidebar-brand .brand-text .brand-vector {
+            background: linear-gradient(135deg, #4d9fff 0%, #0066cc 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            font-weight: 900;
+        }
+        .sidebar-brand .brand-text .brand-in { color: #ffffff; font-weight: 700; }
+        .sidebar-brand .brand-text .brand-tr { color: #0039A6; font-weight: 800; }
+        .sidebar-brand .brand-text .brand-avia { color: #D52B1E; font-weight: 800; }
+
+        .sidebar-user {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 14px;
+        }
+        .sidebar-user .avatar {
+            width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(77, 159, 255, 0.2); border: 2px solid rgba(77, 159, 255, 0.4);
+            display: flex; align-items: center; justify-content: center; font-size: 20px;
+            color: #4d9fff;
+        }
+        .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #ffffff; }
+        .sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
+
+        .sidebar-nav { list-style: none; flex: 1; overflow-y: auto; }
+        .sidebar-nav li { margin-bottom: 4px; }
+        .sidebar-nav li a {
+            display: flex; align-items: center; gap: 12px;
+            padding: 11px 14px; border-radius: 10px;
+            color: #8899aa; text-decoration: none;
+            font-size: 13px; font-weight: 500; transition: all var(--transition); cursor: pointer;
+        }
+        .sidebar-nav li a:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
+        .sidebar-nav li.active a {
+            background: rgba(77, 159, 255, 0.12);
+            color: #ffffff; font-weight: 600; position: relative;
+        }
+        .sidebar-nav li.active a::before {
+            content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 20px; background: #4d9fff; border-radius: 0 2px 2px 0;
+        }
+        .sidebar-nav li a i { width: 20px; font-size: 15px; text-align: center; }
+
+        .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+        .btn-logout {
+            width: 100%; padding: 10px; background: rgba(255, 255, 255, 0.05); color: #8899aa;
+            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;
+            font-size: 13px; cursor: pointer; transition: all var(--transition);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            font-family: inherit;
+        }
+        .btn-logout:hover { background: rgba(77, 159, 255, 0.15); color: #4d9fff; border-color: rgba(77, 159, 255, 0.3); }
+
+        .main { flex: 1; padding: 24px 32px; overflow-y: auto; height: 100vh; display: flex; flex-direction: column; gap: 20px; }
+
+        .page-header { display: flex; justify-content: space-between; align-items: flex-end; }
+        .page-header h1 { font-size: 24px; font-weight: 700; color: var(--aero-text); }
+        .page-header .page-sub { font-size: 12px; color: #8a9bb5; margin-top: 4px; letter-spacing: 0.2px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; flex-shrink: 0; }
+
+        .stat-card {
+            background: #ffffff;
+            padding: 16px 18px;
+            border-radius: 14px;
+            border: 1px solid var(--aero-gray-light);
+            box-shadow: var(--shadow-soft);
+            transition: all var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+        .stat-card::before {
+            content: ''; position: absolute; top: 0; left: 0;
+            width: 4px; height: 100%; background: var(--aero-blue);
+        }
+        .stat-card.aog::before { background: var(--aero-red); }
+        .stat-card .stat-value {
+            font-size: 26px; font-weight: 800; color: var(--aero-blue);
+            letter-spacing: -1px; line-height: 1;
+            font-family: var(--mono); font-variant-numeric: tabular-nums;
+        }
+        .stat-card.aog .stat-value { color: var(--aero-red); }
+        .stat-card .stat-label {
+            font-size: 11px; color: var(--aero-gray);
+            margin-top: 6px; font-weight: 500;
+        }
+
+        .alert-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .alert-panel {
+            background: #ffffff; border-radius: 14px;
+            border: 1px solid var(--aero-gray-light);
+            box-shadow: var(--shadow-soft);
+            padding: 16px 20px;
+        }
+        .alert-panel h3 {
+            font-size: 11px; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--aero-text-light);
+            margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+        }
+        .alert-panel h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--aero-blue); }
+        .alert-panel h3 .dot.critical { background: var(--aero-red); }
+
+        .alert-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid var(--aero-gray-light);
+            font-size: 12px;
+        }
+        .alert-item:last-child { border-bottom: none; }
+        .alert-item .reg { font-weight: 700; font-family: var(--mono); color: var(--aero-text); }
+        .alert-item .desc { color: var(--aero-text-light); flex: 1; margin-left: 10px; }
+        .alert-item .eta { font-family: var(--mono); font-size: 11px; color: var(--aero-text-light); white-space: nowrap; }
+
+        .section-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; gap: 8px; }
+
+        .section-content { display: none; }
+        .section-content.active { display: block; }
+
+        .table-wrapper {
+            background: #ffffff; border-radius: 14px;
+            border: 1px solid var(--aero-gray-light);
+            box-shadow: var(--shadow-soft);
+            overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: #f8fafc; border-bottom: 2px solid var(--aero-gray-light); }
+        thead th {
+            text-align: left; padding: 12px 16px;
+            font-weight: 700; color: var(--aero-text-light);
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        tbody td {
+            padding: 14px 16px; border-bottom: 1px solid var(--aero-gray-light);
+            color: var(--aero-text); vertical-align: middle;
+        }
+        tbody tr { transition: background var(--transition); }
+        tbody tr.clickable { cursor: pointer; }
+        tbody tr.clickable:hover { background: #f8fafc; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .row-aog { border-left: 3px solid var(--aero-red); }
+        .row-warning { border-left: 3px solid var(--aero-amber); }
+        .row-critical { border-left: 3px solid var(--aero-red); }
+
+        .badge {
+            padding: 4px 10px; border-radius: 6px;
+            font-size: 11px; font-weight: 700;
+            display: inline-block; text-transform: uppercase;
+            background: var(--aero-blue-pale); color: var(--aero-blue);
+        }
+        .badge.badge-aog { background: var(--aero-red); color: white; }
+        .badge.badge-mel { background: var(--aero-amber-bg); color: var(--aero-amber); }
+        .badge.badge-wait { background: var(--aero-blue-pale); color: var(--aero-blue); }
+        .badge.badge-source { background: #f1f5f9; color: #475569; }
+        .badge.cat-a { background: var(--aero-red); color: white; }
+        .badge.cat-b { background: var(--aero-amber-bg); color: var(--aero-amber); }
+        .badge.cat-c { background: var(--aero-blue-pale); color: var(--aero-blue); }
+        .badge.cat-d { background: #f1f5f9; color: #475569; }
+
+        .time-age { font-weight: 700; color: var(--aero-text); font-family: var(--mono); font-size: 12px; }
+        .time-age.critical { color: var(--aero-red); }
+        .mono { font-family: var(--mono); font-size: 12px; }
+
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 8px;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all var(--transition);
+            display: inline-flex; align-items: center; gap: 6px;
+            font-family: inherit;
+        }
+        .btn-primary { background: var(--aero-blue); color: white; }
+        .btn-primary:hover { background: var(--aero-blue-light); }
+        .btn-success { background: var(--aero-blue); color: white; }
+        .btn-success:hover { background: var(--aero-blue-light); }
+        .btn-warning { background: var(--aero-amber); color: white; }
+        .btn-warning:hover { background: #92400e; }
+        .btn-secondary { background: #e2e8f0; color: var(--aero-text); }
+        .btn-secondary:hover { background: #cbd5e1; }
+        .btn-clear {
+            background: #ffffff; border: 1px solid var(--aero-gray-light);
+            color: var(--aero-text-light);
+        }
+        .btn-clear:hover { background: var(--aero-blue-pale); border-color: var(--aero-blue); color: var(--aero-blue); }
+        .btn-sm { padding: 6px 11px; font-size: 11px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .row-open-link {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 6px 12px; border-radius: 6px;
+            background: var(--aero-blue); color: white;
+            font-size: 11px; font-weight: 600;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .empty-state { text-align: center; padding: 40px; color: var(--aero-gray); }
+        .empty-state i { font-size: 40px; margin-bottom: 10px; opacity: 0.5; }
+        .empty-state p { font-size: 13px; }
+
+        .chain {
+            display: inline-flex; align-items: center; gap: 3px;
+            font-size: 10px; font-family: var(--mono); flex-wrap: wrap;
+        }
+        .chain-step {
+            padding: 3px 8px; border-radius: 4px;
+            background: #f1f5f9; color: #94a3b8;
+            font-weight: 600; white-space: nowrap;
+            border: 1px solid transparent;
+        }
+        .chain-step.done { background: #f3f4f6; color: #4a5a6a; border-color: #e2e8f0; }
+        .chain-step.current {
+            background: var(--aero-blue-pale); color: var(--aero-blue);
+            border-color: var(--aero-blue);
+            box-shadow: 0 0 0 2px rgba(0, 51, 102, 0.15);
+        }
+        .chain-arrow { color: #cbd5e1; font-weight: 700; font-size: 10px; }
+        .chain-assigned {
+            display: block; font-size: 10px;
+            color: var(--aero-text-light);
+            margin-top: 4px; font-family: var(--mono);
+        }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px);
+            z-index: 20000; justify-content: center; align-items: center;
+            padding: 20px;
+        }
+        .modal-overlay.show { display: flex; }
+
+        .modal {
+            background: #ffffff; border-radius: 16px;
+            max-width: 720px; width: 100%; max-height: 92vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+            animation: modalIn 0.3s ease;
+        }
+        @keyframes modalIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            padding: 22px 28px 16px;
+            border-bottom: 1px solid var(--aero-gray-light);
+            flex-shrink: 0;
+        }
+        .modal-header h2 { font-size: 17px; font-weight: 700; color: var(--aero-text); }
+        .modal-header .modal-sub {
+            font-size: 11px; color: var(--aero-gray); margin-top: 4px;
+            font-family: var(--mono);
+        }
+        .modal-close {
+            background: none; border: none; font-size: 24px;
+            cursor: pointer; color: var(--aero-gray);
+            padding: 0; line-height: 1; margin-top: -4px;
+        }
+        .modal-close:hover { color: var(--aero-text); }
+
+        .modal-body { padding: 22px 28px; overflow-y: auto; flex: 1; }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block; font-size: 11px; font-weight: 700;
+            color: var(--aero-text-light); margin-bottom: 6px;
+            text-transform: uppercase; letter-spacing: 0.3px;
+        }
+        .form-control {
+            width: 100%; padding: 10px 14px;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 8px; font-size: 14px;
+            font-family: inherit; color: var(--aero-text);
+            background: #fff; transition: all var(--transition);
+        }
+        .form-control:focus {
+            outline: none; border-color: var(--aero-blue);
+            box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1);
+        }
+        .form-control:disabled { background: #f1f5f9; cursor: not-allowed; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+        .readonly-block {
+            background: #f8fafc;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+        .readonly-block .ro-row {
+            display: flex; justify-content: space-between;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px dashed var(--aero-gray-light);
+        }
+        .readonly-block .ro-row:last-child { border-bottom: none; }
+        .readonly-block .ro-row .ro-label { color: var(--aero-text-light); }
+        .readonly-block .ro-row .ro-val { font-weight: 600; color: var(--aero-text); font-family: var(--mono); }
+
+        .choice-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        .choice-card {
+            padding: 14px 12px;
+            border: 2px solid var(--aero-gray-light);
+            border-radius: 10px; cursor: pointer;
+            text-align: center; transition: all var(--transition);
+            background: #fff;
+        }
+        .choice-card:hover { border-color: var(--aero-blue-light); }
+        .choice-card.active { border-color: var(--aero-blue); background: var(--aero-blue-pale); }
+        .choice-card i { font-size: 20px; margin-bottom: 6px; display: block; color: var(--aero-blue); }
+        .choice-card .choice-title { font-size: 12px; font-weight: 700; color: var(--aero-text); }
+        .choice-card .choice-desc { font-size: 10px; color: var(--aero-text-light); margin-top: 4px; }
+
+        .info-block {
+            border-left: 4px solid var(--aero-blue);
+            background: var(--aero-blue-pale);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--aero-text-light);
+        }
+        .info-block strong { color: var(--aero-blue); }
+
+        .modal-footer {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 28px;
+            border-top: 1px solid var(--aero-gray-light);
+            background: #fafbfc;
+            border-radius: 0 0 16px 16px;
+            flex-shrink: 0;
+        }
+        .modal-footer .footer-hint { font-size: 11px; color: var(--aero-gray); }
+        .modal-footer .footer-actions { display: flex; gap: 10px; }
+
+        .toast {
+            position: fixed; top: 24px; right: 24px;
+            padding: 14px 20px; background: var(--aero-blue);
+            color: white; border-radius: 8px;
+            font-weight: 500; font-size: 13px;
+            z-index: 99999; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            display: flex; align-items: center; gap: 10px;
+            max-width: 400px;
+        }
+        .toast.success { background: var(--aero-blue); }
+        .toast.error { background: var(--aero-red); }
+        .toast.warning { background: var(--aero-amber); }
+
+        .engineer-list {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            margin-bottom: 16px;
+        }
+        .engineer-card {
+            padding: 12px 14px;
+            border: 2px solid var(--aero-gray-light);
+            border-radius: 10px; cursor: pointer;
+            background: #fff; transition: all var(--transition);
+        }
+        .engineer-card:hover { border-color: var(--aero-blue-light); }
+        .engineer-card.active { border-color: var(--aero-blue); background: var(--aero-blue-pale); }
+        .engineer-card .eng-name { font-size: 13px; font-weight: 700; color: var(--aero-text); margin-bottom: 4px; }
+        .engineer-card .eng-meta {
+            font-size: 11px; color: var(--aero-text-light);
+            display: flex; justify-content: space-between; font-family: var(--mono);
+        }
+
+        .verdict-info {
+            background: #f8fafc;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 12px;
+        }
+        .verdict-info .v-row {
+            display: flex; justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px dashed var(--aero-gray-light);
+        }
+        .verdict-info .v-row:last-child { border-bottom: none; }
+        .verdict-info .v-label { color: var(--aero-text-light); }
+        .verdict-info .v-val { font-weight: 600; font-family: var(--mono); }
+
+        .defect-description {
+            background: #ffffff;
+            border: 1px solid var(--aero-gray-light);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--aero-text);
+            white-space: pre-wrap;
+        }
+        .defect-description .defect-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--aero-gray);
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 1200px) {
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .alert-strip { grid-template-columns: 1fr; }
+            .choice-grid { grid-template-columns: 1fr; }
+            .engineer-list { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 768px) {
+            .sidebar { width: 68px; padding: 16px 12px; }
+            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span { display: none; }
+            .sidebar-nav li a { justify-content: center; padding: 12px; }
+            .main { padding: 16px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .modal-header, .modal-body, .modal-footer { padding-left: 16px; padding-right: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-icon">✈</div>
+        <div class="brand-text">
+            <span class="brand-vector">Вектор</span> <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
+        </div>
+    </div>
+    <div class="sidebar-user">
+        <div class="avatar" id="userAvatar"><i class="fas fa-user-tie"></i></div>
+        <div class="user-info">
+            <div class="name" id="userName">—</div>
+            <div class="role" id="userRoleDetail">—</div>
+        </div>
+    </div>
+    <ul class="sidebar-nav">
+        <li class="active" id="nav-tasks" onclick="switchTab('tasks')">
+            <a><i class="fas fa-clipboard-list"></i><span>Мои задачи</span></a>
+        </li>
+        <li id="nav-history" onclick="switchTab('history')">
+            <a><i class="fas fa-archive"></i><span>История смены</span></a>
+        </li>
+    </ul>
+    <div class="sidebar-footer">
+        <button class="btn-logout" onclick="logout()">
+            <i class="fas fa-sign-out-alt"></i> <span>Выйти</span>
+        </button>
+    </div>
+</nav>
+
+<div class="main">
+    <div class="page-header">
+        <div>
+            <h1 id="pageTitle">Мои задачи</h1>
+            <div class="page-sub" id="currentDate"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="reloadData()">
+                <i class="fas fa-rotate"></i> Обновить
+            </button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="kpiPending">0</div>
+            <div class="stat-label" id="kpiPendingLabel">Ожидают назначения</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="kpiAssigned">0</div>
+            <div class="stat-label" id="kpiAssignedLabel">Назначено мной</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="kpiTotal">0</div>
+            <div class="stat-label">Всего в цепочке</div>
+        </div>
+    </div>
+
+    <div class="section-content active" id="section-tasks">
+        <div class="section-toolbar">
+            <button class="btn btn-clear" onclick="reloadData()">
+                <i class="fas fa-rotate"></i> Обновить
+            </button>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 8%;">Возраст</th>
+                        <th style="width: 16%;">Борт / Стоянка</th>
+                        <th style="width: 34%;">Дефект</th>
+                        <th style="width: 22%;">Этап</th>
+                        <th style="width: 20%; text-align: right;"></th>
+                    </tr>
+                </thead>
+                <tbody id="table-tasks"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section-content" id="section-history">
+        <div class="section-toolbar">
+            <button class="btn btn-clear" onclick="reloadData()">
+                <i class="fas fa-rotate"></i> Обновить
+            </button>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">Дата</th>
+                        <th style="width: 16%;">Борт / Стоянка</th>
+                        <th style="width: 34%;">Дефект</th>
+                        <th style="width: 22%;">Кому передано</th>
+                        <th style="width: 16%;">Этап</th>
+                    </tr>
+                </thead>
+                <tbody id="table-history"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО НАЗНАЧЕНИЯ -->
+<div class="modal-overlay" id="assignModal">
+    <div class="modal" style="max-width: 640px;">
+        <div class="modal-header">
+            <div>
+                <h3 id="assignTitle">Назначение</h3>
+                <div class="modal-sub" id="assignSubtitle">—</div>
+            </div>
+            <button class="modal-close" onclick="closeAssignModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="assignInfo"></div>
+            <div class="form-group" style="margin-top:16px;">
+                <label class="form-label" id="candidatesLabel">Кандидаты</label>
+                <div id="candidates" style="display:grid;gap:8px;margin-top:8px;max-height:260px;overflow:auto;"></div>
+            </div>
+            <div class="form-group" style="margin-top:16px;">
+                <label class="form-label">Комментарий *</label>
+                <textarea class="form-control" id="assignComment" rows="3" placeholder="Обязательный комментарий"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <div class="footer-hint" id="assignFooterHint">Выберите кого назначить</div>
+            <div class="footer-actions">
+                <button class="btn btn-secondary" onclick="closeAssignModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="submitAssign()">
+                    <i class="fas fa-check"></i> Назначить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var ROLE = {{ role|tojson }};
+var API_URL = '/api';
+
+var ROLE_META = {
+    'cpu': {
+        title: 'ЦПУ — Центральный Пункт Управления',
+        roleName: 'Оператор ЦПУ',
+        stage: 'cpu',
+        next: 'shift_supervisor',
+        nextLabel: 'Начальник смены',
+        actionTitle: 'Назначить начальника смены',
+        hint: 'ЦПУ передаёт задачу начальнику смены. Он назначит бригадира, а тот — техника.'
+    },
+    'shift_supervisor': {
+        title: 'Начальник смены',
+        roleName: 'Начальник смены',
+        stage: 'shift',
+        next: 'foreman',
+        nextLabel: 'Бригадир',
+        actionTitle: 'Назначить бригадира',
+        hint: 'Начальник смены назначает бригадира. Бригадир назначит техника.'
+    },
+    'foreman': {
+        title: 'Бригадир',
+        roleName: 'Бригадир',
+        stage: 'foreman',
+        next: 'engineers',
+        nextLabel: 'Техник',
+        actionTitle: 'Назначить техника',
+        hint: 'Бригадир назначает техника. Техник выедет к ВС и вернёт вердикт в МЦЦ.'
+    }
+};
+
+var meta = ROLE_META[ROLE];
+var user = null;
+var entries = [];
+var candidates = [];
+var selectedId = null;
+var currentRequestId = null;
+var pollTimer = null;
+
+function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function showToast(msg, type) {
+    var el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 18px;border-radius:10px;' +
+        'font:600 13px Inter,sans-serif;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.18);' +
+        'background:' + (type === 'error' ? '#dc2626' : type === 'warning' ? '#d97706' : '#0f8a5f');
+    document.body.appendChild(el);
+    setTimeout(function() { el.remove(); }, 3200);
+}
+
+function getAge(iso) {
+    if (!iso) return {text: '—', critical: false};
+    var diff = (Date.now() - new Date(iso).getTime()) / 60000;
+    if (isNaN(diff) || diff < 0) diff = 0;
+    var text = diff < 1 ? 'только что'
+             : diff < 60 ? Math.round(diff) + ' мин'
+             : Math.round(diff / 60) + ' ч';
+    return {text: text, critical: diff > 15};
+}
+
+function logout() {
+    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
+    window.location.href = '/login.html';
+}
+
+function switchTab(tab) {
+    document.querySelectorAll('.section-content').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.sidebar-nav li').forEach(function(el) { el.classList.remove('active'); });
+    var section = document.getElementById('section-' + tab);
+    var nav = document.getElementById('nav-' + tab);
+    if (section) section.classList.add('active');
+    if (nav) nav.classList.add('active');
+    document.getElementById('pageTitle').textContent = tab === 'history' ? 'История смены' : meta.title;
+}
+window.switchTab = switchTab;
+
+function myPending(e) {
+    if (e.chainStage !== meta.stage) return false;
+    if (ROLE === 'shift_supervisor') return e.shiftSupervisorId === user.id;
+    if (ROLE === 'foreman') return e.foremanId === user.id;
+    return true;   // ЦПУ: задачи на этапе «В ЦПУ» видит любой оператор
+}
+
+function reloadData() {
+    fetch(API_URL + '/chain')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            entries = Array.isArray(data) ? data : [];
+            render();
+        })
+        .catch(function(err) { console.error(err); showToast('Нет связи с сервером', 'error'); });
+}
+window.reloadData = reloadData;
+
+function render() {
+    var pending = entries.filter(myPending);
+    var mine = entries.filter(function(e) {
+        return (ROLE === 'shift_supervisor' && e.shiftSupervisorId === user.id) ||
+               (ROLE === 'foreman' && e.foremanId === user.id) ||
+               (ROLE === 'cpu' && e.cpuSentAt);
+    });
+
+    document.getElementById('kpiPending').textContent = pending.length;
+    document.getElementById('kpiAssigned').textContent =
+        mine.filter(function(e) { return e.chainStage !== meta.stage; }).length;
+    document.getElementById('kpiTotal').textContent = entries.length;
+
+    var tbody = document.getElementById('table-tasks');
+    tbody.innerHTML = '';
+    if (!pending.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-check-circle"></i>' +
+                          '<p>Задач на назначение нет</p></td></tr>';
+    }
+    pending.forEach(function(e) {
+        var age = getAge(e.createdAt);
+        var tr = document.createElement('tr');
+        tr.className = 'clickable';
+        tr.dataset.id = e.id;
+        tr.innerHTML =
+            '<td><span class="time-age' + (age.critical ? ' critical' : '') + '">' + age.text + '</span></td>' +
+            '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br>' +
+                '<span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
+            '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div>' +
+                '<div style="font-size:11px;color:var(--aero-text-light);">' + esc((e.defect || '').slice(0, 90)) + '</div></td>' +
+            '<td>' + esc(stageLabel(e)) + '</td>' +
+            '<td style="text-align:right;"><span class="row-open-link">Назначить →</span></td>';
+        tbody.appendChild(tr);
+    });
+
+    tbody.onclick = function(ev) {
+        var tr = ev.target.closest('tr[data-id]');
+        if (tr) openAssignModal(tr.dataset.id);
+    };
+
+    var hist = document.getElementById('table-history');
+    hist.innerHTML = '';
+    if (!mine.length) {
+        hist.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-archive"></i>' +
+                         '<p>Записей нет</p></td></tr>';
+    }
+    mine.forEach(function(e) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td>' + esc(new Date(e.createdAt).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})) + '</td>' +
+            '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br>' +
+                '<span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
+            '<td>' + esc((e.defect || '').slice(0, 100)) + '</td>' +
+            '<td>' + esc(nextAssignee(e)) + '</td>' +
+            '<td>' + esc(stageLabel(e)) + '</td>';
+        hist.appendChild(tr);
+    });
+}
+
+function stageLabel(e) {
+    var stages = {
+        mcc: 'Очередь MCC', cpu: 'В ЦПУ', shift: 'Начальник смены',
+        foreman: 'Бригадир', tech: 'Техник назначен',
+        verdict: 'Вердикт техника', closed: 'Закрыто'
+    };
+    return stages[e.chainStage] || e.chainStage;
+}
+
+function nextAssignee(e) {
+    if (ROLE === 'cpu') return e.shiftSupervisorName || '—';
+    if (ROLE === 'shift_supervisor') return e.foremanName || '—';
+    return e.engineerName || '—';
+}
+
+function loadCandidates() {
+    var url = meta.next === 'engineers'
+        ? API_URL + '/engineers'
+        : API_URL + '/staff?role=' + meta.next;
+    return fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            candidates = Array.isArray(list) ? list : [];
+            if (meta.next === 'engineers') {
+                candidates = candidates.filter(function(e) { return (e.status || 'free') === 'free'; });
+            }
+            return candidates;
+        });
+}
+
+function openAssignModal(id) {
+    var e = entries.filter(function(x) { return x.id === id; })[0];
+    if (!e) { showToast('Заявка не найдена', 'error'); return; }
+    currentRequestId = id;
+    selectedId = null;
+
+    document.getElementById('assignTitle').textContent = meta.actionTitle;
+    document.getElementById('assignSubtitle').textContent =
+        (e.aircraft || '—') + ' · ' + (e.faultType || '—') + ' · Стоянка ' + (e.parking || '—');
+    document.getElementById('assignInfo').innerHTML =
+        '<div class="readonly-block">' +
+        '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Дефект</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;">' + esc(e.defect || '—') + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Этап</span><span class="ro-val">' + esc(stageLabel(e)) + '</span></div>' +
+        '</div><div style="margin-top:12px;font-size:12px;color:var(--aero-gray);">' + esc(meta.hint) + '</div>';
+
+    document.getElementById('candidatesLabel').textContent = 'Выберите: ' + meta.nextLabel;
+    document.getElementById('assignComment').value = '';
+    document.getElementById('assignFooterHint').textContent = 'Выберите кого назначить';
+    document.getElementById('assignModal').classList.add('show');
+
+    var box = document.getElementById('candidates');
+    box.innerHTML = '<div style="color:var(--aero-gray);font-size:12px;">Загрузка…</div>';
+    loadCandidates().then(function(list) {
+        if (!list.length) {
+            box.innerHTML = '<div style="color:var(--aero-gray);font-size:12px;padding:8px;">Нет доступных специалистов</div>';
+            return;
+        }
+        box.innerHTML = list.map(function(c) {
+            var meta2 = c.shift === 'night' ? 'ночная смена'
+                      : c.shift === 'day' ? 'дневная смена'
+                      : (c.specialization || '—');
+            return '<div class="engineer-card" data-id="' + esc(c.id) + '" onclick="selectCandidate(\'' + esc(c.id) + '\')">' +
+                   '<div class="eng-name">' + esc(c.name) + '</div>' +
+                   '<div class="eng-meta"><span>' + esc(meta2) + '</span><span>' + esc(c.device_id || '') + '</span></div>' +
+                   '</div>';
+        }).join('');
+    });
+}
+window.openAssignModal = openAssignModal;
+
+function selectCandidate(id) {
+    selectedId = id;
+    document.querySelectorAll('#candidates .engineer-card').forEach(function(el) {
+        el.classList.toggle('active', el.dataset.id === String(id));
+    });
+    var c = candidates.filter(function(x) { return String(x.id) === String(id); })[0];
+    document.getElementById('assignFooterHint').textContent = c ? 'Выбран: ' + c.name : 'Выберите';
+}
+window.selectCandidate = selectCandidate;
+
+function closeAssignModal() {
+    document.getElementById('assignModal').classList.remove('show');
+    currentRequestId = null;
+    selectedId = null;
+}
+window.closeAssignModal = closeAssignModal;
+
+function submitAssign() {
+    if (!selectedId) { showToast('Выберите специалиста', 'error'); return; }
+    var comment = document.getElementById('assignComment').value.trim();
+    if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
+
+    var path, payload;
+    if (ROLE === 'cpu') {
+        path = '/chain/' + encodeURIComponent(currentRequestId) + '/assign_shift';
+        payload = {staff_id: selectedId, comment: comment, actor: user.name};
+    } else if (ROLE === 'shift_supervisor') {
+        path = '/chain/' + encodeURIComponent(currentRequestId) + '/assign_foreman';
+        payload = {staff_id: selectedId, comment: comment};
+    } else {
+        path = '/chain/' + encodeURIComponent(currentRequestId) + '/assign_technician';
+        payload = {engineer_id: selectedId, comment: comment};
+    }
+
+    fetch(API_URL + path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r) {
+        return r.json().then(function(d) {
+            if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
+            return d;
+        });
+    }).then(function() {
+        showToast('Назначено', 'success');
+        closeAssignModal();
+        reloadData();
+    }).catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
+}
+window.submitAssign = submitAssign;
+
+function init() {
+    var raw = sessionStorage.getItem('userSession');
+    if (!raw) { window.location.href = '/login.html'; return; }
+    try { user = JSON.parse(raw); } catch (e) { window.location.href = '/login.html'; return; }
+
+    if (user.role !== ROLE) {
+        // профиль открыт под другой ролью — отправляем на вход
+        window.location.href = '/login.html';
+        return;
+    }
+
+    document.getElementById('userName').textContent = user.name || meta.roleName;
+    document.getElementById('userRoleDetail').textContent = meta.roleName;
+    document.getElementById('pageTitle').textContent = meta.title;
+
+    var now = new Date();
+    var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    document.getElementById('currentDate').textContent =
+        now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+
+    reloadData();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(reloadData, 5000);
+}
+
+init();
+</script>
+</body>
+</html>

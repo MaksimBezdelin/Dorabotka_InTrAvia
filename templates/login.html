@@ -572,7 +572,10 @@
                 'dispatcher': '/dispatcher/dashboard.html',
                 'engineer': '/engineer/dashboard.html',
                 'pilot': '/pilot/dashboard.html',
-                'mcc': '/mcc/dashboard.html' 
+                'mcc': '/mcc/dashboard.html',
+                'cpu': '/cpu/dashboard.html',
+                'shift_supervisor': '/shift/dashboard.html',
+                'foreman': '/foreman/dashboard.html'
             };
 
             var session = sessionStorage.getItem('userSession');
@@ -580,7 +583,17 @@
                 try {
                     var savedUser = JSON.parse(session);
                     if (savedUser.role && DASHBOARDS[savedUser.role]) {
-                        window.location.href = DASHBOARDS[savedUser.role];
+                        // Сверяемся с сервером: сессия может быть уже недействительной
+                        // (истекла или очищена). Иначе получится цикл редиректов.
+                        fetch('/api/auth/session').then(function(r) {
+                            if (r.ok) {
+                                window.location.href = DASHBOARDS[savedUser.role];
+                            } else {
+                                sessionStorage.removeItem('userSession');
+                            }
+                        }).catch(function() {
+                            sessionStorage.removeItem('userSession');
+                        });
                         return;
                     }
                 } catch (_) {}

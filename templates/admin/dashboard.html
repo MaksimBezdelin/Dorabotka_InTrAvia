@@ -1266,7 +1266,7 @@
 
         function logout() {
             if (loadInterval) clearInterval(loadInterval);
-            sessionStorage.removeItem('userSession');
+            try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
             window.location.href = '/login.html';
         }
 

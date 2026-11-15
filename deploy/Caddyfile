@@ -1,0 +1,22 @@
+# Пример боевой TLS-терминации для InTrAvia.
+#
+# 1. serve.py слушает HTTP только на loopback:
+#      set INTRAVIA_HOST=127.0.0.1
+#      set INTRAVIA_PORT=8080
+#      set INTRAVIA_COOKIE_SECURE=1
+#      set INTRAVIA_TRUSTED_PROXY=127.0.0.1
+#      .venv\Scripts\python.exe serve.py
+# 2. Caddy принимает HTTPS и проксирует в waitress:
+#      caddy run --config deploy/Caddyfile
+#
+# Для локального стенда Caddy сам выпустит сертификат от внутреннего CA
+# (браузер попросит доверять ему один раз).
+
+localhost {
+	reverse_proxy 127.0.0.1:8080
+}
+
+# Боевой домен: раскомментировать и заменить на свой.
+# intravia.example.com {
+# 	reverse_proxy 127.0.0.1:8080
+# }
