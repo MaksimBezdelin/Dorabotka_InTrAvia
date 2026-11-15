@@ -886,6 +886,8 @@ def try_reassign_queued():
                         (q['id'], route['best_car']['id']))
         cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
                     ('ВС ' + (q['aircraft'] or ''), eng['id']))
+        chain_log(conn, q['id'], 'tech', 'Диспетчер', 'Автоназначение',
+                  'Из очереди назначен ' + eng['name'])
         busy_engineers.add(eng['id'])
     conn.commit()
     conn.close()
@@ -1875,6 +1877,8 @@ def dispatch():
             VALUES (?,?,?,?,?,?,?,'dispatcher','queued',?,'',CURRENT_TIMESTAMP,
             'Ожидание инженера',1,'APPROVED')""",
             (rid, aircraft, fault, severity, terminal, parking_id, description, severity))
+        chain_log(conn, rid, 'mcc', 'Диспетчер', data.get('dispatcher_name') or 'Диспетчер',
+                  'Нет свободных инженеров — заявка ожидает назначения')
         conn.commit(); conn.close()
         return jsonify({'success': True, 'request_id': rid, 'queued': True,
                         'delay_started': True,
@@ -1894,6 +1898,8 @@ def dispatch():
     if uc and bc:
         cur.execute("UPDATE transport SET assigned_to=? WHERE id=?", (rid, bc['id']))
     set_engineer_busy(conn, eng['id'], 'ВС ' + aircraft)
+    chain_log(conn, rid, 'tech', 'Диспетчер', data.get('dispatcher_name') or 'Диспетчер',
+              'Заявка создана диспетчером, назначен ' + eng['name'])
     conn.commit(); conn.close()
 
     return jsonify({

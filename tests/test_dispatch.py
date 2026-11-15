@@ -39,6 +39,20 @@ def test_dispatcher_request_goes_straight_to_technician_stage(api):
         assert entry['engineerName']
 
 
+def test_dispatcher_request_is_logged_in_chain(api):
+    status, body = api.post('/api/dispatch', {
+        'aircraft': 'RA-DLOG', 'parking_id': '102',
+        'fault_type': 'engine_failure', 'severity': 'medium',
+        'description': 'Заявка от диспетчера',
+        'dispatcher_name': 'Петров П.П.',
+    })
+    assert status == 200, body
+    entry = chain_entry(api, body['request_id'])
+    assert entry['history'], 'журнал цепочки не должен быть пустым'
+    assert entry['history'][0]['role'] == 'Диспетчер'
+    assert entry['history'][0]['actor'] == 'Петров П.П.'
+
+
 def test_dispatch_requires_aircraft_and_parking(api):
     status, body = api.post('/api/dispatch', {'aircraft': 'RA-NOPE'})
     assert status == 400

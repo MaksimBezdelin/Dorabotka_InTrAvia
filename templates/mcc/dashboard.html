@@ -1944,7 +1944,9 @@ function openCPUModal(id, role) {
 
     document.getElementById('cpuModalTitle').textContent = title;
     document.getElementById('cpuModalSubtitle').textContent = (e.aircraft || '—') + ' · ' + (e.faultType || '—') + ' · ID ' + e.id.slice(-6);
-    document.getElementById('cpuModalHint').innerHTML = '<strong>Что произойдёт?</strong><br>' + hint;
+    document.getElementById('cpuModalHint').innerHTML = '<strong>Что произойдёт?</strong><br>' + hint +
+        '<div style="margin-top:8px;font-size:11px;color:var(--aero-amber);">' +
+        'Режим подмены: в обычном процессе этот шаг выполняет оператор ЦПУ.</div>';
     document.getElementById('cpuModalCandidatesLabel').textContent = candidatesLabel;
     document.getElementById('cpuFooterHint').textContent = footerHint;
 
