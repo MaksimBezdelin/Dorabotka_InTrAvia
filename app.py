@@ -23,6 +23,7 @@ import json
 import base64
 import sqlite3
 import io
+from functools import wraps
 from datetime import timedelta
 import tempfile
 import subprocess
@@ -1007,6 +1008,50 @@ def foreman_dashboard(): return render_template('supervisor/dashboard.html', rol
 PUBLIC_API = {'/api/auth/login', '/api/auth/logout', '/api/auth/session'}
 PUBLIC_PAGES = {'/login.html', '/', '/favicon.ico'}
 
+# Куда возвращать пользователя, если он открыл чужой дашборд
+ROLE_HOME = {
+    'admin': '/admin/dashboard.html',
+    'dispatcher': '/dispatcher/dashboard.html',
+    'engineer': '/engineer/dashboard.html',
+    'pilot': '/pilot/dashboard.html',
+    'mcc': '/mcc/dashboard.html',
+    'cpu': '/cpu/dashboard.html',
+    'shift_supervisor': '/shift/dashboard.html',
+    'foreman': '/foreman/dashboard.html',
+}
+
+# Какой ролью открывается каждый дашборд (admin проходит везде)
+PAGE_ACCESS = {
+    '/admin/dashboard.html': {'admin'},
+    '/dispatcher/dashboard.html': {'dispatcher'},
+    '/engineer/dashboard.html': {'engineer'},
+    '/pilot/dashboard.html': {'pilot'},
+    '/mcc/dashboard.html': {'mcc'},
+    '/cpu/dashboard.html': {'cpu'},
+    '/shift/dashboard.html': {'shift_supervisor'},
+    '/foreman/dashboard.html': {'foreman'},
+}
+
+
+def roles(*allowed):
+    """Пускает endpoint только перечисленным ролям; admin — всегда.
+
+    Проверка роли, а не конкретной записи: кто именно из инженеров может
+    вынести вердикт — решает уже обработчик.
+    """
+    allowed = set(allowed) | {'admin'}
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            role = (session.get('user') or {}).get('role')
+            if role not in allowed:
+                return jsonify({'success': False,
+                                'error': 'Недостаточно прав'}), 403
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
 
 @app.before_request
 def require_session():
@@ -1024,12 +1069,17 @@ def require_session():
         return None
     if path in PUBLIC_PAGES:
         return None
-    if session.get('user'):
-        return None
+    user = session.get('user')
+    if not user:
+        if is_api:
+            return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+        return redirect(url_for('login_page'))
 
-    if is_api:
-        return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
-    return redirect(url_for('login_page'))
+    # чужой дашборд не отдаём — возвращаем на свой
+    allowed = PAGE_ACCESS.get(path)
+    if allowed and user.get('role') not in allowed and user.get('role') != 'admin':
+        return redirect(ROLE_HOME.get(user.get('role'), '/login.html'))
+    return None
 
 
 @app.route('/api/auth/session', methods=['GET'])
@@ -1111,6 +1161,7 @@ def auth_login():
 # Users
 # ============================================================
 @app.route('/api/users', methods=['GET'])
+@roles('admin')
 def get_users():
     conn = get_db()
     cur = conn.cursor()
@@ -1121,6 +1172,7 @@ def get_users():
 
 
 @app.route('/api/users', methods=['POST'])
+@roles('admin')
 def create_user():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
@@ -1147,7 +1199,12 @@ def create_user():
 
 
 @app.route('/api/users/<user_id>', methods=['PUT'])
+@roles('admin', 'pilot')
 def update_user(user_id):
+    # пилот правит только свой профиль (admin — любой)
+    current = session.get('user') or {}
+    if current.get('role') == 'pilot' and current.get('id') != user_id:
+        return jsonify({'error': 'Можно менять только свой профиль'}), 403
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id, role FROM users WHERE id=?", (user_id,))
@@ -1171,6 +1228,7 @@ def update_user(user_id):
 
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
+@roles('admin')
 def delete_user(user_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM users WHERE id=?", (user_id,))
@@ -1198,6 +1256,7 @@ def _compute_recurring_map(conn):
 
 
 @app.route('/api/mcc/defects', methods=['GET'])
+@roles('mcc')
 def get_mcc_defects():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, fault_type, description, parking_id, terminal,
@@ -1240,6 +1299,7 @@ def get_mcc_defects():
 # [MCC] Назначение инспекции инженеру
 # ------------------------------------------------------------
 @app.route('/api/mcc/assign_inspection', methods=['POST'])
+@roles('mcc')
 def mcc_assign_inspection():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1326,6 +1386,7 @@ def mcc_assign_inspection():
 # [ENGINEER] Вердикт инженера (AOG / REPAIR / MEL)
 # ------------------------------------------------------------
 @app.route('/api/engineer/verdict', methods=['POST'])
+@roles('engineer')
 def engineer_verdict():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1385,6 +1446,7 @@ def engineer_verdict():
 # [MCC] Финальное решение MCC
 # ------------------------------------------------------------
 @app.route('/api/mcc/finalize', methods=['POST'])
+@roles('mcc')
 def mcc_finalize():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1500,6 +1562,7 @@ def mcc_finalize():
 # [MCC] Обновление AOG Recovery (ETR / действие)
 # ------------------------------------------------------------
 @app.route('/api/mcc/aog_update', methods=['POST'])
+@roles('mcc')
 def mcc_aog_update():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -1522,6 +1585,7 @@ def mcc_aog_update():
 # [MCC] Старый эндпоинт — оставлен для совместимости с админкой
 # ------------------------------------------------------------
 @app.route('/api/mcc/assess', methods=['POST'])
+@roles('mcc')
 def mcc_assess_defect():
     data = request.get_json() or {}
     rid = data.get('request_id'); decision = data.get('decision')
@@ -1567,6 +1631,7 @@ def mcc_assess_defect():
 
 
 @app.route('/api/mcc/clear/<clear_type>', methods=['POST'])
+@roles('mcc')
 def mcc_clear(clear_type):
     valid = ('queue', 'inspection', 'deferred', 'recurring', 'aog', 'history', 'all')
     if clear_type not in valid:
@@ -1609,6 +1674,7 @@ def mcc_clear(clear_type):
 
 
 @app.route('/api/pilot/confirm/<rid>', methods=['POST'])
+@roles('pilot')
 def confirm_pilot_request(rid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("UPDATE requests SET status='new', mcc_status='PENDING' WHERE id=?", (rid,))
@@ -1620,6 +1686,7 @@ def confirm_pilot_request(rid):
 # Engineers
 # ============================================================
 @app.route('/api/engineers', methods=['GET'])
+@roles('dispatcher', 'mcc', 'cpu', 'shift_supervisor', 'foreman', 'engineer')
 def get_engineers():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
@@ -1637,6 +1704,7 @@ def get_engineers():
 
 
 @app.route('/api/engineers/me', methods=['GET'])
+@roles('engineer')
 def get_my_engineer():
     eid = request.args.get('id')
     if not eid:
@@ -1655,6 +1723,7 @@ def get_my_engineer():
 
 
 @app.route('/api/engineers/<eng_id>', methods=['GET'])
+@roles('dispatcher', 'engineer')
 def get_engineer(eng_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
@@ -1670,6 +1739,7 @@ def get_engineer(eng_id):
 
 
 @app.route('/api/engineers', methods=['POST'])
+@roles('admin')
 def create_engineer():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
@@ -1699,7 +1769,12 @@ def create_engineer():
 
 
 @app.route('/api/engineers/<eng_id>', methods=['PUT'])
+@roles('admin', 'engineer')
 def update_engineer(eng_id):
+    # инженер правит только свою карточку (admin — любую)
+    current = session.get('user') or {}
+    if current.get('role') == 'engineer' and current.get('id') != eng_id:
+        return jsonify({'error': 'Можно менять только свой профиль'}), 403
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id FROM engineers WHERE id=?", (eng_id,))
@@ -1717,6 +1792,7 @@ def update_engineer(eng_id):
 
 
 @app.route('/api/engineers/<eng_id>', methods=['DELETE'])
+@roles('admin')
 def delete_engineer(eng_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM engineers WHERE id=?", (eng_id,))
@@ -1726,6 +1802,7 @@ def delete_engineer(eng_id):
 
 
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])
+@roles('dispatcher', 'engineer')
 def update_engineer_coords(eng_id):
     data = request.get_json() or {}
     lat = data.get('lat'); lng = data.get('lng')
@@ -1742,6 +1819,7 @@ def update_engineer_coords(eng_id):
 # Pilots
 # ============================================================
 @app.route('/api/pilots', methods=['GET'])
+@roles('admin')
 def get_pilots():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,name,email,phone,aircraft,rank,status FROM pilots ORDER BY name")
@@ -1750,6 +1828,7 @@ def get_pilots():
 
 
 @app.route('/api/pilots', methods=['POST'])
+@roles('admin')
 def create_pilot():
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
@@ -1773,6 +1852,7 @@ def create_pilot():
 
 
 @app.route('/api/pilots/<pid>', methods=['PUT'])
+@roles('admin')
 def update_pilot(pid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
@@ -1789,6 +1869,7 @@ def update_pilot(pid):
 
 
 @app.route('/api/pilots/<pid>', methods=['DELETE'])
+@roles('admin')
 def delete_pilot(pid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM pilots WHERE id=?", (pid,))
@@ -1801,6 +1882,7 @@ def delete_pilot(pid):
 # Transport
 # ============================================================
 @app.route('/api/transport', methods=['GET'])
+@roles('dispatcher')
 def get_transport():
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,device_id,lat,lng,speed,assigned_to FROM transport ORDER BY id")
@@ -1809,6 +1891,7 @@ def get_transport():
 
 
 @app.route('/api/transport', methods=['POST'])
+@roles('dispatcher')
 def create_transport():
     data = request.get_json() or {}
     dev = (data.get('device_id') or '').strip()
@@ -1827,6 +1910,7 @@ def create_transport():
 
 
 @app.route('/api/transport/<int:tid>', methods=['PUT'])
+@roles('dispatcher')
 def update_transport(tid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
@@ -1842,6 +1926,7 @@ def update_transport(tid):
 
 
 @app.route('/api/transport/<int:tid>/coords', methods=['PUT'])
+@roles('dispatcher')
 def update_transport_coords(tid):
     data = request.get_json() or {}
     lat = data.get('lat'); lng = data.get('lng')
@@ -1862,6 +1947,7 @@ def update_transport_coords(tid):
 
 
 @app.route('/api/transport/<int:tid>', methods=['DELETE'])
+@roles('dispatcher')
 def delete_transport(tid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM transport WHERE id=?", (tid,))
@@ -1873,6 +1959,7 @@ def delete_transport(tid):
 # Requests
 # ============================================================
 @app.route('/api/requests', methods=['GET'])
+@roles('dispatcher', 'engineer', 'pilot')
 def get_requests():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, fault_type, severity, terminal, parking_id,
@@ -1892,6 +1979,7 @@ def get_requests():
 
 
 @app.route('/api/requests/<rid>', methods=['PUT'])
+@roles('dispatcher', 'pilot')
 def update_request(rid):
     data = request.get_json() or {}
     conn = get_db(); cur = conn.cursor()
@@ -1923,6 +2011,7 @@ def update_request(rid):
 
 
 @app.route('/api/requests/<rid>', methods=['DELETE'])
+@roles('dispatcher')
 def delete_request(rid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id, engineer_id, status FROM requests WHERE id=?", (rid,))
@@ -1945,6 +2034,7 @@ def delete_request(rid):
 # DISPATCH
 # ============================================================
 @app.route('/api/dispatch', methods=['POST'])
+@roles('dispatcher', 'pilot')
 def dispatch():
     data = request.get_json() or {}
     source = data.get('source', 'dispatcher')
@@ -2056,6 +2146,7 @@ def dispatch():
 # /api/route — пересчёт маршрута
 # ============================================================
 @app.route('/api/route', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def compute_route():
     data = request.get_json() or {}
     try:
@@ -2090,6 +2181,7 @@ def compute_route():
 # Отмена / Отказ
 # ============================================================
 @app.route('/api/requests/<rid>/cancel', methods=['POST'])
+@roles('dispatcher', 'engineer', 'pilot')
 def cancel_request(rid):
     data = request.get_json() or {}
     engineer_id = str(data.get('engineer_id') or '').strip()
@@ -2206,6 +2298,7 @@ def cancel_request(rid):
 
 
 @app.route('/api/requests/<rid>/reject', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def reject_request(rid):
     data = request.get_json() or {}
     rejected_by = str(data.get('engineer_id') or '')
@@ -2313,6 +2406,7 @@ def _schedule_recheck(rid):
 
 
 @app.route('/api/requests/<rid>/approve_delay', methods=['POST'])
+@roles('dispatcher')
 def approve_delay(rid):
     data = request.get_json() or {}
     minutes = int(data.get('minutes') or 0)
@@ -2339,6 +2433,7 @@ def approve_delay(rid):
 
 
 @app.route('/api/requests/<rid>/cancel_flight', methods=['POST'])
+@roles('dispatcher')
 def cancel_flight(rid):
     data = request.get_json() or {}
     reason = (data.get('reason') or '').strip()
@@ -2367,6 +2462,7 @@ def cancel_flight(rid):
 
 
 @app.route('/api/complete/<eng_id>', methods=['POST'])
+@roles('dispatcher', 'engineer')
 def complete_engineer(eng_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT id FROM requests WHERE engineer_id=?
@@ -2386,6 +2482,7 @@ def complete_engineer(eng_id):
 # Очистка
 # ============================================================
 @app.route('/api/clear_all_requests', methods=['POST'])
+@roles('dispatcher')
 def clear_all_requests():
     conn = get_db(); cur = conn.cursor()
     try:
@@ -2405,6 +2502,7 @@ def clear_all_requests():
 
 
 @app.route('/api/clear_all_pilot_requests', methods=['POST'])
+@roles('dispatcher')
 def clear_all_pilot_requests():
     conn = get_db(); cur = conn.cursor()
     try:
@@ -2433,6 +2531,7 @@ def _decode_data_url(data_url):
 
 
 @app.route('/api/requests/<rid>/audio', methods=['GET'])
+@roles('dispatcher', 'engineer', 'pilot')
 def stream_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
@@ -2573,6 +2672,7 @@ def parse_pilot_text(text):
 
 
 @app.route('/api/requests/<rid>/transcribe', methods=['POST'])
+@roles('dispatcher', 'engineer', 'pilot')
 def transcribe_pilot_audio(rid):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT id,source,pilot_audio,pilot_audio_mime FROM requests WHERE id=?", (rid,))
@@ -2725,6 +2825,7 @@ def _chain_take(conn, rid, expected_stage):
 
 
 @app.route('/api/staff', methods=['GET'])
+@roles('mcc', 'cpu', 'shift_supervisor', 'foreman')
 def get_staff():
     role = request.args.get('role', '')
     conn = get_db(); cur = conn.cursor()
@@ -2740,6 +2841,7 @@ def get_staff():
 
 
 @app.route('/api/chain', methods=['GET'])
+@roles('mcc', 'cpu', 'shift_supervisor', 'foreman')
 def get_chain():
     conn = get_db(); cur = conn.cursor()
     cur.execute("""SELECT * FROM requests
@@ -2770,6 +2872,7 @@ def get_chain():
 
 
 @app.route('/api/chain/<rid>/to_cpu', methods=['POST'])
+@roles('mcc')
 def chain_to_cpu(rid):
     data = request.get_json() or {}
     actor = (data.get('actor') or 'MCC').strip()
@@ -2789,6 +2892,7 @@ def chain_to_cpu(rid):
 
 
 @app.route('/api/chain/<rid>/assign_shift', methods=['POST'])
+@roles('cpu', 'mcc')
 def chain_assign_shift(rid):
     data = request.get_json() or {}
     staff_id = data.get('staff_id')
@@ -2818,6 +2922,7 @@ def chain_assign_shift(rid):
 
 
 @app.route('/api/chain/<rid>/assign_foreman', methods=['POST'])
+@roles('shift_supervisor', 'mcc')
 def chain_assign_foreman(rid):
     data = request.get_json() or {}
     staff_id = data.get('staff_id')
@@ -2846,6 +2951,7 @@ def chain_assign_foreman(rid):
 
 
 @app.route('/api/chain/<rid>/assign_technician', methods=['POST'])
+@roles('foreman', 'mcc')
 def chain_assign_technician(rid):
     data = request.get_json() or {}
     eng_id = data.get('engineer_id')
@@ -2927,6 +3033,7 @@ def _pilot_atlb_entry(row, history):
 
 
 @app.route('/api/pilot/atlb', methods=['GET'])
+@roles('pilot')
 def get_pilot_atlb():
     pilot = (request.args.get('pilot') or '').strip()
     conn = get_db(); cur = conn.cursor()
@@ -2956,6 +3063,7 @@ def get_pilot_atlb():
 
 
 @app.route('/api/pilot/atlb/sign_crs', methods=['POST'])
+@roles('pilot')
 def pilot_sign_crs():
     data = request.get_json() or {}
     rid = data.get('request_id')
@@ -2987,6 +3095,7 @@ def pilot_sign_crs():
 # Отчёты диспетчера — раньше жили только в localStorage
 # ------------------------------------------------------------
 @app.route('/api/reports', methods=['GET'])
+@roles('dispatcher')
 def get_reports():
     include_deleted = request.args.get('deleted') == '1'
     conn = get_db(); cur = conn.cursor()
@@ -3018,6 +3127,7 @@ def get_reports():
 
 
 @app.route('/api/reports', methods=['POST'])
+@roles('dispatcher')
 def create_report():
     data = request.get_json() or {}
     text = (data.get('text') or '').strip()
@@ -3037,6 +3147,7 @@ def create_report():
 
 
 @app.route('/api/reports/<rep_id>', methods=['DELETE'])
+@roles('dispatcher')
 def delete_report(rep_id):
     conn = get_db()
     conn.execute("UPDATE reports SET deleted=1 WHERE id=?", (rep_id,))
@@ -3045,6 +3156,7 @@ def delete_report(rep_id):
 
 
 @app.route('/api/chain/<rid>/defer_mel', methods=['POST'])
+@roles('mcc')
 def chain_defer_mel(rid):
     """Оформление MEL без выезда техника — из очереди MCC."""
     data = request.get_json() or {}
@@ -3113,6 +3225,7 @@ CHAIN_EXPORT_COLUMNS = [
 
 
 @app.route('/api/export/xlsx', methods=['GET'])
+@roles('dispatcher', 'mcc')
 def export_chain_xlsx():
     try:
         from openpyxl import Workbook
