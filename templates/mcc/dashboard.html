@@ -543,6 +543,14 @@
             <h1 id="pageTitle">Центр управления ТО</h1>
             <div class="page-sub" id="currentDate"></div>
         </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="reloadData()">
+                <i class="fas fa-rotate"></i> Обновить
+            </button>
+            <button class="btn btn-primary" onclick="exportChain()">
+                <i class="fas fa-file-excel"></i> Экспорт в Excel
+            </button>
+        </div>
     </div>
 
     <div class="stats-grid">
@@ -1222,6 +1230,7 @@ function init() {
 
     reloadData();
     fetchEmployees();
+    fetchStaff();
 
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(function() {
@@ -1239,36 +1248,62 @@ function init() {
 window.init = init;
 
 function reloadData() {
-    atlbEntries = loadATLB();
-    renderAll();
+    fetch(API_URL + '/chain')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            atlbEntries = Array.isArray(data) ? data : [];
+            renderAll();
+        })
+        .catch(function(err) {
+            console.error('[reloadData]', err);
+            try { showToast('Нет связи с сервером', 'error'); } catch(_) {}
+        });
 }
 window.reloadData = reloadData;
 
-function loadATLB() {
-    try {
-        var s = localStorage.getItem(ATLB_KEY);
-        if (!s) { console.log('[loadATLB] пусто'); return []; }
-        var d = JSON.parse(s);
-        if (!Array.isArray(d)) return [];
-        console.log('[loadATLB] Загружено:', d.length, 'записей');
-        return d;
-    } catch(e) {
-        console.error('[loadATLB] Ошибка:', e);
-        return [];
-    }
-}
+/* Данные цепочки теперь хранятся на сервере (таблица requests + chain_log).
+   Функции оставлены для совместимости со старыми вызовами. */
+function loadATLB() { return atlbEntries; }
+function saveATLB() { return true; }
 
-function saveATLB() {
+/* Справочники начальников смены и бригадиров — тоже с сервера */
+function fetchStaff() {
+    fetch(API_URL + '/staff?role=shift_supervisor')
+        .then(function(r) { return r.json(); })
+        .then(function(list) { if (Array.isArray(list) && list.length) SHIFT_SUPERVISORS = list; })
+        .catch(function() {});
+    fetch(API_URL + '/staff?role=foreman')
+        .then(function(r) { return r.json(); })
+        .then(function(list) { if (Array.isArray(list) && list.length) FOREMEN = list; })
+        .catch(function() {});
+}
+window.fetchStaff = fetchStaff;
+
+/* Обёртка для POST-запросов к серверу */
+function chainPost(path, payload) {
+    return fetch(API_URL + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    }).then(function(r) {
+        return r.json().then(function(d) {
+            if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
+            return d;
+        });
+    });
+}
+window.chainPost = chainPost;
+
+function exportChain() {
+    window.location.href = API_URL + '/export/xlsx';
+}
+window.exportChain = exportChain;
+
+function currentUserName() {
     try {
-        var payload = JSON.stringify(atlbEntries);
-        localStorage.setItem(ATLB_KEY, payload);
-        console.log('[saveATLB] OK — записей:', atlbEntries.length);
-        return true;
-    } catch(e) {
-        console.error('[saveATLB] FAILED:', e);
-        try { showToast('Ошибка сохранения: ' + e.message, 'error'); } catch(_) {}
-        return false;
-    }
+        var s = JSON.parse(sessionStorage.getItem('userSession') || '{}');
+        return s.name || 'MCC';
+    } catch(e) { return 'MCC'; }
 }
 
 function findEntry(id) {
@@ -1831,31 +1866,23 @@ function submitQueueMel() {
     var comment = document.getElementById('queueMelComment').value.trim();
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    var e = findEntry(currentQueueMelId);
+    var id = currentQueueMelId;
+    var e = findEntry(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
 
-    var from = e.status;
-    e.melCategory = queueMelCategory;
-    e.melRef = melRef;
-    e.melDueDate = queueMelDueDate;
-    e.deferred = true;
-    e.mccComment = comment;
-    e.status = 'deferred';
-    e.demo = false;
-
-    if (!e.history) e.history = [];
-    e.history.push({
-        at: new Date().toISOString(),
-        from: from,
-        to: 'deferred',
-        role: 'MCC',
-        note: 'Отложено по MEL ' + queueMelCategory + ' — ' + melRef + ' — до ' + (queueMelDueDate || '—')
-    });
-
-    saveATLB();
-    closeQueueMelModal();
-    reloadData();
-    showToast('Дефект отложен по MEL ' + queueMelCategory, 'success');
+    chainPost('/chain/' + encodeURIComponent(id) + '/defer_mel', {
+        mel_category: queueMelCategory,
+        mel_ref: melRef,
+        mel_due_date: queueMelDueDate,
+        comment: comment,
+        actor: currentUserName()
+    })
+        .then(function() {
+            showToast('Дефект отложен по MEL ' + queueMelCategory, 'success');
+            closeQueueMelModal();
+            reloadData();
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.submitQueueMel = submitQueueMel;
 
@@ -1866,24 +1893,13 @@ function sendToCPU(id) {
     var e = findEntry(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
 
-    var from = e.status;
-    e.status = 'to_cpu';
-    e.demo = false;
-    e.cpuSentAt = new Date().toISOString();
-
-    if (!e.history) e.history = [];
-    e.history.push({
-        at: new Date().toISOString(),
-        from: from,
-        to: 'to_cpu',
-        role: 'MCC',
-        note: 'Передано в ЦПУ для назначения цепочки'
-    });
-
-    saveATLB();
-    reloadData();
-    showToast('Передано в ЦПУ', 'success');
-    switchTab('cpu');
+    chainPost('/chain/' + encodeURIComponent(id) + '/to_cpu', { actor: currentUserName() })
+        .then(function() {
+            showToast('Передано в ЦПУ', 'success');
+            reloadData();
+            switchTab('cpu');
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.sendToCPU = sendToCPU;
 
@@ -1970,7 +1986,12 @@ function renderCPUCandidates(role) {
             var skill = SKILL_NAMES[emp.specialization] || emp.specialization || '—';
             meta = '<span>' + esc(emp.device_id || '') + '</span><span>' + esc(skill) + '</span>';
         } else {
-            meta = '<span>' + esc(emp.role || '') + '</span><span>—</span>';
+            var roleName = emp.role === 'shift_supervisor' ? 'Начальник смены'
+                         : emp.role === 'foreman' ? 'Бригадир'
+                         : (emp.role || '');
+            var shiftName = emp.shift === 'night' ? 'ночная смена'
+                          : emp.shift === 'day' ? 'дневная смена' : '—';
+            meta = '<span>' + esc(roleName) + '</span><span>' + esc(shiftName) + '</span>';
         }
         return '<div class="engineer-card" data-cand-id="' + esc(emp.id) + '" onclick="selectCPUCandidate(\'' + esc(emp.id) + '\', \'' + role + '\')">' +
             '<div class="eng-name">' + esc(emp.name) + '</div>' +
@@ -2013,43 +2034,34 @@ function submitCPUAssignment() {
     var comment = document.getElementById('cpuComment').value.trim();
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    var e = findEntry(currentCPUId);
-    if (!e) { showToast('Запись не найдена', 'error'); return; }
-
-    var emp = findCPUCandidate(selectedCPUCandidate, currentCPURole);
+    var id = currentCPUId;
+    var role = currentCPURole;
+    var emp = findCPUCandidate(selectedCPUCandidate, role);
     if (!emp) { showToast('Специалист не найден', 'error'); return; }
 
-    var from = e.status;
-    var now = new Date().toISOString();
-
-    if (currentCPURole === 'shift') {
-        e.shiftSupervisorId = emp.id;
-        e.shiftSupervisorName = emp.name;
-        e.status = 'to_shift';
-        if (!e.history) e.history = [];
-        e.history.push({ at: now, from: from, to: 'to_shift', role: 'ЦПУ', note: 'Начальник смены: ' + emp.name + ' — ' + comment });
-        showToast('Начальник смены назначен', 'success');
-    }
-    else if (currentCPURole === 'foreman') {
-        e.foremanId = emp.id;
-        e.foremanName = emp.name;
-        e.status = 'to_foreman';
-        if (!e.history) e.history = [];
-        e.history.push({ at: now, from: from, to: 'to_foreman', role: 'Начальник смены', note: 'Бригадир: ' + emp.name + ' — ' + comment });
-        showToast('Бригадир назначен', 'success');
-    }
-    else if (currentCPURole === 'technician') {
-        e.engineerId = emp.id;
-        e.engineerName = emp.name;
-        e.status = 'assigned';
-        if (!e.history) e.history = [];
-        e.history.push({ at: now, from: from, to: 'assigned', role: 'Бригадир', note: 'Техник: ' + emp.name + ' — ' + comment });
-        showToast('Техник назначен', 'success');
+    var base = '/chain/' + encodeURIComponent(id);
+    var path, payload, okMsg;
+    if (role === 'shift') {
+        path = base + '/assign_shift';
+        payload = { staff_id: emp.id, comment: comment };
+        okMsg = 'Начальник смены назначен';
+    } else if (role === 'foreman') {
+        path = base + '/assign_foreman';
+        payload = { staff_id: emp.id, comment: comment };
+        okMsg = 'Бригадир назначен';
+    } else {
+        path = base + '/assign_technician';
+        payload = { engineer_id: emp.id, comment: comment };
+        okMsg = 'Техник назначен';
     }
 
-    saveATLB();
-    closeCPUModal();
-    reloadData();
+    chainPost(path, payload)
+        .then(function() {
+            showToast(okMsg, 'success');
+            closeCPUModal();
+            reloadData();
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.submitCPUAssignment = submitCPUAssignment;
 
@@ -2128,53 +2140,42 @@ function submitAssessment() {
     var comment = document.getElementById('mccComment').value.trim();
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    var e = findEntry(currentAssessId);
+    var id = currentAssessId;
+    var e = findEntry(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
 
-    var from = e.status;
-    e.mccComment = comment;
-    e.mccResolvedAt = new Date().toISOString();
-
+    var payload;
     if (mccAction === 'AOG_RECOVERY') {
         var et = document.getElementById('aogEt').value.trim();
         var act = document.getElementById('aogAction').value;
         if (!et) { showToast('Укажите ETR', 'error'); return; }
         if (!act) { showToast('Выберите действие AOG', 'error'); return; }
 
-        e.aogConfirmed = true;
-        e.aogEtr = et;
-        e.aogAction = act;
-        e.aogSince = new Date().toISOString();
-        e.status = 'in_work';
-
-        if (!e.history) e.history = [];
-        e.history.push({
-            at: new Date().toISOString(),
-            from: from, to: 'in_work',
-            role: 'MCC',
-            note: 'AOG установлен: ETR ' + et + ' · ' + aogActionLabel(act)
-        });
+        payload = {
+            request_id: id, action: 'AOG_RECOVERY', comment: comment,
+            etr: et, aog_action: act, dce_name: currentUserName()
+        };
     }
     else if (mccAction === 'REPAIR_COMPLETE') {
         var rect = document.getElementById('repairRect').value.trim();
         if (!rect) { showToast('Опишите выполненные работы', 'error'); return; }
 
-        e.rectification = rect;
-        e.status = 'repaired';
-
-        if (!e.history) e.history = [];
-        e.history.push({
-            at: new Date().toISOString(),
-            from: from, to: 'repaired',
-            role: 'Техник → MCC',
-            note: 'Ремонт завершён: ' + rect
-        });
+        payload = {
+            request_id: id, action: 'CLOSE',
+            comment: comment + ' | Работы: ' + rect, dce_name: currentUserName()
+        };
+    }
+    else {
+        showToast('Выберите результат', 'error'); return;
     }
 
-    saveATLB();
-    closeAssessModal();
-    reloadData();
-    showToast('Вердикт зафиксирован', 'success');
+    chainPost('/mcc/finalize', payload)
+        .then(function() {
+            showToast('Вердикт зафиксирован', 'success');
+            closeAssessModal();
+            reloadData();
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.submitAssessment = submitAssessment;
 
@@ -2221,21 +2222,15 @@ function submitAOGUpdate() {
     if (!et) { showToast('Укажите ETR', 'error'); return; }
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    e.aogEtr = et;
-    e.aogAction = act;
-
-    if (!e.history) e.history = [];
-    e.history.push({
-        at: new Date().toISOString(),
-        from: e.status, to: e.status,
-        role: 'MCC',
-        note: 'AOG: ETR ' + et + ' · ' + aogActionLabel(act) + ' · ' + comment
-    });
-
-    saveATLB();
-    closeAOGManageModal();
-    reloadData();
-    showToast('AOG обновлён', 'success');
+    chainPost('/mcc/aog_update', {
+        request_id: currentAogId, etr: et, aog_action: act
+    })
+        .then(function() {
+            showToast('AOG обновлён', 'success');
+            closeAOGManageModal();
+            reloadData();
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.submitAOGUpdate = submitAOGUpdate;
 
@@ -2246,22 +2241,16 @@ function submitAOGRecovered() {
     var comment = document.getElementById('aogManageComment').value.trim();
     if (!comment) { showToast('Опишите восстановление', 'error'); return; }
 
-    var from = e.status;
-    e.rectification = comment;
-    e.status = 'repaired';
-
-    if (!e.history) e.history = [];
-    e.history.push({
-        at: new Date().toISOString(),
-        from: from, to: 'repaired',
-        role: 'MCC',
-        note: 'AOG Recovered: ' + comment
-    });
-
-    saveATLB();
-    closeAOGManageModal();
-    reloadData();
-    showToast('AOG Recovered', 'success');
+    chainPost('/mcc/finalize', {
+        request_id: currentAogId, action: 'CLOSE',
+        comment: 'AOG Recovered: ' + comment, dce_name: currentUserName()
+    })
+        .then(function() {
+            showToast('AOG Recovered', 'success');
+            closeAOGManageModal();
+            reloadData();
+        })
+        .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
 window.submitAOGRecovered = submitAOGRecovered;
 

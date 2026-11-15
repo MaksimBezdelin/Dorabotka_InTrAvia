@@ -21,6 +21,7 @@ import time
 import json
 import base64
 import sqlite3
+import io
 import tempfile
 import subprocess
 import shutil
@@ -451,7 +452,28 @@ def ensure_schema(conn):
         'engineer_verdict_at': "TIMESTAMP",
         'aog_action': "TEXT DEFAULT ''",             # parts | oem | ame | replace
         'inspection_assigned_at': "TIMESTAMP",
+        # --- сквозная цепочка MCC → ЦПУ → нач. смены → бригадир → техник → MCC ---
+        'chain_stage': "TEXT DEFAULT 'mcc'",
+        'cpu_at': "TIMESTAMP",
+        'shift_supervisor_id': "TEXT DEFAULT ''",
+        'shift_supervisor_name': "TEXT DEFAULT ''",
+        'shift_assigned_at': "TIMESTAMP",
+        'foreman_id': "TEXT DEFAULT ''",
+        'foreman_name': "TEXT DEFAULT ''",
+        'foreman_assigned_at': "TIMESTAMP",
+        'technician_assigned_at': "TIMESTAMP",
+        'chain_closed_at': "TIMESTAMP",
     }
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS staff (
+        id TEXT PRIMARY KEY, name TEXT, role TEXT,
+        shift TEXT DEFAULT 'day', status TEXT DEFAULT 'online')""")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT, stage TEXT, actor_role TEXT, actor_name TEXT,
+        note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_chain_log_req ON chain_log(request_id)")
     for col, typ in needed_cols.items():
         if col not in existing_cols:
             try:
@@ -549,6 +571,17 @@ def seed_initial_data(conn):
             ('CAR-003', 55.9760, 37.4090, 50),
             ('CAR-004', 55.9740, 37.4160, 30),
             ('CAR-005', 55.9770, 37.4180, 70),
+        ])
+
+    cur.execute("SELECT COUNT(*) FROM staff")
+    if cur.fetchone()[0] == 0:
+        cur.executemany("""INSERT INTO staff (id,name,role,shift,status)
+                           VALUES (?,?,?,?,'online')""", [
+            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day'),
+            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night'),
+            ('fr_1', 'Ершов Е.В.', 'foreman', 'day'),
+            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day'),
+            ('fr_3', 'Зимин З.П.', 'foreman', 'night'),
         ])
     conn.commit()
 
@@ -1139,9 +1172,18 @@ def engineer_verdict():
         UPDATE requests SET
             engineer_verdict = ?,
             engineer_verdict_at = CURRENT_TIMESTAMP,
-            engineer_comment = ?
+            engineer_comment = ?,
+            chain_stage = 'verdict'
         WHERE id = ?
     """, (verdict, new_comment, rid))
+
+    engineer_name = ''
+    cur.execute("SELECT name FROM engineers WHERE id=?", (row['engineer_id'],))
+    eng_row = cur.fetchone()
+    if eng_row:
+        engineer_name = eng_row['name']
+    chain_log(conn, rid, 'verdict', 'Техник', engineer_name,
+              'Вердикт %s: %s' % (verdict, comment))
 
     conn.commit(); conn.close()
     return jsonify({
@@ -1171,9 +1213,11 @@ def mcc_finalize():
     row = cur.fetchone()
     if not row:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не найден'}), 404
-    if row['mcc_status'] != 'INSPECTION':
+    # CLOSE разрешён и после AOG Recovery — когда борт восстановлен
+    allowed = ('INSPECTION', 'AOG_CONFIRMED') if action == 'CLOSE' else ('INSPECTION',)
+    if row['mcc_status'] not in allowed:
         conn.close(); return jsonify({'success': False, 'error': 'Дефект не на инспекции'}), 400
-    if not row['engineer_verdict']:
+    if action != 'CLOSE' and not row['engineer_verdict']:
         conn.close(); return jsonify({'success': False, 'error': 'Нет вердикта инженера'}), 400
 
     kupol_ref = 'KP-' + str(int(time.time()))
@@ -1197,9 +1241,12 @@ def mcc_finalize():
                 aog_action = ?,
                 mcc_dce_name = ?,
                 mcc_kupol_ref = ?,
-                aog_since = COALESCE(aog_since, CURRENT_TIMESTAMP)
+                aog_since = COALESCE(aog_since, CURRENT_TIMESTAMP),
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] AOG Recovery: ' + comment, etr, aog_action, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name, 'AOG Recovery: ' + comment)
 
     elif action == 'MEL_DEFER':
         cat = data.get('mel_category', '')
@@ -1218,9 +1265,13 @@ def mcc_finalize():
                 mcc_mel_ref = ?,
                 mcc_due_date = ?,
                 mcc_dce_name = ?,
-                mcc_kupol_ref = ?
+                mcc_kupol_ref = ?,
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] MEL: ' + comment, cat, ref, due, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name,
+                  'MEL %s (%s): %s' % (cat, ref, comment))
 
         # освободить инженера
         if row['engineer_id']:
@@ -1234,9 +1285,12 @@ def mcc_finalize():
                 mcc_decision = 'CLOSE',
                 mcc_comment = COALESCE(mcc_comment, '') || ?,
                 mcc_dce_name = ?,
-                mcc_kupol_ref = ?
+                mcc_kupol_ref = ?,
+                chain_stage = 'closed',
+                chain_closed_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, ('\n[MCC] Закрыто: ' + comment, dce_name, kupol_ref, rid))
+        chain_log(conn, rid, 'closed', 'MCC', dce_name, 'Закрыто: ' + comment)
 
         if row['engineer_id']:
             cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (row['engineer_id'],))
@@ -1765,8 +1819,8 @@ def dispatch():
     cur.execute("""INSERT INTO requests (id, aircraft, fault_type, severity, terminal,
         parking_id, description, source, engineer_id, engineer_name, travel_time,
         using_car, walk_to_car, car_time, best_car, status, criticality,
-        rejected_by, all_rejected, mcc_status)
-        VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,'',0,'APPROVED')""",
+        rejected_by, all_rejected, mcc_status, chain_stage)
+        VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,'',0,'APPROVED','tech')""",
         (rid, aircraft, fault, severity, terminal, parking_id, description,
          eng['id'], eng['name'], tt, 1 if uc else 0, route['walk_to_car'],
          route['best_car_time'], bc['device_id'] if bc else None, severity))
@@ -2357,6 +2411,391 @@ def transcribe_pilot_audio(rid):
             if p:
                 try: os.unlink(p)
                 except Exception: pass
+
+
+# ============================================================
+# [CHAIN] Сквозная цепочка: MCC → ЦПУ → нач. смены → бригадир → техник → MCC
+# ============================================================
+CHAIN_STAGE_LABELS = {
+    'mcc': 'Очередь MCC',
+    'cpu': 'В ЦПУ',
+    'shift': 'Начальник смены',
+    'foreman': 'Бригадир',
+    'tech': 'Техник назначен',
+    'verdict': 'Вердикт техника',
+    'closed': 'Закрыто',
+}
+
+# этап цепочки → статус, который рисует интерфейс МЦЦ
+CHAIN_STAGE_TO_UI = {
+    'mcc': 'open',
+    'cpu': 'to_cpu',
+    'shift': 'to_shift',
+    'foreman': 'to_foreman',
+    'tech': 'assigned',
+    'verdict': 'assigned',
+    'closed': 'repaired',
+}
+
+DECISION_TO_UI = {
+    'MEL_DEFER': 'deferred',
+    'AOG_RECOVERY': 'in_work',
+    'CLOSE': 'repaired',
+}
+
+
+def chain_log(conn, rid, stage, actor_role, actor_name, note=''):
+    conn.execute("""INSERT INTO chain_log (request_id, stage, actor_role, actor_name, note)
+                    VALUES (?,?,?,?,?)""", (rid, stage, actor_role, actor_name or '', note or ''))
+
+
+def _chain_entry(row, history):
+    """Запись в форме, которую ожидает интерфейс МЦЦ (формат прежнего ATLB)."""
+    stage = row.get('chain_stage') or 'mcc'
+    status = CHAIN_STAGE_TO_UI.get(stage, 'open')
+    if stage == 'closed':
+        status = DECISION_TO_UI.get(row.get('mcc_decision') or '', 'repaired')
+    return {
+        'id': row['id'],
+        'requestId': row['id'],
+        'aircraft': row.get('aircraft') or '—',
+        'faultType': row.get('fault_type') or '',
+        'defect': row.get('description') or row.get('pilot_audio_text') or '',
+        'severity': row.get('severity') or 'medium',
+        'parking': row.get('parking_id') or '',
+        'terminal': row.get('terminal') or '',
+        'source': 'pilot' if row.get('source') == 'pilot' else 'manual',
+        'createdAt': row.get('created_at'),
+        'status': status,
+        'chainStage': stage,
+        'chainStageLabel': CHAIN_STAGE_LABELS.get(stage, stage),
+        'cpuSentAt': row.get('cpu_at'),
+        'shiftSupervisorName': row.get('shift_supervisor_name') or '',
+        'shiftAssignedAt': row.get('shift_assigned_at'),
+        'foremanName': row.get('foreman_name') or '',
+        'foremanAssignedAt': row.get('foreman_assigned_at'),
+        'engineerName': row.get('engineer_name') or '',
+        'technicianAssignedAt': row.get('technician_assigned_at'),
+        'engineerId': row.get('engineer_id') or '',
+        'verdict': row.get('engineer_verdict') or '',
+        'verdictAt': row.get('engineer_verdict_at'),
+        'mccDecision': row.get('mcc_decision') or '',
+        'mccComment': row.get('mcc_comment') or '',
+        'melRef': row.get('mcc_mel_ref') or '',
+        'melCategory': row.get('mcc_mel_category') or '',
+        'etr': row.get('etr') or '',
+        'aogConfirmed': (row.get('mcc_decision') or '') == 'AOG_RECOVERY',
+        'aogEtr': row.get('etr') or '',
+        'aogAction': row.get('aog_action') or '',
+        'aogSince': row.get('aog_since'),
+        'engineerComment': row.get('engineer_comment') or '',
+        'flightNumber': '',
+        'closedAt': row.get('chain_closed_at'),
+        'pilotName': row.get('pilot_name') or '',
+        'pilotRank': row.get('pilot_rank') or '',
+        'history': history,
+    }
+
+
+def _chain_take(conn, rid, expected_stage):
+    """Возвращает запись, если она на нужном этапе цепочки."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        return None, 'Заявка не найдена'
+    stage = row['chain_stage'] or 'mcc'
+    if stage != expected_stage:
+        return None, ('Заявка на этапе «%s», ожидался «%s»'
+                      % (CHAIN_STAGE_LABELS.get(stage, stage),
+                         CHAIN_STAGE_LABELS.get(expected_stage, expected_stage)))
+    return dict(row), None
+
+
+@app.route('/api/staff', methods=['GET'])
+def get_staff():
+    role = request.args.get('role', '')
+    conn = get_db(); cur = conn.cursor()
+    if role:
+        cur.execute("SELECT * FROM staff WHERE role=? ORDER BY name", (role,))
+    else:
+        cur.execute("SELECT * FROM staff ORDER BY role, name")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/chain', methods=['GET'])
+def get_chain():
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""SELECT * FROM requests
+                   WHERE COALESCE(flight_cancelled, 0) = 0
+                     AND status NOT IN ('cancelled', 'draft')
+                   ORDER BY created_at DESC""")
+    rows = [dict(r) for r in cur.fetchall()]
+    hist = {}
+    cur.execute("""SELECT request_id, stage, actor_role, actor_name, note, created_at
+                   FROM chain_log ORDER BY id ASC""")
+    for h in cur.fetchall():
+        hist.setdefault(h['request_id'], []).append({
+            'at': h['created_at'], 'to': h['stage'], 'role': h['actor_role'],
+            'note': h['note'], 'actor': h['actor_name'],
+        })
+    conn.close()
+    return jsonify([_chain_entry(r, hist.get(r['id'], [])) for r in rows])
+
+
+@app.route('/api/chain/<rid>/to_cpu', methods=['POST'])
+def chain_to_cpu(rid):
+    data = request.get_json() or {}
+    actor = (data.get('actor') or 'MCC').strip()
+    comment = (data.get('comment') or '').strip()
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'mcc')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='cpu', cpu_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (rid,))
+    chain_log(conn, rid, 'cpu', 'MCC', actor,
+              comment or 'Передано в ЦПУ для назначения цепочки')
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'cpu'})
+
+
+@app.route('/api/chain/<rid>/assign_shift', methods=['POST'])
+def chain_assign_shift(rid):
+    data = request.get_json() or {}
+    staff_id = data.get('staff_id')
+    comment = (data.get('comment') or '').strip()
+    if not staff_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите начальника смены и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'cpu')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM staff WHERE id=? AND role='shift_supervisor'", (staff_id,))
+    st = cur.fetchone()
+    if not st:
+        conn.close(); return jsonify({'success': False, 'error': 'Начальник смены не найден'}), 404
+
+    conn.execute("""UPDATE requests SET chain_stage='shift', shift_supervisor_id=?,
+                    shift_supervisor_name=?, shift_assigned_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (st['id'], st['name'], rid))
+    chain_log(conn, rid, 'shift', 'ЦПУ', st['name'], comment)
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'shift', 'name': st['name']})
+
+
+@app.route('/api/chain/<rid>/assign_foreman', methods=['POST'])
+def chain_assign_foreman(rid):
+    data = request.get_json() or {}
+    staff_id = data.get('staff_id')
+    comment = (data.get('comment') or '').strip()
+    if not staff_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите бригадира и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'shift')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM staff WHERE id=? AND role='foreman'", (staff_id,))
+    st = cur.fetchone()
+    if not st:
+        conn.close(); return jsonify({'success': False, 'error': 'Бригадир не найден'}), 404
+
+    conn.execute("""UPDATE requests SET chain_stage='foreman', foreman_id=?,
+                    foreman_name=?, foreman_assigned_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (st['id'], st['name'], rid))
+    chain_log(conn, rid, 'foreman', 'Начальник смены',
+              row.get('shift_supervisor_name') or '', comment)
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'foreman', 'name': st['name']})
+
+
+@app.route('/api/chain/<rid>/assign_technician', methods=['POST'])
+def chain_assign_technician(rid):
+    data = request.get_json() or {}
+    eng_id = data.get('engineer_id')
+    comment = (data.get('comment') or '').strip()
+    if not eng_id or not comment:
+        return jsonify({'success': False, 'error': 'Выберите техника и укажите комментарий'}), 400
+
+    conn = get_db()
+    row, err = _chain_take(conn, rid, 'foreman')
+    if err:
+        conn.close(); return jsonify({'success': False, 'error': err}), 400
+
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, status FROM engineers WHERE id=?", (eng_id,))
+    eng = cur.fetchone()
+    if not eng:
+        conn.close(); return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+    if (eng['status'] or 'free') != 'free':
+        conn.close(); return jsonify({'success': False, 'error': 'Инженер уже занят'}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='tech', engineer_id=?, engineer_name=?,
+                    technician_assigned_at=CURRENT_TIMESTAMP, status='inspection',
+                    mcc_status='INSPECTION'
+                    WHERE id=?""", (eng['id'], eng['name'], rid))
+    conn.execute("""UPDATE engineers SET status='busy', task=? WHERE id=?""",
+                 ('Осмотр ВС %s на стоянке %s' % (row.get('aircraft') or '',
+                                                  row.get('parking_id') or ''), eng['id']))
+    chain_log(conn, rid, 'tech', 'Бригадир', row.get('foreman_name') or '', comment)
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'tech', 'name': eng['name']})
+
+
+@app.route('/api/chain/<rid>/defer_mel', methods=['POST'])
+def chain_defer_mel(rid):
+    """Оформление MEL без выезда техника — из очереди MCC."""
+    data = request.get_json() or {}
+    category = (data.get('mel_category') or '').strip()
+    ref = (data.get('mel_ref') or '').strip()
+    due = (data.get('mel_due_date') or '').strip()
+    comment = (data.get('comment') or '').strip()
+    actor = (data.get('actor') or 'MCC').strip()
+
+    if not category or not ref or not comment:
+        return jsonify({'success': False,
+                        'error': 'Укажите MEL-категорию, ссылку и комментарий'}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if (row['chain_stage'] or 'mcc') == 'closed':
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка уже закрыта'}), 400
+
+    conn.execute("""UPDATE requests SET chain_stage='closed', chain_closed_at=CURRENT_TIMESTAMP,
+                    mcc_status='MEL', mcc_decision='MEL_DEFER', status='deferred',
+                    mcc_mel_category=?, mcc_mel_ref=?, mcc_due_date=?,
+                    mcc_comment=COALESCE(mcc_comment,'') || ?
+                    WHERE id=?""",
+                 (category, ref, due, '\n[MCC] MEL: ' + comment, rid))
+    if row['engineer_id']:
+        conn.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                     (row['engineer_id'],))
+    chain_log(conn, rid, 'closed', 'MCC', actor,
+              'MEL %s (%s): %s' % (category, ref, comment))
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'chain_stage': 'closed', 'mcc_decision': 'MEL_DEFER'})
+
+
+# ------------------------------------------------------------
+# Экспорт цепочки в Excel
+# ------------------------------------------------------------
+CHAIN_EXPORT_COLUMNS = [
+    ('Заявка', 'id'),
+    ('Борт', 'aircraft'),
+    ('Стоянка', 'parking_id'),
+    ('Тип неисправности', 'fault_type'),
+    ('Описание', 'description'),
+    ('Источник', 'source'),
+    ('Пилот', 'pilot_name'),
+    ('Создано', 'created_at'),
+    ('Этап', 'chain_stage'),
+    ('Передано в ЦПУ', 'cpu_at'),
+    ('Начальник смены', 'shift_supervisor_name'),
+    ('Назначен', 'shift_assigned_at'),
+    ('Бригадир', 'foreman_name'),
+    ('Назначен', 'foreman_assigned_at'),
+    ('Техник', 'engineer_name'),
+    ('Назначен', 'technician_assigned_at'),
+    ('Вердикт техника', 'engineer_verdict'),
+    ('Вердикт получен', 'engineer_verdict_at'),
+    ('Решение MCC', 'mcc_decision'),
+    ('MEL категория', 'mcc_mel_category'),
+    ('MEL ссылка', 'mcc_mel_ref'),
+    ('ETR', 'etr'),
+    ('Закрыто', 'chain_closed_at'),
+    ('Комментарий MCC', 'mcc_comment'),
+]
+
+
+@app.route('/api/export/xlsx', methods=['GET'])
+def export_chain_xlsx():
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return jsonify({'success': False,
+                        'error': 'openpyxl не установлен: pip install openpyxl'}), 500
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""SELECT * FROM requests
+                   WHERE COALESCE(flight_cancelled, 0) = 0
+                     AND status NOT IN ('cancelled', 'draft')
+                   ORDER BY created_at DESC""")
+    rows = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""SELECT l.*, r.aircraft FROM chain_log l
+                   LEFT JOIN requests r ON r.id = l.request_id
+                   ORDER BY l.id ASC""")
+    log_rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Цепочка'
+
+    head_font = Font(bold=True, color='FFFFFF')
+    head_fill = PatternFill('solid', fgColor='003366')
+    for col, (title, _) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col, value=title)
+        cell.font = head_font
+        cell.fill = head_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    for i, row in enumerate(rows, start=2):
+        for col, (_, key) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+            value = row.get(key)
+            if key == 'chain_stage':
+                value = CHAIN_STAGE_LABELS.get(value or 'mcc', value or '')
+            cell = ws.cell(row=i, column=col, value=value if value is not None else '')
+            cell.alignment = Alignment(vertical='top', wrap_text=(key in ('description', 'mcc_comment')))
+
+    ws.freeze_panes = 'A2'
+    for col, (title, _) in enumerate(CHAIN_EXPORT_COLUMNS, start=1):
+        width = max(12, min(40, len(title) + 6))
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws2 = wb.create_sheet('Журнал')
+    log_headers = ['Заявка', 'Борт', 'Этап', 'Роль', 'Кто', 'Комментарий', 'Когда']
+    for col, title in enumerate(log_headers, start=1):
+        cell = ws2.cell(row=1, column=col, value=title)
+        cell.font = head_font
+        cell.fill = head_fill
+    for i, log in enumerate(log_rows, start=2):
+        values = [
+            log.get('request_id'), log.get('aircraft') or '',
+            CHAIN_STAGE_LABELS.get(log.get('stage') or '', log.get('stage') or ''),
+            log.get('actor_role') or '', log.get('actor_name') or '',
+            log.get('note') or '', log.get('created_at'),
+        ]
+        for col, value in enumerate(values, start=1):
+            ws2.cell(row=i, column=col, value=value if value is not None else '')
+    ws2.freeze_panes = 'A2'
+    for col, width in enumerate([26, 10, 20, 18, 22, 46, 20], start=1):
+        ws2.column_dimensions[get_column_letter(col)].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    stamp = time.strftime('%Y%m%d_%H%M')
+    return Response(
+        buf.read(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="intravia_chain_%s.xlsx"' % stamp}
+    )
 
 
 # ============================================================
