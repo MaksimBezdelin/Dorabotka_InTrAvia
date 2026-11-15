@@ -9,8 +9,11 @@
 | Роль | Страница | Зона ответственности |
 |---|---|---|
 | Пилот | `/pilot/dashboard.html` | сообщает о неисправности голосом или текстом |
-| МЦЦ / DCE | `/mcc/dashboard.html` | приём дефектов, назначение осмотра, MEL / AOG Recovery, закрытие |
-| Инженер | `/engineer/dashboard.html` | осмотр ВС, вердикт AOG / REPAIR / MEL |
+| МЦЦ / DCE | `/mcc/dashboard.html` | приём дефектов, передача в ЦПУ, MEL / AOG Recovery, закрытие |
+| Оператор ЦПУ | `/cpu/dashboard.html` | назначает начальника смены |
+| Начальник смены | `/shift/dashboard.html` | назначает бригадира |
+| Бригадир | `/foreman/dashboard.html` | назначает техника |
+| Инженер / техник | `/engineer/dashboard.html` | осмотр ВС, вердикт AOG / REPAIR / MEL |
 | Диспетчер | `/dispatcher/dashboard.html` | карта аэропорта, распределение техники, очереди и задержки |
 | Администратор | `/admin/dashboard.html` | справочники инженеров, пилотов, техники |
 
@@ -35,6 +38,9 @@ python app.py
 | Администратор | `admin@aeroflot.ru` | `admin123` |
 | Диспетчер | `dispatcher@aeroflot.ru` | `disp123` |
 | МЦЦ | `mcc@aeroflot.ru` | `mcc123` |
+| Оператор ЦПУ | `cpu@aeroflot.ru` | `cpu123` |
+| Начальник смены | `shift@aeroflot.ru`, `shift2@aeroflot.ru` | `shift123` |
+| Бригадир | `foreman@aeroflot.ru`, `foreman2@`, `foreman3@` | `foreman123` |
 | Инженеры | `engineer1@aeroflot.ru` … | `eng123` |
 | Пилоты | `pilot1@aeroflot.ru` … | `pilot123` |
 
