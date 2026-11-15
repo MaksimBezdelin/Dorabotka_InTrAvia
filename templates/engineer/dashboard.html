@@ -1317,22 +1317,35 @@
                     'Комментарий: ' + (comment || '—') + '\n' +
                     '──────────────────────────';
 
-                fetch('/api/requests/' + taskData.id, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                // Вердикт техника по цепочке: решение по дефекту принимает МЦЦ,
+                // а не техник — статус задачи ставим через /api/engineer/verdict
+                var verdictMap = {
+                    'repaired': 'REPAIR',
+                    'needs_parts': 'AOG',
+                    'needs_service': 'AOG',
+                    'no_fault': 'MEL'
+                };
+                var verdictCode = verdictMap[condition] || 'REPAIR';
+
+                fetch('/api/engineer/verdict', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        status: 'completed',
-                        criticality: taskData.criticality || 'medium',
-                        engineer_comment: reportText
+                        request_id: taskData.id,
+                        verdict: verdictCode,
+                        comment: reportText,
+                        engineer_id: engineerId
                     })
                 })
-                .then(function(res) { return res.json(); })
-                .then(function() {
-                    return fetch('/api/complete/' + engineerId, { method: 'POST' });
+                .then(function(res) {
+                    return res.json().then(function(d) {
+                        if (!res.ok || d.success === false) throw new Error(d.error || ('HTTP ' + res.status));
+                        return d;
+                    });
                 })
                 .then(function() {
                     taskStep = 'completed';
-                    showToast('Отчёт отправлен диспетчеру', 'success');
-                    showNotification('✅ Задача завершена', 'Отчёт отправлен. Ожидайте новое назначение.');
+                    showToast('Вердикт ' + verdictCode + ' передан в МЦЦ', 'success');
+                    showNotification('✅ Осмотр завершён', 'Вердикт ' + verdictCode + ' передан в МЦЦ. Ожидайте новое назначение.');
                     drawRouteOnMap(null);
                     currentRoute = null;
                     releaseEngineerLocal();

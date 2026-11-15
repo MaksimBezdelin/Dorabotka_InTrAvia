@@ -47,7 +47,8 @@ for _stream in (sys.stdout, sys.stderr):
 # Конфигурация
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'database.db')
+# INTRAVIA_DB позволяет подменить файл базы (используется в автотестах)
+DB_PATH = os.environ.get('INTRAVIA_DB') or os.path.join(BASE_DIR, 'database.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
@@ -463,6 +464,11 @@ def ensure_schema(conn):
         'foreman_assigned_at': "TIMESTAMP",
         'technician_assigned_at': "TIMESTAMP",
         'chain_closed_at': "TIMESTAMP",
+        # подпись CRS пилотом в ATLB
+        'crs_signed': "INTEGER DEFAULT 0",
+        'crs_signed_at': "TIMESTAMP",
+        'crs_signed_by': "TEXT DEFAULT ''",
+        'crs_signature': "TEXT DEFAULT ''",
     }
 
     cur.execute("""CREATE TABLE IF NOT EXISTS staff (
@@ -1231,6 +1237,13 @@ def engineer_verdict():
         engineer_name = eng_row['name']
     chain_log(conn, rid, 'verdict', 'Техник', engineer_name,
               'Вердикт %s: %s' % (verdict, comment))
+
+    # техник закончил осмотр — освобождаем его и технику,
+    # решение по дефекту принимает МЦЦ
+    if row['engineer_id']:
+        conn.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                     (row['engineer_id'],))
+    conn.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
     conn.commit(); conn.close()
     return jsonify({
@@ -2600,6 +2613,7 @@ def get_chain():
                      AND status NOT IN ('cancelled', 'draft')
                    ORDER BY created_at DESC""")
     rows = [dict(r) for r in cur.fetchall()]
+    rec_map = _compute_recurring_map(conn)
     hist = {}
     cur.execute("""SELECT request_id, stage, actor_role, actor_name, note, created_at
                    FROM chain_log ORDER BY id ASC""")
@@ -2609,7 +2623,16 @@ def get_chain():
             'note': h['note'], 'actor': h['actor_name'],
         })
     conn.close()
-    return jsonify([_chain_entry(r, hist.get(r['id'], [])) for r in rows])
+    out = []
+    for r in rows:
+        entry = _chain_entry(r, hist.get(r['id'], []))
+        key = (str(r.get('aircraft') or '').strip(), str(r.get('fault_type') or '').strip())
+        rec = rec_map.get(key, {'occurrences': 1, 'last_occurrence': r.get('created_at')})
+        entry['occurrences'] = rec['occurrences']
+        entry['lastOccurrence'] = _iso_ts(rec['last_occurrence'])
+        entry['recurring'] = rec['occurrences'] >= 3
+        out.append(entry)
+    return jsonify(out)
 
 
 @app.route('/api/chain/<rid>/to_cpu', methods=['POST'])
@@ -2719,6 +2742,111 @@ def chain_assign_technician(rid):
     chain_log(conn, rid, 'tech', 'Бригадир', row.get('foreman_name') or '', comment)
     conn.commit(); conn.close()
     return jsonify({'success': True, 'chain_stage': 'tech', 'name': eng['name']})
+
+
+# ------------------------------------------------------------
+# ATLB пилота — тот же журнал, что в цепочке, но в терминах ATLB
+# ------------------------------------------------------------
+ATLB_STATUS_BY_STAGE = {
+    'mcc': 'open', 'cpu': 'open', 'shift': 'open', 'foreman': 'open',
+    'tech': 'assigned', 'verdict': 'in_work', 'closed': 'repaired',
+}
+ATLB_STATUS_BY_DECISION = {
+    'CLOSE': 'repaired', 'MEL_DEFER': 'deferred', 'AOG_RECOVERY': 'awaiting_parts',
+}
+
+
+def _pilot_atlb_entry(row, history):
+    stage = row.get('chain_stage') or 'mcc'
+    status = ATLB_STATUS_BY_STAGE.get(stage, 'open')
+    if stage == 'closed':
+        status = ATLB_STATUS_BY_DECISION.get(row.get('mcc_decision') or '', 'repaired')
+    if row.get('crs_signed'):
+        status = 'released'
+    return {
+        'id': row['id'],
+        'requestId': row['id'],
+        'aircraft': row.get('aircraft') or '—',
+        'flightNumber': '',
+        'createdAt': _iso_ts(row.get('created_at')),
+        'defect': row.get('description') or row.get('pilot_audio_text') or '',
+        'faultType': row.get('fault_type') or '',
+        'severity': row.get('severity') or 'medium',
+        'parking': row.get('parking_id') or '',
+        'source': 'pilot',
+        'status': status,
+        'chainStage': stage,
+        'engineerName': row.get('engineer_name') or '',
+        'verdict': row.get('engineer_verdict') or '',
+        'rectification': row.get('mcc_comment') or '',
+        'melRef': row.get('mcc_mel_ref') or '',
+        'deferred': (row.get('mcc_decision') or '') == 'MEL_DEFER',
+        'demo': False,
+        'crs': {
+            'signed': bool(row.get('crs_signed')),
+            'signedAt': _iso_ts(row.get('crs_signed_at')),
+            'signedBy': row.get('crs_signed_by') or None,
+            'signature': row.get('crs_signature') or None,
+        },
+        'history': history,
+    }
+
+
+@app.route('/api/pilot/atlb', methods=['GET'])
+def get_pilot_atlb():
+    pilot = (request.args.get('pilot') or '').strip()
+    conn = get_db(); cur = conn.cursor()
+    if pilot:
+        cur.execute("""SELECT * FROM requests
+                       WHERE source='pilot' AND pilot_name=?
+                         AND COALESCE(flight_cancelled, 0) = 0
+                         AND status NOT IN ('cancelled', 'draft')
+                       ORDER BY created_at DESC""", (pilot,))
+    else:
+        cur.execute("""SELECT * FROM requests
+                       WHERE source='pilot' AND COALESCE(flight_cancelled, 0) = 0
+                         AND status NOT IN ('cancelled', 'draft')
+                       ORDER BY created_at DESC""")
+    rows = [dict(r) for r in cur.fetchall()]
+
+    hist = {}
+    cur.execute("""SELECT request_id, stage, actor_role, actor_name, note, created_at
+                   FROM chain_log ORDER BY id ASC""")
+    for h in cur.fetchall():
+        hist.setdefault(h['request_id'], []).append({
+            'at': _iso_ts(h['created_at']), 'from': None, 'to': h['stage'],
+            'role': h['actor_role'], 'note': h['note'], 'actor': h['actor_name'],
+        })
+    conn.close()
+    return jsonify([_pilot_atlb_entry(r, hist.get(r['id'], [])) for r in rows])
+
+
+@app.route('/api/pilot/atlb/sign_crs', methods=['POST'])
+def pilot_sign_crs():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    pilot = (data.get('pilot_name') or '').strip()
+    signature = data.get('signature') or ''
+    if not rid or not pilot:
+        return jsonify({'success': False, 'error': 'Не указана заявка или пилот'}), 400
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['chain_stage'] != 'closed':
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Подписать CRS можно только после решения МЦЦ'}), 400
+    if row['crs_signed']:
+        conn.close(); return jsonify({'success': False, 'error': 'CRS уже подписан'}), 400
+
+    conn.execute("""UPDATE requests SET crs_signed=1, crs_signed_at=CURRENT_TIMESTAMP,
+                    crs_signed_by=?, crs_signature=? WHERE id=?""", (pilot, signature, rid))
+    chain_log(conn, rid, 'released', 'Пилот', pilot, 'Подписан CRS')
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'request_id': rid})
 
 
 @app.route('/api/chain/<rid>/defer_mel', methods=['POST'])

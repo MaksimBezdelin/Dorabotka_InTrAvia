@@ -743,41 +743,37 @@ function collectDefects() {
 /* ============================================================
    ATLB
    ============================================================ */
+/* ATLB пилота хранится на сервере: те же заявки, что видит МЦЦ.
+   localStorage оставлен только как кэш текущей сессии. */
 function loadATLB() {
-    try {
-        var s = localStorage.getItem(ATLB_KEY);
-        if (!s) s = localStorage.getItem('pilotATLB_v3') || localStorage.getItem('pilotATLB_v2') || localStorage.getItem('pilotATLB_v1');
-        if (!s) { console.log('[loadATLB] localStorage пуст'); return []; }
-        var d = JSON.parse(s);
-        if (!Array.isArray(d)) return [];
-        for (var i = 0; i < d.length; i++) {
-            var e = d[i];
-            if (!e.history || !Array.isArray(e.history)) {
-                e.history = [{ at: e.createdAt || new Date().toISOString(), from: null, to: e.status || 'open', role: 'Экипаж', note: 'Загружено из предыдущей версии' }];
-            }
-            if (!ATLB_STATUSES[e.status]) e.status = 'open';
-            if (!e.crs) e.crs = { signed: false, signedAt: null, signedBy: null, signature: null };
-        }
-        console.log('[loadATLB] Загружено:', d.length, 'записей');
-        return d;
-    } catch(err) {
-        console.error('[loadATLB] Ошибка:', err);
-        return [];
-    }
+    return atlbEntries;
 }
 
-function saveATLB() {
-    try {
-        var payload = JSON.stringify(atlbEntries);
-        localStorage.setItem(ATLB_KEY, payload);
-        console.log('[saveATLB] OK — записей:', atlbEntries.length, '· размер:', payload.length, 'байт');
-        return true;
-    } catch(e) {
-        console.error('[saveATLB] FAILED:', e);
-        try { showToast('Ошибка сохранения ATLB: ' + e.message, 'error'); } catch(_) {}
-        return false;
-    }
+function loadPilotATLB() {
+    var pilotName = getPilotName();
+    var url = '/api/pilot/atlb?pilot=' + encodeURIComponent(pilotName || '');
+    return fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            atlbEntries = Array.isArray(list) ? list : [];
+            for (var i = 0; i < atlbEntries.length; i++) {
+                var e = atlbEntries[i];
+                if (!ATLB_STATUSES[e.status]) e.status = 'open';
+                if (!e.crs) e.crs = { signed: false, signedAt: null, signedBy: null, signature: null };
+                if (!e.history) e.history = [];
+            }
+            renderATLB();
+            return atlbEntries;
+        })
+        .catch(function(err) {
+            console.error('[loadPilotATLB]', err);
+            showToast('Не удалось загрузить ATLB', 'error');
+            return atlbEntries;
+        });
 }
+window.loadPilotATLB = loadPilotATLB;
+
+function saveATLB() { return true; }
 
 function createATLBEntry(data) {
     var now = new Date().toISOString();
@@ -798,9 +794,8 @@ function createATLBEntry(data) {
         demo: false,
         history: [{ at: now, from: null, to: 'open', role: 'Экипаж', note: 'Дефект зарегистрирован в ATLB → очередь MCC' }]
     };
-    atlbEntries.unshift(entry);
-    saveATLB();
-    renderATLB();
+    // заявка уже создана на сервере (/api/dispatch) — перечитываем журнал
+    loadPilotATLB();
     return entry;
 }
 
@@ -1015,12 +1010,7 @@ function closeATLBDetail() {
 window.closeATLBDetail = closeATLBDetail;
 
 function deleteFromDetail(id) {
-    if (!confirm('Удалить запись из ATLB?')) return;
-    atlbEntries = atlbEntries.filter(function(e) { return e.id !== id; });
-    saveATLB();
-    renderATLB();
-    closeATLBDetail();
-    showToast('Запись удалена', 'success');
+    deleteATLBEntry(id);
 }
 window.deleteFromDetail = deleteFromDetail;
 
@@ -1152,34 +1142,44 @@ function pilotSignCRS(id) {
 
     if (!confirm(msg)) return;
 
-    var fromStatus = e.status;
-    e.crs.signed = true;
-    e.crs.signedAt = new Date().toISOString();
-    e.crs.signedBy = pilotName;
-    e.crs.signature = signatureData;
-    e.status = 'released';
-
-    if (!e.history) e.history = [];
-    e.history.push({
-        at: new Date().toISOString(),
-        from: fromStatus, to: 'released',
-        role: 'Пилот',
-        note: 'Подписано ЭЦП: ' + pilotName
-    });
-
-    saveATLB();
-    renderATLB();
-    closeATLBDetail();
-    showToast('CRS подписан. ВС готово к вылету.', 'success');
+    fetch('/api/pilot/atlb/sign_crs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            request_id: e.requestId || e.id,
+            pilot_name: pilotName,
+            signature: signatureData
+        })
+    })
+    .then(function(r) {
+        return r.json().then(function(d) {
+            if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
+            return d;
+        });
+    })
+    .then(function() {
+        closeATLBDetail();
+        showToast('CRS подписан. ВС готово к вылету.', 'success');
+        loadPilotATLB();
+    })
+    .catch(function(err) { showToast('Ошибка подписи: ' + err.message, 'error'); });
 }
 window.pilotSignCRS = pilotSignCRS;
 
 function deleteATLBEntry(id) {
-    if (!confirm('Удалить запись из ATLB?')) return;
-    atlbEntries = atlbEntries.filter(function(e) { return e.id !== id; });
-    saveATLB();
-    renderATLB();
-    showToast('Запись удалена', 'success');
+    if (!confirm('Отменить заявку? Запись останется в журнале со статусом «отменена».')) return;
+    var e = findATLB(id);
+    var rid = (e && (e.requestId || e.id)) || id;
+    fetch('/api/requests/' + encodeURIComponent(rid) + '/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Отменено пилотом', by: getPilotName() })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() {
+        showToast('Заявка отменена', 'success');
+        closeATLBDetail();
+        loadPilotATLB();
+    })
+    .catch(function() { showToast('Не удалось отменить заявку', 'error'); });
 }
 window.deleteATLBEntry = deleteATLBEntry;
 
@@ -1834,16 +1834,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initDefectsForm();
     records = loadRecords();
     renderRecords();
-    atlbEntries = loadATLB();
-    renderATLB();
-
-    window.addEventListener('storage', function(e) {
-        if (e.key === ATLB_KEY) {
-            console.log('[storage] Изменения из другой вкладки — перечитываю ATLB');
-            atlbEntries = loadATLB();
-            renderATLB();
-        }
-    });
+    loadPilotATLB();
 
     console.log('[InTrAvia Pilot] Init OK');
 });
