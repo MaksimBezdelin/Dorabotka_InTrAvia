@@ -1645,13 +1645,27 @@ function parseReportFields(text) {
     return parsed;
 }
 
+/* Отчёты теперь на сервере (/api/reports), localStorage больше не используется */
 function loadReportsFromStorage() {
-    try { var s = localStorage.getItem(REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
-    catch(e) { return []; }
+    return state.reports || [];
 }
-function saveReportsToStorage() {
-    try { localStorage.setItem(REPORTS_KEY, JSON.stringify(state.reports)); updateReportsBadge(); return true; }
-    catch(e) { return false; }
+function loadReportsFromServer() {
+    return fetch('/api/reports')
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            state.reports = Array.isArray(list) ? list : [];
+            if (typeof renderReports === 'function') renderReports();
+            updateReportsBadge();
+            return state.reports;
+        })
+        .catch(function(err) { console.error('[reports]', err); return []; });
+}
+function saveReportsToStorage() { updateReportsBadge(); return true; }
+function pushReportToServer(report) {
+    return fetch('/api/reports', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(report)
+    }).catch(function(err) { console.error('[reports]', err); });
 }
 function loadDeletedReportsFromStorage() {
     try { var s = localStorage.getItem(DELETED_REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
@@ -1698,7 +1712,9 @@ function addReportFromRequest(request) {
         completedAt: new Date().toISOString()
     };
     state.reports.unshift(report);
-    saveReportsToStorage();
+    report.text = report.raw || report.findings || '';
+    pushReportToServer(report);
+    updateReportsBadge();
     return true;
 }
 
@@ -1871,7 +1887,7 @@ function init() {
     if (document.getElementById('delaysDate')) document.getElementById('delaysDate').textContent = dateStr;
     if (document.getElementById('flightsDate')) document.getElementById('flightsDate').textContent = dateStr;
 
-    state.reports = loadReportsFromStorage();
+    loadReportsFromServer();
     state.deletedReports = loadDeletedReportsFromStorage();
     state.pilotRequests = loadPilotRequestsFromStorage();
     updatePilotBadge();

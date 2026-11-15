@@ -490,7 +490,7 @@ def ensure_schema(conn):
     cur.execute("""CREATE TABLE IF NOT EXISTS reports (
         id TEXT PRIMARY KEY, request_id TEXT, aircraft TEXT, engineer_name TEXT,
         text TEXT, source TEXT DEFAULT 'dispatcher', deleted INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        payload TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
 
     cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2925,10 +2925,24 @@ def get_reports():
     cur.execute(sql)
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
+    out = []
     for r in rows:
-        r['createdAt'] = _iso_ts(r.get('created_at'))
-        r['deleted'] = bool(r.get('deleted'))
-    return jsonify(rows)
+        try:
+            obj = json.loads(r.get('payload') or '{}')
+        except (ValueError, TypeError):
+            obj = {}
+        if not obj:
+            obj = {
+                'id': r['id'], 'requestId': r.get('request_id') or '',
+                'aircraft': r.get('aircraft') or '',
+                'engineer': r.get('engineer_name') or '',
+                'raw': r.get('text') or '',
+            }
+        obj['id'] = r['id']
+        obj['deleted'] = bool(r.get('deleted'))
+        obj['createdAt'] = _iso_ts(r.get('created_at'))
+        out.append(obj)
+    return jsonify(out)
 
 
 @app.route('/api/reports', methods=['POST'])
@@ -2940,11 +2954,12 @@ def create_report():
     rid = data.get('id') or ('rep_' + str(int(time.time() * 1000)))
     conn = get_db()
     conn.execute("""INSERT OR REPLACE INTO reports
-                    (id, request_id, aircraft, engineer_name, text, source)
-                    VALUES (?,?,?,?,?,?)""",
+                    (id, request_id, aircraft, engineer_name, text, source, payload)
+                    VALUES (?,?,?,?,?,?,?)""",
                  (rid, data.get('request_id') or '', data.get('aircraft') or '',
-                  data.get('engineer_name') or '', text,
-                  data.get('source') or 'dispatcher'))
+                  data.get('engineer') or data.get('engineer_name') or '', text,
+                  data.get('source') or 'dispatcher',
+                  json.dumps(data, ensure_ascii=False)))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': rid})
 
