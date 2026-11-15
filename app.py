@@ -487,6 +487,11 @@ def ensure_schema(conn):
             cur.execute(f"ALTER TABLE staff ADD COLUMN {col} {typ}")
             print(f"[MIGRATION] + staff.{col}")
 
+    cur.execute("""CREATE TABLE IF NOT EXISTS reports (
+        id TEXT PRIMARY KEY, request_id TEXT, aircraft TEXT, engineer_name TEXT,
+        text TEXT, source TEXT DEFAULT 'dispatcher', deleted INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+
     cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         request_id TEXT, stage TEXT, actor_role TEXT, actor_name TEXT,
@@ -2904,6 +2909,52 @@ def pilot_sign_crs():
     chain_log(conn, rid, 'released', 'Пилот', pilot, 'Подписан CRS')
     conn.commit(); conn.close()
     return jsonify({'success': True, 'request_id': rid})
+
+
+# ------------------------------------------------------------
+# Отчёты диспетчера — раньше жили только в localStorage
+# ------------------------------------------------------------
+@app.route('/api/reports', methods=['GET'])
+def get_reports():
+    include_deleted = request.args.get('deleted') == '1'
+    conn = get_db(); cur = conn.cursor()
+    sql = "SELECT * FROM reports"
+    if not include_deleted:
+        sql += " WHERE COALESCE(deleted,0)=0"
+    sql += " ORDER BY created_at DESC"
+    cur.execute(sql)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    for r in rows:
+        r['createdAt'] = _iso_ts(r.get('created_at'))
+        r['deleted'] = bool(r.get('deleted'))
+    return jsonify(rows)
+
+
+@app.route('/api/reports', methods=['POST'])
+def create_report():
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'success': False, 'error': 'Пустой отчёт'}), 400
+    rid = data.get('id') or ('rep_' + str(int(time.time() * 1000)))
+    conn = get_db()
+    conn.execute("""INSERT OR REPLACE INTO reports
+                    (id, request_id, aircraft, engineer_name, text, source)
+                    VALUES (?,?,?,?,?,?)""",
+                 (rid, data.get('request_id') or '', data.get('aircraft') or '',
+                  data.get('engineer_name') or '', text,
+                  data.get('source') or 'dispatcher'))
+    conn.commit(); conn.close()
+    return jsonify({'success': True, 'id': rid})
+
+
+@app.route('/api/reports/<rep_id>', methods=['DELETE'])
+def delete_report(rep_id):
+    conn = get_db()
+    conn.execute("UPDATE reports SET deleted=1 WHERE id=?", (rep_id,))
+    conn.commit(); conn.close()
+    return jsonify({'success': True})
 
 
 @app.route('/api/chain/<rid>/defer_mel', methods=['POST'])
