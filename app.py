@@ -16,6 +16,7 @@
 
 import os
 import re
+import hmac
 import math
 import time
 import json
@@ -29,6 +30,9 @@ import shutil
 import threading
 import networkx as nx
 from flask_cors import CORS
+from werkzeug.security import (
+    generate_password_hash, check_password_hash
+)
 from flask import (
     Flask, request, jsonify, session,
     render_template, redirect, url_for,
@@ -56,6 +60,41 @@ STATIC_DIR = os.path.join(BASE_DIR, 'static')
 REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
+
+# ------------------------------------------------------------
+# Пароли
+# ------------------------------------------------------------
+# В базе хранятся только хэши (scrypt). Старые записи, где пароль лежит
+# открытым текстом, принимаются один раз и при успешном входе переписываются
+# хэшем — так база переезжает на хэши без отдельной миграции.
+
+def hash_password(password):
+    return generate_password_hash(password)
+
+
+def is_password_hash(value):
+    """Формат werkzeug: '<метод>$<соль>$<хэш>'."""
+    if not isinstance(value, str):
+        return False
+    method, sep, _ = value.partition('$')
+    return bool(sep) and method.split(':')[0] in ('scrypt', 'pbkdf2')
+
+
+def verify_password(stored, password):
+    """Сверяет пароль с тем, что лежит в базе.
+
+    Возвращает (совпал, нужен_перехэш). Второй флаг True только для старых
+    записей с открытым паролем — вызывающий код заменяет их хэшем.
+    """
+    if not stored:
+        return False, False
+    if is_password_hash(stored):
+        try:
+            return check_password_hash(stored, password), False
+        except ValueError:
+            return False, False
+    return hmac.compare_digest(stored, password), True
+
 
 def _find_ffmpeg_below(root, max_depth=3):
     """Ищет bin/ffmpeg.exe в подкаталогах портативной сборки."""
@@ -511,19 +550,23 @@ def seed_initial_data(conn):
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users WHERE role='admin'")
     if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('admin_1','admin@aeroflot.ru','admin123','Администратор','admin','👨‍💼','online')")
+        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('admin_1','admin@aeroflot.ru',?,'Администратор','admin','👨‍💼','online')",
+                    (hash_password('admin123'),))
 
     cur.execute("SELECT COUNT(*) FROM users WHERE role='dispatcher'")
     if cur.fetchone()[0] == 0:
+        # демо-пароль у всех диспетчеров один, поэтому хэш считается один раз
+        disp_hash = hash_password('disp123')
         cur.executemany("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                            VALUES (?,?,?,?,'dispatcher','👨‍✈️',?,?,'online')""", [
-            ('disp_1','dispatcher@aeroflot.ru','disp123','Петров П.П.','+7 (999) 200-10-01','day'),
-            ('disp_2','dispatcher2@aeroflot.ru','disp123','Козлов К.К.','+7 (999) 200-10-02','night'),
+            ('disp_1','dispatcher@aeroflot.ru',disp_hash,'Петров П.П.','+7 (999) 200-10-01','day'),
+            ('disp_2','dispatcher2@aeroflot.ru',disp_hash,'Козлов К.К.','+7 (999) 200-10-02','night'),
         ])
 
     cur.execute("SELECT COUNT(*) FROM users WHERE role='mcc'")
     if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('mcc_1','mcc@aeroflot.ru','mcc123','Смирнов А.В.','mcc','👨‍💻','online')")
+        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) VALUES ('mcc_1','mcc@aeroflot.ru',?,'Смирнов А.В.','mcc','👨‍💻','online')",
+                    (hash_password('mcc123'),))
 
     cur.execute("SELECT COUNT(*) FROM engineers")
     if cur.fetchone()[0] == 0:
@@ -546,8 +589,10 @@ def seed_initial_data(conn):
             ('eng_12','Белов Б.Б.','EN-012','general',55.979,37.414,'+7 (999) 300-10-12'),
             ('eng_16','Егоров Е.Е.','EN-016','general',55.971,37.415,'+7 (999) 300-10-16'),
         ])
+        eng_hash = hash_password('eng123')
         cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'eng123',?,'engineer','🔧','offline')""", [
+                           VALUES (?,?,?,?,'engineer','🔧','offline')""",
+                        [(i, e, eng_hash, n) for i, e, n in [
             ('eng_1','ivanov@aeroflot.ru','Иванов И.И.'),
             ('eng_2','sidorov@aeroflot.ru','Сидоров С.С.'),
             ('eng_3','kuznetsov@aeroflot.ru','Кузнецов К.К.'),
@@ -564,7 +609,7 @@ def seed_initial_data(conn):
             ('eng_14','sokolov@aeroflot.ru','Соколов С.С.'),
             ('eng_15','fomin@aeroflot.ru','Фомин Ф.Ф.'),
             ('eng_16','egorov@aeroflot.ru','Егоров Е.Е.'),
-        ])
+        ]])
 
     cur.execute("SELECT COUNT(*) FROM pilots")
     if cur.fetchone()[0] == 0:
@@ -576,14 +621,16 @@ def seed_initial_data(conn):
             ('pilot_4','Кузнецов К.К.','kuznetsov@aeroflot.ru','+7 (999) 100-10-04','SU-1237','КВС'),
             ('pilot_5','Смирнов С.С.','smirnov@aeroflot.ru','+7 (999) 100-10-05','SU-1238','Пилот'),
         ])
+        pilot_hash = hash_password('pilot123')
         cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""", [
+                           VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
+                        [(i, e, pilot_hash, n) for i, e, n in [
             ('pilot_1','pilot1@aeroflot.ru','Иванов И.И.'),
             ('pilot_2','pilot2@aeroflot.ru','Петров П.П.'),
             ('pilot_3','pilot3@aeroflot.ru','Сидоров С.С.'),
             ('pilot_4','pilot4@aeroflot.ru','Кузнецов К.К.'),
             ('pilot_5','pilot5@aeroflot.ru','Смирнов С.С.'),
-        ])
+        ]])
 
     cur.execute("SELECT COUNT(*) FROM transport")
     if cur.fetchone()[0] == 0:
@@ -598,28 +645,37 @@ def seed_initial_data(conn):
 
     cur.execute("SELECT COUNT(*) FROM staff")
     if cur.fetchone()[0] == 0:
+        shift_hash = hash_password('shift123')
+        foreman_hash = hash_password('foreman123')
         cur.executemany("""INSERT INTO staff (id,name,role,shift,status,email,password)
                            VALUES (?,?,?,?,'online',?,?)""", [
-            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day', 'shift@aeroflot.ru', 'shift123'),
-            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night', 'shift2@aeroflot.ru', 'shift123'),
-            ('fr_1', 'Ершов Е.В.', 'foreman', 'day', 'foreman@aeroflot.ru', 'foreman123'),
-            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day', 'foreman2@aeroflot.ru', 'foreman123'),
-            ('fr_3', 'Зимин З.П.', 'foreman', 'night', 'foreman3@aeroflot.ru', 'foreman123'),
+            ('sup_1', 'Громов А.С.', 'shift_supervisor', 'day', 'shift@aeroflot.ru', shift_hash),
+            ('sup_2', 'Данилов Д.Д.', 'shift_supervisor', 'night', 'shift2@aeroflot.ru', shift_hash),
+            ('fr_1', 'Ершов Е.В.', 'foreman', 'day', 'foreman@aeroflot.ru', foreman_hash),
+            ('fr_2', 'Жуков Ж.Ж.', 'foreman', 'day', 'foreman2@aeroflot.ru', foreman_hash),
+            ('fr_3', 'Зимин З.П.', 'foreman', 'night', 'foreman3@aeroflot.ru', foreman_hash),
         ])
     else:
         # вход для уже созданных записей справочника
-        cur.executemany("UPDATE staff SET email=?, password=? WHERE id=? AND (email='' OR email IS NULL)", [
-            ('shift@aeroflot.ru', 'shift123', 'sup_1'),
-            ('shift2@aeroflot.ru', 'shift123', 'sup_2'),
-            ('foreman@aeroflot.ru', 'foreman123', 'fr_1'),
-            ('foreman2@aeroflot.ru', 'foreman123', 'fr_2'),
-            ('foreman3@aeroflot.ru', 'foreman123', 'fr_3'),
-        ])
+        cur.execute("SELECT id FROM staff WHERE email='' OR email IS NULL")
+        missing = {r['id'] for r in cur.fetchall()}
+        credentials = {
+            'sup_1': ('shift@aeroflot.ru', 'shift123'),
+            'sup_2': ('shift2@aeroflot.ru', 'shift123'),
+            'fr_1': ('foreman@aeroflot.ru', 'foreman123'),
+            'fr_2': ('foreman2@aeroflot.ru', 'foreman123'),
+            'fr_3': ('foreman3@aeroflot.ru', 'foreman123'),
+        }
+        cur.executemany("UPDATE staff SET email=?, password=? WHERE id=?",
+                        [(email, hash_password(pwd), sid)
+                         for sid, (email, pwd) in credentials.items() if sid in missing])
 
     # оператор ЦПУ — отдельный профиль для первого шага цепочки
-    cur.execute("""INSERT OR IGNORE INTO staff (id,name,role,shift,status,email,password)
-                   VALUES ('cpu_1','Орлов В.Н.','cpu','day','online',
-                           'cpu@aeroflot.ru','cpu123')""")
+    cur.execute("SELECT id FROM staff WHERE id='cpu_1'")
+    if not cur.fetchone():
+        cur.execute("""INSERT INTO staff (id,name,role,shift,status,email,password)
+                       VALUES ('cpu_1','Орлов В.Н.','cpu','day','online',
+                               'cpu@aeroflot.ru',?)""", (hash_password('cpu123'),))
     conn.commit()
 
 
@@ -999,15 +1055,43 @@ def auth_login():
         return jsonify({'error': 'Заполните все поля'}), 400
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,email,name,role,avatar FROM users WHERE email=? AND password=?",
-                (email, password))
+    cur.execute("SELECT id,email,name,role,avatar,password FROM users WHERE email=?",
+                (email,))
     u = cur.fetchone()
-    if not u:
-        # начальник смены и бригадир входят из справочника staff
-        cur.execute("""SELECT id,email,name,role,shift FROM staff
-                       WHERE LOWER(email)=? AND password=?""", (email, password))
-        s = cur.fetchone()
-        if s:
+    if u:
+        ok, needs_rehash = verify_password(u['password'], password)
+        if ok:
+            if needs_rehash:
+                # старый пароль лежал открытым текстом — сразу переводим на хэш
+                cur.execute("UPDATE users SET password=? WHERE id=?",
+                            (hash_password(password), u['id']))
+            cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
+            conn.commit()
+            extra = {}
+            if u['role'] == 'pilot':
+                cur.execute("SELECT aircraft, rank FROM pilots WHERE id=?", (u['id'],))
+                p = cur.fetchone()
+                if p:
+                    extra['aircraft'] = p['aircraft'] or ''
+                    extra['rank'] = p['rank'] or 'pilot'
+            conn.close()
+            res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
+                   'role': u['role'], 'avatar': u['avatar'] or '👤'}
+            res.update(extra)
+            session.permanent = True
+            session['user'] = res
+            return jsonify({'success': True, 'user': res})
+
+    # начальник смены и бригадир входят из справочника staff
+    cur.execute("""SELECT id,email,name,role,shift,password FROM staff
+                   WHERE LOWER(email)=?""", (email,))
+    s = cur.fetchone()
+    if s:
+        ok, needs_rehash = verify_password(s['password'], password)
+        if ok:
+            if needs_rehash:
+                cur.execute("UPDATE staff SET password=? WHERE id=?",
+                            (hash_password(password), s['id']))
             cur.execute("UPDATE staff SET status='online' WHERE id=?", (s['id'],))
             conn.commit(); conn.close()
             session['user'] = {
@@ -1019,24 +1103,8 @@ def auth_login():
                 'avatar': {'shift_supervisor': '👷', 'foreman': '🧰',
                            'cpu': '🗂'}.get(s['role'], '👤'),
             }})
-        conn.close()
-        return jsonify({'error': 'Неверный email или пароль'}), 401
-    cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
-    conn.commit()
-    extra = {}
-    if u['role'] == 'pilot':
-        cur.execute("SELECT aircraft, rank FROM pilots WHERE id=?", (u['id'],))
-        p = cur.fetchone()
-        if p:
-            extra['aircraft'] = p['aircraft'] or ''
-            extra['rank'] = p['rank'] or 'pilot'
     conn.close()
-    res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
-           'role': u['role'], 'avatar': u['avatar'] or '👤'}
-    res.update(extra)
-    session.permanent = True
-    session['user'] = res
-    return jsonify({'success': True, 'user': res})
+    return jsonify({'error': 'Неверный email или пароль'}), 401
 
 
 # ============================================================
@@ -1069,10 +1137,10 @@ def create_user():
     uid = role + '_' + str(int(time.time() * 1000))
     avatar = {'dispatcher': '👨‍✈️', 'mcc': '👨‍💻'}.get(role, '👤')
     default_pwd = {'dispatcher': 'disp123', 'mcc': 'mcc123'}.get(role, 'user123')
-    password = data.get('password') or default_pwd
+    password = (data.get('password') or '').strip() or default_pwd
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                    VALUES (?,?,?,?,?,?,?,?,'offline')""",
-                (uid, email, password, name, role, avatar,
+                (uid, email, hash_password(password), name, role, avatar,
                  data.get('phone', ''), data.get('shift', 'day')))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': uid})
@@ -1086,8 +1154,10 @@ def update_user(user_id):
     u = cur.fetchone()
     if not u:
         conn.close(); return jsonify({'error': 'Не найден'}), 404
-    if data.get('password'):
-        cur.execute("UPDATE users SET password=? WHERE id=?", (data.get('password'), user_id))
+    new_password = (data.get('password') or '').strip()
+    if new_password:
+        cur.execute("UPDATE users SET password=? WHERE id=?",
+                    (hash_password(new_password), user_id))
     cur.execute("""UPDATE users SET name=?, phone=?, shift=?, status=? WHERE id=?""",
                 (data.get('name'), data.get('phone', ''), data.get('shift', 'day'),
                  data.get('status', 'offline'), user_id))
@@ -1622,8 +1692,8 @@ def create_engineer():
                 (eid, name, dev, data.get('specialization','general'),
                  lat, lng, data.get('status','free'), data.get('phone','')))
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'eng123',?,'engineer','🔧','offline')""",
-                (eid, email, name))
+                   VALUES (?,?,?,?,'engineer','🔧','offline')""",
+                (eid, email, hash_password('eng123'), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': eid, 'device_id': dev, 'number': num})
 
@@ -1696,8 +1766,8 @@ def create_pilot():
                 (pid, name, email, data.get('phone',''), data.get('aircraft',''),
                  data.get('rank','pilot'), data.get('status','active')))
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""",
-                (pid, email, name))
+                   VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
+                (pid, email, hash_password('pilot123'), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': pid})
 
@@ -2658,10 +2728,12 @@ def _chain_take(conn, rid, expected_stage):
 def get_staff():
     role = request.args.get('role', '')
     conn = get_db(); cur = conn.cursor()
+    # пароли в справочник не отдаём — даже в виде хэшей
+    columns = "id,name,role,shift,status,email"
     if role:
-        cur.execute("SELECT * FROM staff WHERE role=? ORDER BY name", (role,))
+        cur.execute(f"SELECT {columns} FROM staff WHERE role=? ORDER BY name", (role,))
     else:
-        cur.execute("SELECT * FROM staff ORDER BY role, name")
+        cur.execute(f"SELECT {columns} FROM staff ORDER BY role, name")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
