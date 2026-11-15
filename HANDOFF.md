@@ -1,0 +1,80 @@
+# Передача работы — InTrAvia (ветка `SlavasTest`)
+
+Документ для продолжения в новой сессии. Актуален на 15.11.2026.
+
+## Где что лежит
+
+- Репозиторий: `C:\Users\Вячеслав\PycharmProjects\Dorabotka_InTrAvia`
+- Ветка: `SlavasTest` (запушена в `origin`, upstream настроен)
+- Окружение: `.venv` (Python 3.13), ставится `pip install -r requirements-dev.txt`
+- Запуск: `.venv\Scripts\python.exe app.py` → http://127.0.0.1:5000/login.html
+- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (53 проходят)
+
+## Важное про состояние репозитория
+
+**`main` в GitHub сломан**: в коммите `a142c68` закоммичены неразрешённые
+конфликт-маркеры (71 в `app.py`, 20 в dispatcher, 30 в mcc, 6 в pilot).
+Из `main` приложение не запускается. В `SlavasTest` конфликты разрешены
+в пользу новой стороны — эта ветка рабочая. Команде об этом стоит сообщить.
+
+При пуле из `main` использовать `git fetch --unshallow`, если клон был shallow:
+иначе git путает базу слияния и выдаёт перевёрнутые конфликты.
+
+## Учётные записи (демо)
+
+| Роль | Логин | Пароль | Дашборд |
+|---|---|---|---|
+| admin | admin@aeroflot.ru | admin123 | /admin/dashboard.html |
+| dispatcher | dispatcher@aeroflot.ru | disp123 | /dispatcher/dashboard.html |
+| mcc | mcc@aeroflot.ru | mcc123 | /mcc/dashboard.html |
+| cpu | cpu@aeroflot.ru | cpu123 | /cpu/dashboard.html |
+| shift_supervisor | shift@aeroflot.ru | shift123 | /shift/dashboard.html |
+| foreman | foreman@aeroflot.ru | foreman123 | /foreman/dashboard.html |
+| pilot | pilot1@aeroflot.ru | pilot123 | /pilot/dashboard.html |
+| engineer | kuznetsov@aeroflot.ru | eng123 | /engineer/dashboard.html |
+
+## Что уже сделано
+
+- Сквозная цепочка **MCC → ЦПУ → нач. смены → бригадир → техник → MCC**,
+  хранение в БД: `requests.chain_stage`, журнал `chain_log`, справочник `staff`.
+- У каждого звена свой профиль и дашборд (`templates/supervisor/dashboard.html`).
+- Вердикт техника из интерфейса инженера (REPAIR / AOG / MEL), освобождение
+  инженера после вердикта.
+- ATLB пилота и подпись CRS на сервере (`/api/pilot/atlb`, `.../sign_crs`).
+- Отчёты диспетчера на сервере (`reports`, `/api/reports`).
+- Выгрузка в Excel: `/api/export/xlsx` (листы «Цепочка» и «Журнал»).
+- Серверная авторизация: cookie-сессия, все `/api/*` и страницы закрыты,
+  `CORS` не открыт наружу, debug выключен, bind на `127.0.0.1`.
+- 53 автотеста в `tests/`.
+
+## Что осталось до реальной эксплуатации
+
+1. **Хэширование паролей** (`werkzeug.security`), миграция существующих при
+   входе, смена демо-паролей. Затрагивает `auth_login`, `create_user`,
+   `seed_initial_data`, `staff`.
+2. **Роли на маршрутах** — нужен декоратор `@roles(...)`: сейчас любой
+   вошедший может вызвать `assign_technician` или `mcc/finalize`.
+3. **Ограничение выдачи** — `GET /api/chain` отдаёт все заявки всем ролям.
+4. **HTTPS + продакшн-сервер** (`waitress` на Windows), cookie сейчас уходит
+   открытым текстом.
+5. Резервные копии `database.db`, вынос файла базы из папки проекта
+   (путь настраивается через `INTRAVIA_DB`).
+
+## Хвосты, не связанные с безопасностью
+
+- **Проверить в браузере отчёты диспетчера** после перевода на `/api/reports`
+  (тесты покрывают только сервер).
+- **Голосовой ввод ни разу не запускался**: ffmpeg установлен и находится,
+  но модель Whisper (`small`, ~460 МБ) не скачана. Перед финалом прогнать
+  с реальным микрофоном; на площадке модели может не быть — прогреть кэш.
+- В `localStorage` остались зеркала: `dispatcherState_v19`,
+  `dispatcherPilotRequests_v4`, `pilotRecords_v4`, `taskHistory`.
+  На данные не влияют, но это дубли — можно вычищать постепенно.
+
+## Полезные мелочи
+
+- Переменные окружения: `INTRAVIA_SECRET`, `INTRAVIA_DB`, `INTRAVIA_HOST`,
+  `INTRAVIA_PORT`, `INTRAVIA_DEBUG=1`, `INTRAVIA_FFMPEG`, `WHISPER_MODEL`.
+- В `app.py` есть блоки, помеченные `[AI]` / `[MAN]` / `[MIX]` — так команда
+  отмечала, что писал ассистент, а что человек. Ориентируйтесь на `[MAN]`.
+- `database.db` вне git (`.gitignore`), создаётся и наполняется при старте.
