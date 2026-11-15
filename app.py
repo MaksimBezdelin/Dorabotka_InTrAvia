@@ -2051,10 +2051,10 @@ def delete_transport(tid):
 # Requests
 # ============================================================
 @app.route('/api/requests', methods=['GET'])
-@roles('dispatcher', 'engineer', 'pilot')
+@roles('dispatcher', 'engineer')
 def get_requests():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""SELECT id, aircraft, fault_type, severity, terminal, parking_id,
+    user = session.get('user') or {}
+    sql = """SELECT id, aircraft, fault_type, severity, terminal, parking_id,
         description, source, engineer_id, engineer_name,
         travel_time, using_car, walk_to_car, car_time, best_car,
         status, criticality, engineer_comment, created_at,
@@ -2065,7 +2065,16 @@ def get_requests():
         delay_approved_by, flight_cancelled, flight_cancel_reason,
         flight_cancelled_at, all_rejected, mcc_status, mcc_decision, mcc_comment,
         engineer_verdict, engineer_verdict_at, aog_action, inspection_assigned_at
-        FROM requests ORDER BY created_at DESC""")
+        FROM requests"""
+    params = []
+    # инженеру — только его заявки; диспетчер и admin видят все
+    if user.get('role') == 'engineer':
+        sql += " WHERE engineer_id = ?"
+        params.append(user.get('id') or '')
+    sql += " ORDER BY created_at DESC"
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(sql, params)
     res = [dict(r) for r in cur.fetchall()]; conn.close()
     return jsonify(res)
 
@@ -3142,19 +3151,28 @@ def _pilot_atlb_entry(row, history):
 @app.route('/api/pilot/atlb', methods=['GET'])
 @roles('pilot')
 def get_pilot_atlb():
-    pilot = (request.args.get('pilot') or '').strip()
+    user = session.get('user') or {}
+    where = ["source='pilot'", "COALESCE(flight_cancelled, 0) = 0",
+             "status NOT IN ('cancelled', 'draft')"]
+    params = []
+
     conn = get_db(); cur = conn.cursor()
-    if pilot:
-        cur.execute("""SELECT * FROM requests
-                       WHERE source='pilot' AND pilot_name=?
-                         AND COALESCE(flight_cancelled, 0) = 0
-                         AND status NOT IN ('cancelled', 'draft')
-                       ORDER BY created_at DESC""", (pilot,))
+    if user.get('role') == 'pilot':
+        # пилот видит только свой журнал; имя берём из базы, а не из запроса:
+        # его можно сменить в профиле, а ?pilot= подделать
+        cur.execute("SELECT name FROM users WHERE id=?", (user.get('id'),))
+        row = cur.fetchone()
+        pilot_name = (row['name'] if row else user.get('name')) or ''
+        where.append('pilot_name = ?')
+        params.append(pilot_name)
     else:
-        cur.execute("""SELECT * FROM requests
-                       WHERE source='pilot' AND COALESCE(flight_cancelled, 0) = 0
-                         AND status NOT IN ('cancelled', 'draft')
-                       ORDER BY created_at DESC""")
+        pilot = (request.args.get('pilot') or '').strip()
+        if pilot:
+            where.append('pilot_name = ?')
+            params.append(pilot)
+
+    cur.execute("SELECT * FROM requests WHERE " + " AND ".join(where) +
+                " ORDER BY created_at DESC", params)
     rows = [dict(r) for r in cur.fetchall()]
 
     hist = {}

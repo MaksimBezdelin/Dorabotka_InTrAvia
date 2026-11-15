@@ -44,6 +44,7 @@ def login(app_module):
     ('GET', '/api/users'),
     ('GET', '/api/chain'),
     ('GET', '/api/staff'),
+    ('GET', '/api/requests'),
 ])
 def test_pilot_cannot_use_other_roles(login, method, path):
     resp = login('pilot').open(path, method=method, json={})
@@ -101,7 +102,6 @@ def test_allowed_calls_pass_role_check(login):
     assert login('dispatcher').get('/api/transport').status_code == 200
     assert login('engineer').get('/api/engineers').status_code == 200
     assert login('pilot').get('/api/pilot/atlb').status_code == 200
-    assert login('pilot').get('/api/requests').status_code == 200
     assert login('mcc').get('/api/chain').status_code == 200
     assert login('mcc').get('/api/staff').status_code == 200
     assert login('cpu').get('/api/chain').status_code == 200
