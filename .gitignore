@@ -1,0 +1,37 @@
+# --- Python / окружение ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Базы данных ---
+# database.db содержит персональные данные и пароли в открытом виде
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# --- Node / мобильная сборка ---
+node_modules/
+mobile/android/app/build/
+mobile/android/build/
+mobile/dist/
+*.apk
+*.aab
+
+# --- Аудио и модели Whisper ---
+*.wav
+*.mp3
+*.m4a
+*.pt
+
+# --- Прочее ---
+.env
+Thumbs.db
+Desktop.ini
+.DS_Store

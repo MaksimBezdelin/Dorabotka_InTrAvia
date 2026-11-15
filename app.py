@@ -36,16 +36,50 @@ REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
 
-FFMPEG_PATH = r'C:\Users\deela\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe'
+def _resolve_ffmpeg():
+    """Ищет ffmpeg без хардкода пути под конкретную машину.
 
-if os.path.exists(FFMPEG_PATH):
+    Порядок: переменная окружения INTRAVIA_FFMPEG → PATH → winget → Program Files → ./bin.
+    """
+    candidates = []
+    env_path = os.environ.get('INTRAVIA_FFMPEG')
+    if env_path:
+        candidates.append(env_path)
+
+    on_path = shutil.which('ffmpeg')
+    if on_path:
+        candidates.append(on_path)
+
+    local_appdata = os.environ.get('LOCALAPPDATA')
+    if local_appdata:
+        candidates.append(os.path.join(
+            local_appdata, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'))
+
+    for var in ('ProgramFiles', 'ProgramFiles(x86)'):
+        root = os.environ.get(var)
+        if root:
+            candidates.append(os.path.join(root, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+
+    candidates.append(os.path.join(BASE_DIR, 'bin', 'ffmpeg.exe'))
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+FFMPEG_PATH = _resolve_ffmpeg()
+
+if FFMPEG_PATH:
     ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
     current_path = os.environ.get('PATH', '')
     if ffmpeg_dir not in current_path.split(os.pathsep):
         os.environ['PATH'] = ffmpeg_dir + os.pathsep + current_path
         print(f'[FFMPEG] Добавлено в PATH: {ffmpeg_dir}')
 else:
-    print(f'[FFMPEG] ВНИМАНИЕ: {FFMPEG_PATH} не найден!')
+    print('[FFMPEG] ВНИМАНИЕ: ffmpeg не найден — расшифровка голосовых заявок работать не будет.')
+    print('[FFMPEG] Установите: winget install Gyan.FFmpeg')
+    print('[FFMPEG] Либо задайте путь в переменной окружения INTRAVIA_FFMPEG.')
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.secret_key = 'intravia-secret-key-change-in-production'
@@ -2199,7 +2233,7 @@ def get_whisper():
 
 
 def _convert_to_wav(input_path):
-    ffmpeg_bin = FFMPEG_PATH if os.path.exists(FFMPEG_PATH) else shutil.which('ffmpeg')
+    ffmpeg_bin = FFMPEG_PATH or _resolve_ffmpeg()
     if not ffmpeg_bin:
         return None
     out_path = input_path + '.wav'
