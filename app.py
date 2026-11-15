@@ -36,6 +36,18 @@ REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
 
+def _find_ffmpeg_below(root, max_depth=3):
+    """Ищет bin/ffmpeg.exe в подкаталогах портативной сборки."""
+    base_depth = root.rstrip(os.sep).count(os.sep)
+    for current, dirs, files in os.walk(root):
+        if current.count(os.sep) - base_depth >= max_depth:
+            dirs[:] = []
+            continue
+        if 'ffmpeg.exe' in files:
+            return os.path.join(current, 'ffmpeg.exe')
+    return None
+
+
 def _resolve_ffmpeg():
     """Ищет ffmpeg без хардкода пути под конкретную машину.
 
@@ -54,6 +66,16 @@ def _resolve_ffmpeg():
     if local_appdata:
         candidates.append(os.path.join(
             local_appdata, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'))
+
+        # Портативная сборка из winget: ссылка в Links создаётся не всегда,
+        # поэтому доискиваем exe внутри Packages\Gyan.FFmpeg_*
+        packages = os.path.join(local_appdata, 'Microsoft', 'WinGet', 'Packages')
+        if os.path.isdir(packages):
+            for entry in sorted(os.listdir(packages)):
+                if 'ffmpeg' in entry.lower():
+                    found = _find_ffmpeg_below(os.path.join(packages, entry))
+                    if found:
+                        candidates.append(found)
 
     for var in ('ProgramFiles', 'ProgramFiles(x86)'):
         root = os.environ.get(var)
