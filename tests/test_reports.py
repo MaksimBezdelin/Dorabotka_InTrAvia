@@ -1,5 +1,24 @@
 """Отчёты диспетчера хранятся на сервере, а не в браузере."""
 
+import sqlite3
+
+
+def test_old_reports_table_gets_payload_column(app_module, tmp_path):
+    """База прошлой версии: без payload POST /api/reports падал с 500."""
+    db = tmp_path / 'old.db'
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    conn.execute("""CREATE TABLE reports (
+        id TEXT PRIMARY KEY, request_id TEXT, aircraft TEXT, engineer_name TEXT,
+        text TEXT, source TEXT DEFAULT 'dispatcher', deleted INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    conn.commit()
+
+    app_module.ensure_schema(conn)
+    cols = {r['name'] for r in conn.execute('PRAGMA table_info(reports)')}
+    conn.close()
+    assert 'payload' in cols
+
 
 def test_create_and_list_report(api):
     status, body = api.post('/api/reports', {

@@ -619,6 +619,12 @@ def ensure_schema(conn):
         id TEXT PRIMARY KEY, request_id TEXT, aircraft TEXT, engineer_name TEXT,
         text TEXT, source TEXT DEFAULT 'dispatcher', deleted INTEGER DEFAULT 0,
         payload TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    # в базах прошлых версий payload не было, а POST /api/reports его пишет
+    cur.execute("PRAGMA table_info(reports)")
+    report_cols = {r['name'] for r in cur.fetchall()}
+    if 'payload' not in report_cols:
+        cur.execute("ALTER TABLE reports ADD COLUMN payload TEXT DEFAULT ''")
+        print('[MIGRATION] + reports.payload')
 
     cur.execute("""CREATE TABLE IF NOT EXISTS chain_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
