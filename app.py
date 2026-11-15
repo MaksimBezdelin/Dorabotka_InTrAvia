@@ -636,6 +636,10 @@ def ensure_schema(conn):
 
 
 def seed_initial_data(conn):
+    # Для боевой базы демо-учётки не нужны: INTRAVIA_DEMO_SEED=0.
+    # Первого администратора тогда создаёт `manage.py create-admin`.
+    if os.environ.get('INTRAVIA_DEMO_SEED', '1').lower() in ('0', 'false', 'off', 'no'):
+        return
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users WHERE role='admin'")
     if cur.fetchone()[0] == 0:
@@ -766,6 +770,8 @@ def seed_initial_data(conn):
                        VALUES ('cpu_1','Орлов В.Н.','cpu','day','online',
                                'cpu@aeroflot.ru',?)""", (hash_password('cpu123'),))
     conn.commit()
+    print('[SECURITY] Демо-учётные записи включены. Пароль меняется так:')
+    print('           python manage.py passwd <email>')
 
 
 DEVICE_ID_RE = re.compile(r'^EN-(\d{3})$')
@@ -1902,9 +1908,10 @@ def create_engineer():
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (eid, name, dev, data.get('specialization','general'),
                  lat, lng, data.get('status','free'), data.get('phone','')))
+    password = (data.get('password') or '').strip() or 'eng123'
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
                    VALUES (?,?,?,?,'engineer','🔧','offline')""",
-                (eid, email, hash_password('eng123'), name))
+                (eid, email, hash_password(password), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': eid, 'device_id': dev, 'number': num})
 
@@ -1988,9 +1995,10 @@ def create_pilot():
                    VALUES (?,?,?,?,?,?,?)""",
                 (pid, name, email, data.get('phone',''), data.get('aircraft',''),
                  data.get('rank','pilot'), data.get('status','active')))
+    password = (data.get('password') or '').strip() or 'pilot123'
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
                    VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
-                (pid, email, hash_password('pilot123'), name))
+                (pid, email, hash_password(password), name))
     conn.commit(); conn.close()
     return jsonify({'success': True, 'id': pid})
 

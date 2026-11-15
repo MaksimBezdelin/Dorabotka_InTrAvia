@@ -1,6 +1,7 @@
 """Общая настройка тестов: отдельная временная база, тестовый клиент Flask."""
 import os
 import sys
+import tempfile
 
 import pytest
 
@@ -8,13 +9,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+# Подменяем базу ДО того, как тестовые модули импортируют app/manage.
+# Иначе модуль, импортировавший app на этапе сбора тестов, зацепит боевую базу.
+SESSION_DB_PATH = os.path.join(
+    tempfile.mkdtemp(prefix='intravia-tests-'), 'test.db')
+os.environ['INTRAVIA_DB'] = SESSION_DB_PATH
+
 
 @pytest.fixture(scope='session')
-def app_module(tmp_path_factory):
-    db_path = tmp_path_factory.mktemp('db') / 'test.db'
-    os.environ['INTRAVIA_DB'] = str(db_path)
-
+def app_module():
     import app as module
+
+    assert module.DB_PATH == SESSION_DB_PATH, 'тесты используют не тестовую базу'
     module.app.config['TESTING'] = True
     module.init_db()
     return module

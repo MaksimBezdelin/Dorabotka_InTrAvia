@@ -50,6 +50,28 @@ set INTRAVIA_SECRET=<длинная случайная строка>
 
 Открыть http://127.0.0.1:8080/login.html (порт меняется `INTRAVIA_PORT`).
 
+### Учётные записи для эксплуатации
+
+Демо-учётки нужны только для показа. Для боевой базы:
+
+```bat
+set INTRAVIA_DEMO_SEED=0
+.venv\Scripts\python.exe manage.py create-admin admin@example.com
+```
+
+Пароль спросят интерактивно (в историю команд он не попадает). Дальше:
+
+```bat
+python manage.py list              :: кто заведён
+python manage.py passwd <email>    :: сменить пароль
+python manage.py check-defaults    :: кто ещё на демо-пароле
+```
+
+`check-defaults` возвращает код 1, если такие учётки есть — удобно для проверки
+перед показом. Новым инженерам и пилотам пароль можно передать в теле
+`POST /api/engineers` / `POST /api/pilots` полем `password`; иначе ставится
+`eng123` / `pilot123`.
+
 ### HTTPS
 
 Waitress не умеет TLS, поэтому `serve.py` с `INTRAVIA_HTTPS=1` поднимает

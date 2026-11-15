@@ -10,7 +10,7 @@
 - Разработка: `.venv\Scripts\python.exe app.py` → http://127.0.0.1:5000/login.html
 - Продакшн: `.venv\Scripts\python.exe serve.py` (waitress) → http://127.0.0.1:8080
 - HTTPS: `INTRAVIA_HTTPS=1` + сертификат (см. README, раздел «HTTPS»)
-- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (131 проходит)
+- Тесты: `.venv\Scripts\python.exe -m pytest tests -q` (137 проходит)
 
 ## Важное про состояние репозитория
 
@@ -77,14 +77,18 @@
   `%LOCALAPPDATA%\InTrAvia\database.db`; старая `database.db` из проекта
   переносится при первом запуске (копия, старый файл остаётся). Перед каждым
   стартом снимается копия в `backups/` (хранятся 14 последних).
-- 131 автотест в `tests/` (`test_passwords.py`, `test_roles.py`,
-  `test_backup.py`, `test_scoping.py`, `test_ownership.py`).
+- **Смена паролей и чистый старт**: `manage.py` (`list`, `passwd`,
+  `create-admin`, `check-defaults`); `INTRAVIA_DEMO_SEED=0` не создаёт демо-учётки.
+  Пароль инженера/пилота можно задать при создании через API.
+- 137 автотестов в `tests/` (`test_passwords.py`, `test_roles.py`,
+  `test_backup.py`, `test_scoping.py`, `test_ownership.py`, `test_manage.py`).
 
 ## Что осталось до реальной эксплуатации
 
-1. **Сменить демо-пароли.** Хэширование сделано, но учётные записи из таблицы
-   ниже по-прежнему создаются с известными паролями. Перед показом/эксплуатацией
-   сменить их через `PUT /api/users/<id>` или убрать сиды.
+1. **Перед показом/эксплуатацией** прогнать `python manage.py check-defaults`
+   и сменить демо-пароли (`passwd`), либо поднять чистую базу с
+   `INTRAVIA_DEMO_SEED=0` и `create-admin`. В текущей базе демо-пароли не
+   тронуты специально — они нужны для входа на демо.
 2. Боевой TLS: встроенный терминатор — для стенда. Для эксплуатации поставить
    Caddy/IIS/nginx с настоящим сертификатом и указать `INTRAVIA_TRUSTED_PROXY`.
 
@@ -106,6 +110,7 @@
   Для `serve.py`: `INTRAVIA_HTTPS=1`, `INTRAVIA_TLS_CERT`, `INTRAVIA_TLS_KEY`,
   `INTRAVIA_TRUSTED_PROXY`. База и бэкапы: `INTRAVIA_DATA_DIR`, `INTRAVIA_DB`,
   `INTRAVIA_BACKUP=0`, `INTRAVIA_BACKUP_DIR`, `INTRAVIA_BACKUP_KEEP`.
+  Учётные записи: `INTRAVIA_DEMO_SEED=0` (без демо-учёток).
 - База по умолчанию: `%LOCALAPPDATA%\InTrAvia\database.db`, бэкапы в
   `...\InTrAvia\backups`. Старая `database.db` в проекте больше не используется,
   но и не удалена — можно оставить как точку отката.
