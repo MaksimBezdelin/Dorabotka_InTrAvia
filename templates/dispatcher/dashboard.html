@@ -6,7 +6,7 @@
     <title>Диспетчер — InTrAvia Вектор</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -259,6 +259,47 @@
         .emp-status { font-size: 10px; padding: 1px 8px; border-radius: 4px; font-weight: 500; }
         .emp-status.free { background: #e6f4ea; color: #1a7a3a; }
         .emp-status.busy { background: #fce8e6; color: #b33a3a; }
+
+        /* AIRPORT MAP / SIMULATION */
+        .sim-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+        .sim-field {
+            display: flex; flex-direction: column; gap: 4px;
+            font-size: 11px; font-weight: 600; color: var(--aero-text-light);
+        }
+        .sim-field input {
+            width: 92px; padding: 7px 9px;
+            border: 1px solid var(--aero-gray-light); border-radius: 6px;
+            font-size: 13px; font-family: inherit; color: var(--aero-text);
+        }
+        .sim-field input:focus { outline: none; border-color: var(--aero-blue); }
+        .sim-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--aero-text); padding-bottom: 7px; }
+        .sim-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+        .sim-status { font-size: 11px; color: var(--aero-gray); font-weight: 500; margin-left: 4px; }
+        .airport-stand-marker { background: transparent; border: none; }
+        .airport-stand {
+            width: 22px; height: 22px; border-radius: 50%;
+            background: #1e40af; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 8px; font-weight: 700; line-height: 1;
+            border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+            cursor: pointer;
+        }
+        .sim-plane-marker { background: transparent; border: none; }
+        .sim-plane-wrap { position: relative; width: 28px; height: 28px; }
+        .sim-plane-icon {
+            width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+            color: #0f4c81; font-size: 17px;
+            filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+            transition: color 0.2s;
+        }
+        .sim-plane-marker.at-stand .sim-plane-icon { color: #15803d; }
+        .sim-plane-marker.aog .sim-plane-icon { color: #c62828; }
+        .sim-plane-label {
+            position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.85); color: #fff;
+            font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
+            padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+        }
 
         /* SECTIONS / CARDS */
         .section-content { display: none; flex-direction: column; gap: 16px; flex: 1; }
@@ -557,6 +598,12 @@
         .flight-status.completed { background: #dcfce7; color: var(--aero-green); }
         .flight-status.cancelled { background: var(--aero-gray-light); color: var(--aero-text-light); }
         .flight-status.new { background: #fef3c7; color: #b45309; }
+        .flight-status.aog { background: #fee2e2; color: #b91c1c; font-weight: 700; }
+        .flight-status.deferred { background: #ffedd5; color: #c2410c; }
+        .flight-status.inspection { background: #dbeafe; color: #1d4ed8; }
+        .flight-status.repair { background: #e0f2fe; color: #0369a1; }
+        .flights-table tr.row-aog { background: #fef2f2; }
+        .flights-table tr.row-deferred { background: #fff7ed; }
 
         .flight-delay-timer {
             display: inline-flex; align-items: center; gap: 4px;
@@ -971,6 +1018,43 @@
             <div class="map-hint">SVO · B, C, D, E, F · спецтранспорт</div>
         </div>
 
+        <div class="card sim-card">
+            <div class="card-header">
+                <h3><i class="fas fa-plane-departure" style="color:var(--aero-blue);"></i> Демо: движение самолётов</h3>
+                <span class="sim-status" id="simStatus">Загрузка схемы…</span>
+            </div>
+            <div class="sim-controls">
+                <label class="sim-field">Самолётов
+                    <input type="number" id="simCount" min="1" max="12" step="1" value="4">
+                </label>
+                <label class="sim-field">Скорость, км/ч
+                    <input type="number" id="simSpeed" min="5" max="80" step="5" value="25">
+                </label>
+                <label class="sim-field">Стоянка, с
+                    <input type="number" id="simDwell" min="2" max="120" step="1" value="12">
+                </label>
+                <label class="sim-field">Интервал выпуска, с
+                    <input type="number" id="simInterval" min="1" max="60" step="1" value="4">
+                </label>
+                <label class="sim-field">Ускорение, ×
+                    <input type="number" id="simScale" min="1" max="60" step="1" value="20">
+                </label>
+                <label class="sim-check"><input type="checkbox" id="simLayout" checked> Схема аэродрома</label>
+                <label class="sim-check"><input type="checkbox" id="simLabels" checked> Подписи бортов</label>
+            </div>
+            <div class="sim-actions">
+                <button type="button" class="btn btn-primary" id="simStartBtn">
+                    <i class="fas fa-play"></i> Старт
+                </button>
+                <button type="button" class="btn btn-secondary" id="simPauseBtn" disabled>
+                    <i class="fas fa-pause"></i> Пауза
+                </button>
+                <button type="button" class="btn btn-secondary" id="simResetBtn">
+                    <i class="fas fa-undo"></i> Сброс
+                </button>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header">
                 <h3>Новая заявка</h3>
@@ -1158,6 +1242,10 @@
                 <div class="stat-value" id="flightsAllRejected">0</div>
                 <div class="stat-label">Все отказались</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-value" id="flightsAOG" style="color:#b91c1c;">0</div>
+                <div class="stat-label">AOG — лететь нельзя</div>
+            </div>
         </div>
 
         <div class="flights-toolbar">
@@ -1170,6 +1258,9 @@
                 <option value="assigned">Назначен</option>
                 <option value="queued">В очереди / задержан</option>
                 <option value="all_rejected">Все отказались</option>
+                <option value="aog">AOG — лететь нельзя</option>
+                <option value="deferred">MEL — отложено</option>
+                <option value="inspection">Идёт осмотр</option>
                 <option value="completed">Выполнен</option>
                 <option value="cancelled">Отменён инженером</option>
             </select>
@@ -1416,7 +1507,8 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/js/airport-map.js?v=3"></script>
 <script>
 var API_URL = '/api';
 
@@ -2002,7 +2094,8 @@ function processRequestsData(data) {
             if (!t.pilot_audio_text && t.pilot_audio && !transcriptionAttempted[t.id] && !whisperDisabled) {
                 enqueueTranscription(t.id);
             }
-            continue;
+            // черновик пилота диспетчеру не показываем, пока пилот не подтвердил
+            if ((t.status || '') === 'draft') continue;
         }
 
         var isCancelled = (t.status === 'cancelled');
@@ -2041,6 +2134,11 @@ function processRequestsData(data) {
             engineerId: t.engineer_id || null,
             time: t.travel_time || 0,
             status: t.status || 'assigned',
+            mccStatus: t.mcc_status || '',
+            engineerVerdict: t.engineer_verdict || '',
+            chainStage: t.chain_stage || '',
+            aogSince: t.aog_since || null,
+            source: t.source || 'dispatcher',
             criticality: t.criticality || 'medium',
             comment: t.engineer_comment || '',
             isReplacement: !!t.replaces_request_id,
@@ -2077,7 +2175,7 @@ function processRequestsData(data) {
     state.flights = [];
     for (var i3 = 0; i3 < data.length; i3++) {
         var t3 = data[i3];
-        if (t3.source === 'pilot' || t3.pilot_audio) continue;
+        if (t3.status === 'draft') continue;
         if (t3.flight_cancelled) continue;
         var fd3 = CONFIG.FAULT_TYPES[t3.fault_type];
         var delayElapsed = 0;
@@ -2092,6 +2190,11 @@ function processRequestsData(data) {
             engineer: t3.engineer_name || '—',
             engineerId: t3.engineer_id || null,
             status: t3.status || 'assigned',
+            mccStatus: t3.mcc_status || '',
+            engineerVerdict: t3.engineer_verdict || '',
+            chainStage: t3.chain_stage || '',
+            aogSince: t3.aog_since || null,
+            source: t3.source || 'dispatcher',
             criticality: t3.criticality || 'medium',
             travelTime: t3.travel_time || 0,
             createdAt: t3.created_at || null,
@@ -2108,6 +2211,7 @@ function processRequestsData(data) {
     }
 
     state.pilotRequests = pilotReqs;
+    updateSimAircraftPool();
     savePilotRequestsToStorage();
     updatePilotBadge();
     updateCancelledBadge();
@@ -2260,13 +2364,16 @@ function initMap() {
     map = L.map('map', {
         center: [55.981349, 37.388359],
         zoom: 14,
+        minZoom: 13,
         zoomControl: true,
         attributionControl: false,
         preferCanvas: true
     });
     state.map = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    // Внешнюю подложку OSM не подключаем: на площадке интернет может быть
+    // закрыт, а схема аэродрома рисуется локальным GeoJSON в AirportSim.
+    map.getContainer().style.background = '#e9eef5';
 
     fetch('/static/roads.geojson')
         .then(function(res) { if (!res.ok) throw new Error('roads.geojson не найден'); return res.json(); })
@@ -2276,71 +2383,111 @@ function initMap() {
         })
         .catch(function(e) { console.warn('[GRAPH] roads.geojson не загружен:', e.message); });
 
-    fetch('/static/aircraft_paths.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson не найден'); return res.json(); })
-        .then(function(data) {
-            state.aircraftLayer = L.geoJSON(data);
-
-            var parkingOnly = {
-                type: 'FeatureCollection',
-                features: data.features.filter(function(f) {
-                    var p = f.properties || {};
-                    if (p.category !== 'parking') return false;
-                    var ref = String(p.ref || '').trim();
-                    var n = parseInt(ref, 10);
-                    if (isNaN(n)) return false;
-                    return (n >= 101 && n <= 146) || (n >= 11 && n <= 60);
-                })
-            };
-
-            state.parkingLayer = L.geoJSON(parkingOnly, {
-                pointToLayer: function(feature, latlng) {
-                    var p = feature.properties || {};
-                    var ref = p.ref || '';
-                    var marker = L.marker(latlng, {
-                        icon: L.divIcon({
-                            className: 'aircraft-parking-marker',
-                            html:
-                                '<div style="background:#1e40af;color:#fff;border-radius:50%;' +
-                                'width:20px;height:20px;display:flex;flex-direction:column;' +
-                                'align-items:center;justify-content:center;' +
-                                'font-size:7px;font-weight:700;line-height:1;' +
-                                'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
-                                    '<i class="fas fa-plane" style="font-size:8px;"></i>' +
-                                    (ref ? '<span style="font-size:6px;margin-top:1px;">' + ref + '</span>' : '') +
-                                '</div>',
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
-                        })
-                    });
-                    marker.on('click', function() {
-                        if (!ref) return;
-                        var parkingSel = document.getElementById('parkingSelect');
-                        if (!parkingSel) return;
-                        for (var i = 0; i < parkingSel.options.length; i++) {
-                            if (parkingSel.options[i].value === String(ref)) {
-                                parkingSel.selectedIndex = i;
-                                showToast('Выбрана стоянка ' + ref, 'info');
-                                break;
-                            }
-                        }
-                    });
-                    return marker;
-                },
-                onEachFeature: function(feature, layer) {
-                    var p = feature.properties || {};
-                    var html = '<strong>' + (p.name || p.ref || 'Стоянка') + '</strong>';
-                    if (p.ref)      html += '<br>Ref: ' + p.ref;
-                    if (p.aircraft) html += '<br>ВС: ' + p.aircraft;
-                    layer.bindPopup(html);
+    // Движок карты: схема аэродрома, стоянки и демо-движение ВС
+    if (window.AirportSim) {
+        window.AirportSim.init(map, {
+            pathsUrl: '/static/aircraft_paths.geojson',
+            stands: CONFIG.MAP_POINTS,
+            onStandClick: function(ref) {
+                var parkingSel = document.getElementById('parkingSelect');
+                if (!parkingSel) return;
+                for (var i = 0; i < parkingSel.options.length; i++) {
+                    if (parkingSel.options[i].value === String(ref)) {
+                        parkingSel.selectedIndex = i;
+                        showToast('Выбрана стоянка ' + ref, 'info');
+                        break;
+                    }
                 }
-            }).addTo(map);
-
-            console.log('[OSM] aircraft_paths.geojson загружен (стоянок: ' + parkingOnly.features.length + ')');
-        })
-        .catch(function(e) { console.warn('[OSM] aircraft_paths.geojson не загружен:', e.message); });
+            },
+            onStatus: function(text) {
+                var el = document.getElementById('simStatus');
+                if (el) el.textContent = text;
+            }
+        }).then(function() {
+            bindSimulationControls();
+            updateSimAircraftPool();
+        }).catch(function(err) {
+            console.warn('[AirportSim]', err);
+        });
+    } else {
+        console.warn('[AirportSim] airport-map.js не загружен');
+    }
 
     if (state.dataLoaded) renderMapMarkers();
+}
+
+/* ---------------- демо-симуляция ВС ---------------- */
+var simUiBound = false;
+
+function readSimParams() {
+    function num(id, def) {
+        var el = document.getElementById(id);
+        var v = el ? parseInt(el.value, 10) : NaN;
+        return isNaN(v) ? def : v;
+    }
+    var layout = document.getElementById('simLayout');
+    var labels = document.getElementById('simLabels');
+    return {
+        count: Math.max(1, Math.min(12, num('simCount', 4))),
+        speed: Math.max(5, Math.min(80, num('simSpeed', 25))),
+        dwell: Math.max(2, Math.min(120, num('simDwell', 12))),
+        interval: Math.max(1, Math.min(60, num('simInterval', 4))),
+        timeScale: Math.max(1, Math.min(60, num('simScale', 20))),
+        showLayout: layout ? layout.checked : true,
+        showLabels: labels ? labels.checked : true
+    };
+}
+
+function setSimRunningUi(running) {
+    var start = document.getElementById('simStartBtn');
+    var pause = document.getElementById('simPauseBtn');
+    if (start) start.disabled = !!running;
+    if (pause) pause.disabled = !running;
+}
+
+function bindSimulationControls() {
+    if (simUiBound || !window.AirportSim) return;
+    simUiBound = true;
+    ['simCount', 'simSpeed', 'simDwell', 'simInterval', 'simScale', 'simLayout', 'simLabels']
+        .forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('change', function() {
+                window.AirportSim.setParams(readSimParams());
+            });
+        });
+    var start = document.getElementById('simStartBtn');
+    var pause = document.getElementById('simPauseBtn');
+    var reset = document.getElementById('simResetBtn');
+    if (start) start.addEventListener('click', function() {
+        window.AirportSim.setParams(readSimParams());
+        window.AirportSim.start();
+        setSimRunningUi(true);
+    });
+    if (pause) pause.addEventListener('click', function() {
+        window.AirportSim.pause();
+        setSimRunningUi(false);
+    });
+    if (reset) reset.addEventListener('click', function() {
+        window.AirportSim.reset();
+        setSimRunningUi(false);
+    });
+}
+
+function updateSimAircraftPool() {
+    if (!window.AirportSim) return;
+    var seen = {};
+    var labels = [];
+    var grounded = [];
+    var flights = state.flights || [];
+    for (var i = 0; i < flights.length; i++) {
+        var a = flights[i].aircraft;
+        if (!a || a === '—' || a === 'ВС' || seen[a]) continue;
+        seen[a] = true;
+        labels.push(a);
+        if (effectiveFlightStatus(flights[i]).code === 'aog') grounded.push(a);
+    }
+    window.AirportSim.setAircraftPool(labels);
+    window.AirportSim.setGrounded(grounded);
 }
 
 function renderMapMarkers() {
@@ -2846,12 +2993,11 @@ function updateActiveRequests() {
         var critIcon = req.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
                        req.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
                        '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
-        var statusText = req.status === 'assigned' ? 'Назначен' :
-                         req.status === 'arriving' ? 'В пути' :
-                         req.status === 'in_progress' ? 'В работе' :
-                         req.status === 'working' ? 'Диагностика' :
-                         req.status === 'queued' ? 'В очереди' : 'Назначен';
-        var statusClass = req.status === 'assigned' ? 'free' : 'busy';
+        var st = effectiveFlightStatus(req);
+        var statusText = st.label;
+        var statusColor = st.code === 'aog' ? 'var(--aero-red)' :
+                          st.code === 'deferred' ? '#c2410c' :
+                          st.code === 'completed' ? 'var(--aero-green)' : 'var(--aero-orange)';
 
         var routeInfo = '';
         var routeKey = 'route_' + req.engineerId;
@@ -2870,7 +3016,7 @@ function updateActiveRequests() {
             '</div>' +
             '<div style="text-align:right;">' +
             '<div style="font-weight:600;font-size:13px;">' + req.engineer + '</div>' +
-            '<div class="req-status" style="color:' + (statusClass === 'free' ? 'var(--aero-green)' : 'var(--aero-orange)') + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
+            '<div class="req-status" style="color:' + statusColor + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
             '<div style="font-size:10px;color:var(--aero-gray);margin-top:2px;">' + routeInfo + '</div>' +
             '</div></div>';
     }
@@ -3203,7 +3349,7 @@ function applyFlightsFilters() {
         var f = state.flights[i];
         if (statusFilter) {
             if (statusFilter === 'all_rejected') { if (!f.allRejected) continue; }
-            else if (f.status !== statusFilter) continue;
+            else if (effectiveFlightStatus(f).code !== statusFilter) continue;
         }
         if (search) {
             var hay = ((f.aircraft || '') + ' ' + (f.faultName || '') + ' ' + (f.parking || '') + ' ' + (f.engineer || '')).toLowerCase();
@@ -3213,32 +3359,66 @@ function applyFlightsFilters() {
     }
     return filtered;
 }
+function effectiveFlightStatus(f) {
+    var status = String(f.status || 'assigned').toLowerCase();
+    var mcc = String(f.mccStatus || '').toUpperCase();
+    var verdict = String(f.engineerVerdict || '').toUpperCase();
+    var stage = String(f.chainStage || '');
+
+    if (f.allRejected) return {code: 'all_rejected', label: 'Все отказались', cls: 'queued-all-rejected'};
+    if (status === 'cancelled') return {code: 'cancelled', label: 'Отменён', cls: 'cancelled'};
+    if (status === 'completed' || status === 'repaired' || mcc === 'REPAIRED') {
+        return {code: 'completed', label: 'Исправлено', cls: 'completed'};
+    }
+    if (status === 'aog_waiting' || mcc === 'AOG_CONFIRMED' || f.aogSince) {
+        return {code: 'aog', label: 'AOG — лететь нельзя', cls: 'aog'};
+    }
+    if (status === 'deferred' || mcc === 'MEL') {
+        return {code: 'deferred', label: 'MEL — отложено', cls: 'deferred'};
+    }
+    if (verdict === 'AOG') return {code: 'aog', label: 'Инженер: AOG', cls: 'aog'};
+    if (verdict === 'REPAIR') return {code: 'repair', label: 'Ремонт', cls: 'repair'};
+    if (verdict === 'MEL') return {code: 'deferred', label: 'MEL (инженер)', cls: 'deferred'};
+    if (status === 'inspection' || stage === 'tech') {
+        return {code: 'inspection', label: 'Осмотр', cls: 'inspection'};
+    }
+    if (status === 'queued') return {code: 'queued', label: 'В очереди', cls: 'queued'};
+    if (status === 'assigned') return {code: 'assigned', label: 'Назначен', cls: 'assigned'};
+    if (status === 'new') {
+        if (stage === 'cpu') return {code: 'new', label: 'В ЦПУ', cls: 'new'};
+        if (stage === 'shift') return {code: 'new', label: 'У нач. смены', cls: 'new'};
+        if (stage === 'foreman') return {code: 'new', label: 'У бригадира', cls: 'new'};
+        return {code: 'new', label: 'Новая', cls: 'new'};
+    }
+    return {code: status, label: status, cls: 'assigned'};
+}
+
 function getFlightRowClass(f) {
+    var st = effectiveFlightStatus(f);
     if (f.allRejected) return 'row-all-rejected';
-    if (f.status === 'completed') return 'row-completed';
-    if (f.status === 'cancelled') return 'row-cancelled';
-    if (f.status === 'queued' && f.delayElapsedMin > 0) {
+    if (st.code === 'aog') return 'row-aog';
+    if (st.code === 'deferred') return 'row-deferred';
+    if (st.code === 'completed') return 'row-completed';
+    if (st.code === 'cancelled') return 'row-cancelled';
+    if (st.code === 'queued' && f.delayElapsedMin > 0) {
         var cls = delayClass(f.delayElapsedMin);
         if (cls === 'short') return 'row-delay-short';
         if (cls === 'medium') return 'row-delay-medium';
         return 'row-delay-critical';
     }
-    if (f.status === 'queued') return 'row-queued';
+    if (st.code === 'queued') return 'row-queued';
     return '';
 }
 function getFlightStatusHtml(f) {
-    if (f.status === 'completed') return '<span class="flight-status completed">Выполнен</span>';
-    if (f.status === 'cancelled') return '<span class="flight-status cancelled">Отменён</span>';
-    if (f.status === 'queued') {
+    var st = effectiveFlightStatus(f);
+    if (st.code === 'queued') {
         if (f.allRejected) return '<span class="flight-status queued-all-rejected">Все отказались</span>';
         var cls = delayClass(f.delayElapsedMin);
         if (cls === 'short') return '<span class="flight-status queued-short">Задержка &lt; 1 ч</span>';
         if (cls === 'medium') return '<span class="flight-status queued-medium">Задержка 1–4 ч</span>';
         return '<span class="flight-status queued-critical">КРИТИЧЕСКАЯ</span>';
     }
-    if (f.status === 'assigned') return '<span class="flight-status assigned">Назначен</span>';
-    if (f.status === 'new') return '<span class="flight-status new">Новая</span>';
-    return '<span class="flight-status assigned">' + escapeHtml(f.status) + '</span>';
+    return '<span class="flight-status ' + st.cls + '">' + escapeHtml(st.label) + '</span>';
 }
 function getFlightTimeHtml(f) {
     if (f.status === 'queued' && f.delayElapsedMin > 0) {
@@ -3251,17 +3431,20 @@ function getFlightTimeHtml(f) {
 function renderFlights() {
     var tbody = document.getElementById('flightsTableBody');
     if (!tbody) return;
-    var total = state.flights.length, delayed = 0, completed = 0, allRejected = 0;
+    var total = state.flights.length, delayed = 0, completed = 0, allRejected = 0, aog = 0;
     for (var i = 0; i < state.flights.length; i++) {
         var f = state.flights[i];
+        var st = effectiveFlightStatus(f);
         if (f.allRejected) allRejected++;
-        else if (f.status === 'queued' && f.delayElapsedMin > 0) delayed++;
-        else if (f.status === 'completed') completed++;
+        else if (st.code === 'queued' && f.delayElapsedMin > 0) delayed++;
+        else if (st.code === 'completed') completed++;
+        if (st.code === 'aog') aog++;
     }
     if (document.getElementById('flightsTotal')) document.getElementById('flightsTotal').textContent = total;
     if (document.getElementById('flightsDelayed')) document.getElementById('flightsDelayed').textContent = delayed;
     if (document.getElementById('flightsCompleted')) document.getElementById('flightsCompleted').textContent = completed;
     if (document.getElementById('flightsAllRejected')) document.getElementById('flightsAllRejected').textContent = allRejected;
+    if (document.getElementById('flightsAOG')) document.getElementById('flightsAOG').textContent = aog;
 
     var filtered = applyFlightsFilters();
     if (filtered.length === 0) {

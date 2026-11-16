@@ -578,26 +578,27 @@
                 'foreman': '/foreman/dashboard.html'
             };
 
-            var session = sessionStorage.getItem('userSession');
-            if (session) {
-                try {
-                    var savedUser = JSON.parse(session);
-                    if (savedUser.role && DASHBOARDS[savedUser.role]) {
-                        // Сверяемся с сервером: сессия может быть уже недействительной
-                        // (истекла или очищена). Иначе получится цикл редиректов.
-                        fetch('/api/auth/session').then(function(r) {
-                            if (r.ok) {
-                                window.location.href = DASHBOARDS[savedUser.role];
-                            } else {
-                                sessionStorage.removeItem('userSession');
-                            }
-                        }).catch(function() {
-                            sessionStorage.removeItem('userSession');
-                        });
-                        return;
-                    }
-                } catch (_) {}
+            function goHome(user) {
+                if (user && user.role && DASHBOARDS[user.role]) {
+                    sessionStorage.setItem('userSession', JSON.stringify(user));
+                    window.location.href = DASHBOARDS[user.role];
+                    return true;
+                }
+                return false;
             }
+
+            // Источник истины — серверная сессия, sessionStorage только кэш.
+            // Без этого новая вкладка (кэш пуст, cookie жива) попадала в
+            // бесконечный цикл дашборд → логин → дашборд.
+            fetch('/api/auth/session', {cache: 'no-store'})
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (data && data.success && goHome(data.user)) return;
+                    sessionStorage.removeItem('userSession');
+                })
+                .catch(function() {
+                    sessionStorage.removeItem('userSession');
+                });
 
             generateBgDots();
 

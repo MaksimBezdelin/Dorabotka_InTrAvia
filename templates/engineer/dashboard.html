@@ -6,7 +6,7 @@
     <title>Инженер — InTrAvia Dispatch</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
     <!--
     ============================================================
     InTrAvia Dispatch — Кабинет инженера (frontend)
@@ -461,7 +461,7 @@
 
     <div class="notification-container" id="notificationContainer"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/vendor/leaflet/leaflet.js"></script>
     <script>
         /* ============================================================
            InTrAvia Dispatch — Кабинет инженера
@@ -578,7 +578,9 @@
                     center: [55.981349, 37.388359], zoom: 13,
                     zoomControl: true, attributionControl: false
                 });
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+                // OSM-тайлы на площадке часто закрыты (403) — оставляем схему
+                // маршрута и маркеры на нейтральном фоне.
+                map.getContainer().style.background = '#e9eef5';
                 mapInitialized = true;
             }
 

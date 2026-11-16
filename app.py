@@ -3225,8 +3225,24 @@ def _pilot_atlb_entry(row, history):
     status = ATLB_STATUS_BY_STAGE.get(stage, 'open')
     if stage == 'closed':
         status = ATLB_STATUS_BY_DECISION.get(row.get('mcc_decision') or '', 'repaired')
+
+    # «лететь нельзя» пилот должен видеть сразу после вердикта инженера,
+    # а не только после окончательного решения MCC. Вердикт перекрывает
+    # только этап инспекции: после CLOSE/MEL решение MCC важнее.
+    mcc_status = (row.get('mcc_status') or '').upper()
+    verdict = (row.get('engineer_verdict') or '').upper()
     if row.get('crs_signed'):
         status = 'released'
+    elif ((mcc_status == 'AOG_CONFIRMED' or row.get('aog_since'))
+          and mcc_status not in ('REPAIRED', 'MEL')):
+        status = 'aog'
+    elif mcc_status == 'INSPECTION' and stage != 'closed':
+        if verdict == 'AOG':
+            status = 'aog_verdict'
+        elif verdict == 'MEL':
+            status = 'mel_verdict'
+        elif verdict == 'REPAIR':
+            status = 'repair_verdict'
     return {
         'id': row['id'],
         'requestId': row['id'],

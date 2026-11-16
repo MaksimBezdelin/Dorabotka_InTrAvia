@@ -6,7 +6,6 @@
     <title>Пилот — InTrAvia Dispatch</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="/config.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -274,7 +273,7 @@
         </li>
     </ul>
     <div class="aeroflot-brand">
-        <img src="static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
         <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
     </div>
     <div class="sidebar-footer">
@@ -581,6 +580,10 @@ var ATLB_STATUSES = {
     'open':            { label: 'Передан в MCC', icon: 'fa-paper-plane', color: '#003366', bg: '#e8f0fe', role: 'Экипаж', hint: 'Ожидает решения MCC', pilotAction: false },
     'assigned':        { label: 'Инженер назначен', icon: 'fa-user-check', color: '#003366', bg: '#dbeafe', role: 'MCC', hint: 'Инженер выехал к ВС', pilotAction: false },
     'in_work':         { label: 'Инженер работает', icon: 'fa-wrench', color: '#0055aa', bg: '#dbeafe', role: 'Инженер', hint: 'Диагностика и устранение', pilotAction: false },
+    'aog_verdict':     { label: 'Инженер: AOG — лететь нельзя', icon: 'fa-exclamation-triangle', color: '#b91c1c', bg: '#fee2e2', role: 'Инженер → MCC', hint: 'Окончательное решение принимает MCC', pilotAction: false },
+    'aog':             { label: 'AOG — ВС лететь не может', icon: 'fa-plane-slash', color: '#b91c1c', bg: '#fee2e2', role: 'MCC', hint: 'Идёт AOG Recovery: детали, OEM, ETR', pilotAction: false },
+    'repair_verdict':  { label: 'Инженер: ремонт выполнен', icon: 'fa-tools', color: '#0369a1', bg: '#e0f2fe', role: 'Инженер → MCC', hint: 'MCC подтвердит выпуск ВС', pilotAction: false },
+    'mel_verdict':     { label: 'Инженер: можно отложить по MEL', icon: 'fa-clock', color: '#c2410c', bg: '#ffedd5', role: 'Инженер → MCC', hint: 'MCC оформит MEL', pilotAction: false },
     'awaiting_parts':  { label: 'Ожидает деталей', icon: 'fa-box', color: '#0055aa', bg: '#e8f0fe', role: 'Инженер', hint: 'Требуется поставка деталей', pilotAction: false },
     'repaired':        { label: 'Устранено — ждёт вашей подписи', icon: 'fa-check', color: '#b45309', bg: '#fef3c7', role: 'Инженер → Пилот', hint: 'Проверьте работы и подпишите CRS', pilotAction: true },
     'deferred':        { label: 'Отложено по MEL — ждёт вашей подписи', icon: 'fa-clock', color: '#b45309', bg: '#fef3c7', role: 'MCC → Пилот', hint: 'MEL согласован, подпишите CRS', pilotAction: true },
