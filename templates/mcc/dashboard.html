@@ -46,6 +46,9 @@
         .sidebar-nav li a i { width: 20px; font-size: 15px; text-align: center; }
 
         .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); }
+        .aeroflot-brand { text-align: center; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; color: #8899aa; }
+        .aeroflot-brand img { max-width: 110px; height: auto; margin-bottom: 10px; display: inline-block; }
+        .aeroflot-brand .brand-text-small { font-size: 10px; font-weight: 600; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.5px; }
         .btn-logout { width: 100%; padding: 10px; background: rgba(255,255,255,0.05); color: #8899aa; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
         .btn-logout:hover { background: rgba(77,159,255,0.15); color: #4d9fff; border-color: rgba(77,159,255,0.3); }
 
@@ -120,6 +123,7 @@
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .row-open-link { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 6px; background: var(--aero-blue); color: white; font-size: 11px; font-weight: 600; pointer-events: none; white-space: nowrap; }
+        .row-open-link.disabled { background: #94a3b8; }
         .empty-state { text-align: center; padding: 40px; color: var(--aero-gray); }
         .empty-state i { font-size: 40px; margin-bottom: 10px; opacity: 0.5; }
         .empty-state p { font-size: 13px; }
@@ -162,13 +166,6 @@
         .info-block { border-left: 4px solid var(--aero-blue); background: var(--aero-blue-pale); padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 12px; line-height: 1.6; color: var(--aero-text-light); }
         .info-block strong { color: var(--aero-blue); }
 
-        .engineer-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-        .engineer-card { padding: 12px 14px; border: 2px solid var(--aero-gray-light); border-radius: 10px; cursor: pointer; background: #fff; transition: all var(--transition); }
-        .engineer-card:hover { border-color: var(--aero-blue-light); }
-        .engineer-card.active { border-color: var(--aero-blue); background: var(--aero-blue-pale); }
-        .engineer-card .eng-name { font-size: 13px; font-weight: 700; color: var(--aero-text); margin-bottom: 4px; }
-        .engineer-card .eng-meta { font-size: 11px; color: var(--aero-text-light); display: flex; justify-content: space-between; font-family: var(--mono); }
-
         .verdict-info { background: #f8fafc; border: 1px solid var(--aero-gray-light); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; }
         .verdict-info .v-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--aero-gray-light); }
         .verdict-info .v-row:last-child { border-bottom: none; }
@@ -184,8 +181,8 @@
         .toast.warning { background: var(--aero-amber); }
 
         @media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 1024px) { .stats-grid { grid-template-columns: 1fr 1fr; } .alert-strip { grid-template-columns: 1fr; } .choice-grid { grid-template-columns: 1fr; } .engineer-list { grid-template-columns: 1fr; } }
-        @media (max-width: 768px) { .sidebar { width: 68px; padding: 16px 12px; } .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span { display: none; } .sidebar-nav li a { justify-content: center; padding: 12px; } .main { padding: 16px; } .stats-grid { grid-template-columns: 1fr; } .modal-header, .modal-body, .modal-footer { padding-left: 16px; padding-right: 16px; } }
+        @media (max-width: 1024px) { .stats-grid { grid-template-columns: 1fr 1fr; } .alert-strip { grid-template-columns: 1fr; } .choice-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .sidebar { width: 68px; padding: 16px 12px; } .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span, .aeroflot-brand { display: none; } .sidebar-nav li a { justify-content: center; padding: 12px; } .main { padding: 16px; } .stats-grid { grid-template-columns: 1fr; } .modal-header, .modal-body, .modal-footer { padding-left: 16px; padding-right: 16px; } }
     </style>
 </head>
 <body>
@@ -209,7 +206,7 @@
             <a><i class="fas fa-clipboard-question"></i><span>Очередь оценки</span></a>
         </li>
         <li id="nav-inspection" onclick="switchTab('inspection')">
-            <a><i class="fas fa-user-magnifying-glass"></i><span>Инспекция</span></a>
+            <a><i class="fas fa-user-magnifying-glass"></i><span>Заявки в работе</span></a>
         </li>
         <li id="nav-aog" onclick="switchTab('aog')">
             <a><i class="fas fa-plane-slash"></i><span>AOG Recovery</span></a>
@@ -229,6 +226,10 @@
             </a>
         </li>
     </ul>
+    <div class="aeroflot-brand">
+        <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
+    </div>
     <div class="sidebar-footer">
         <button class="btn-logout" onclick="logout()">
             <i class="fas fa-sign-out-alt"></i> <span>Выйти</span>
@@ -246,7 +247,7 @@
 
     <div class="stats-grid">
         <div class="stat-card"><div class="stat-value" id="kpiPending">0</div><div class="stat-label">Очередь MCC</div></div>
-        <div class="stat-card"><div class="stat-value" id="kpiInspection">0</div><div class="stat-label">На инспекции</div></div>
+        <div class="stat-card"><div class="stat-value" id="kpiInspection">0</div><div class="stat-label">В работе</div></div>
         <div class="stat-card aog"><div class="stat-value" id="kpiAOG">0</div><div class="stat-label">AOG Recovery</div></div>
         <div class="stat-card"><div class="stat-value" id="kpiMEL">0</div><div class="stat-label">MEL / CDL</div></div>
         <div class="stat-card"><div class="stat-value" id="kpiReleased">0</div><div class="stat-label">Выпущено</div></div>
@@ -287,8 +288,8 @@
             <table>
                 <thead><tr>
                     <th style="width:8%;">Возраст</th><th style="width:14%;">Борт / Стоянка</th>
-                    <th style="width:25%;">Дефект</th><th style="width:20%;">Техник</th>
-                    <th style="width:33%; text-align:right;"></th>
+                    <th style="width:22%;">Дефект</th><th style="width:10%;">Тип</th>
+                    <th style="width:18%;">Статус</th><th style="width:28%; text-align:right;"></th>
                 </tr></thead>
                 <tbody id="table-inspection"></tbody>
             </table>
@@ -361,7 +362,6 @@
     </div>
 </div>
 
-<!-- QUEUE DETAIL -->
 <div class="modal-overlay" id="queueDetailModal">
     <div class="modal" style="max-width:680px;">
         <div class="modal-header">
@@ -372,81 +372,34 @@
     </div>
 </div>
 
-<!-- MEL MODAL -->
-<div class="modal-overlay" id="queueMelModal">
+<div class="modal-overlay" id="cpuModal">
     <div class="modal" style="max-width:560px;">
         <div class="modal-header">
-            <div><h2>Отложить по MEL</h2><div class="modal-sub" id="queueMelSub">—</div></div>
-            <button class="modal-close" onclick="closeQueueMelModal()">×</button>
-        </div>
-        <div class="modal-body">
-            <div class="readonly-block" id="queueMelInfo"></div>
-            <div class="info-block"><strong>MEL / CDL.</strong> Дефект откладывается на срок категории MEL. Техник не выезжает.</div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>MEL Category *</label>
-                    <select class="form-control" id="queueMelCategory" onchange="onQueueMelCategoryChange()">
-                        <option value="">— выберите —</option>
-                        <option value="A">A — 1 день (24 ч)</option>
-                        <option value="B">B — 3 дня</option>
-                        <option value="C">C — 10 дней</option>
-                        <option value="D">D — 120 дней</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Due Date</label>
-                    <input type="date" class="form-control" id="queueMelDueDate" disabled>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>MEL / CDL Reference *</label>
-                <input type="text" class="form-control" id="queueMelRef" placeholder="Например: MEL 32-40-01A" style="font-family:var(--mono);">
-            </div>
-            <div class="form-group">
-                <label>Комментарий MCC *</label>
-                <textarea class="form-control" id="queueMelComment" rows="2" placeholder="Обоснование отложения..."></textarea>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <div class="footer-hint">Заполните MEL данные</div>
-            <div class="footer-actions">
-                <button class="btn btn-secondary" onclick="closeQueueMelModal()">Отмена</button>
-                <button class="btn btn-warning" onclick="submitQueueMel()"><i class="fas fa-clock"></i> Отложить по MEL</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ASSIGN MODAL (бывш. CPUModal) -->
-<div class="modal-overlay" id="cpuModal">
-    <div class="modal" style="max-width:640px;">
-        <div class="modal-header">
-            <div><h2>Назначить инженера</h2><div class="modal-sub" id="cpuModalSubtitle">—</div></div>
+            <div><h2>Отправить в ЦПУ</h2><div class="modal-sub" id="cpuModalSubtitle">—</div></div>
             <button class="modal-close" onclick="closeCPUModal()">×</button>
         </div>
         <div class="modal-body">
             <div class="readonly-block" id="cpuModalInfo"></div>
-            <div class="info-block" id="cpuModalHint"></div>
-            <div class="form-group">
-                <label>Свободные инженеры</label>
-                <div class="engineer-list" id="cpuCandidates"></div>
+            <div class="info-block">
+                <strong>Что произойдёт?</strong><br>
+                Заявка уйдёт в Центральный Пункт Управления (ЦПУ). Диспетчер ЦПУ назначит техника.
+                Тип дефекта (AOG / MEL / Ремонт) определит инженер на месте при осмотре ВС.
             </div>
             <div class="form-group">
-                <label>Комментарий (обязательно)</label>
-                <textarea class="form-control" id="cpuComment" rows="2" placeholder="Осмотреть ВС, оценить дефект..."></textarea>
+                <label>Комментарий для ЦПУ и техника *</label>
+                <textarea class="form-control" id="cpuComment" rows="3" placeholder="Осмотреть ВС, оценить дефект, определить тип..."></textarea>
             </div>
         </div>
         <div class="modal-footer">
-            <div class="footer-hint" id="cpuFooterHint">Выберите инженера</div>
+            <div class="footer-hint">Заявка уйдёт диспетчеру ЦПУ</div>
             <div class="footer-actions">
                 <button class="btn btn-secondary" onclick="closeCPUModal()">Отмена</button>
-                <button class="btn btn-primary" onclick="submitCPUAssignment()"><i class="fas fa-paper-plane"></i> Назначить</button>
+                <button class="btn btn-primary" onclick="submitSendToCpu()"><i class="fas fa-paper-plane"></i> Отправить в ЦПУ</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- ASSESS MODAL -->
 <div class="modal-overlay" id="assessModal">
     <div class="modal">
         <div class="modal-header">
@@ -456,62 +409,69 @@
         <div class="modal-body">
             <div class="readonly-block" id="assessInfoBlock"></div>
             <div class="verdict-info" id="verdictInfo"></div>
-            <div class="info-block">Выберите результат: <b>AOG Recovery</b> (ВС лететь не может) или <b>Ремонт завершён</b> (уйдёт пилоту на CRS).</div>
-            <div class="form-group">
-                <label>Итоговое решение MCC</label>
-                <div class="choice-grid" id="mccActionGrid">
-                    <div class="choice-card" data-act="AOG_RECOVERY" onclick="selectMccAction('AOG_RECOVERY')">
-                        <i class="fas fa-plane-slash"></i>
-                        <div class="choice-title">AOG Recovery</div>
-                        <div class="choice-desc">ВС лететь не может</div>
-                    </div>
-                    <div class="choice-card" data-act="REPAIR_COMPLETE" onclick="selectMccAction('REPAIR_COMPLETE')">
-                        <i class="fas fa-check-double"></i>
-                        <div class="choice-title">Ремонт завершён</div>
-                        <div class="choice-desc">Готово к CRS</div>
-                    </div>
+            <div id="assessNotReadyBlock" style="display:none;">
+                <div class="info-block" style="border-left-color:#b45309;background:#fef3c7;">
+                    <strong style="color:#b45309;">Заявка ещё не готова к финализации.</strong><br>
+                    Ждём, пока техник осмотрит ВС и вынесет вердикт. Текущий статус: <span id="assessNotReadyStatus">—</span>
                 </div>
             </div>
-            <div id="aogRecoveryBlock" style="display:none;">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>ETR *</label>
-                        <input type="text" class="form-control" id="aogEt" placeholder="Например: 6 часов">
-                    </div>
-                    <div class="form-group">
-                        <label>Действие</label>
-                        <select class="form-control" id="aogAction">
-                            <option value="">— выберите —</option>
-                            <option value="parts">Заказ запчастей (AOG Desk)</option>
-                            <option value="oem">Связаться с OEM / TCH</option>
-                            <option value="ame">Выездная бригада AME</option>
-                            <option value="replace">Замена ВС на рейсе</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div id="repairCompleteBlock" style="display:none;">
+            <div id="assessFinalizeBlock" style="display:none;">
+                <div class="info-block">Выберите итоговое решение: <b>AOG Recovery</b> (ВС лететь не может) или <b>Ремонт завершён</b> (уйдёт пилоту на CRS).</div>
                 <div class="form-group">
-                    <label>Описание выполненных работ *</label>
-                    <textarea class="form-control" id="repairRect" rows="2" placeholder="Заменён датчик, проверено под давлением..."></textarea>
+                    <label>Итоговое решение MCC</label>
+                    <div class="choice-grid" id="mccActionGrid">
+                        <div class="choice-card" data-act="AOG_RECOVERY" onclick="selectMccAction('AOG_RECOVERY')">
+                            <i class="fas fa-plane-slash"></i>
+                            <div class="choice-title">AOG Recovery</div>
+                            <div class="choice-desc">ВС лететь не может</div>
+                        </div>
+                        <div class="choice-card" data-act="REPAIR_COMPLETE" onclick="selectMccAction('REPAIR_COMPLETE')">
+                            <i class="fas fa-check-double"></i>
+                            <div class="choice-title">Ремонт завершён</div>
+                            <div class="choice-desc">Готово к CRS</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="form-group" style="margin-top:16px;">
-                <label>Комментарий MCC *</label>
-                <textarea class="form-control" id="mccComment" rows="2" placeholder="Обоснование решения..."></textarea>
+                <div id="aogRecoveryBlock" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>ETR *</label>
+                            <input type="text" class="form-control" id="aogEt" placeholder="Например: 6 часов">
+                        </div>
+                        <div class="form-group">
+                            <label>Действие</label>
+                            <select class="form-control" id="aogAction">
+                                <option value="">— выберите —</option>
+                                <option value="parts">Заказ запчастей (AOG Desk)</option>
+                                <option value="oem">Связаться с OEM / TCH</option>
+                                <option value="ame">Выездная бригада AME</option>
+                                <option value="replace">Замена ВС на рейсе</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div id="repairCompleteBlock" style="display:none;">
+                    <div class="form-group">
+                        <label>Описание выполненных работ *</label>
+                        <textarea class="form-control" id="repairRect" rows="2" placeholder="Заменён датчик, проверено под давлением..."></textarea>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top:16px;">
+                    <label>Комментарий MCC *</label>
+                    <textarea class="form-control" id="mccComment" rows="2" placeholder="Обоснование решения..."></textarea>
+                </div>
             </div>
         </div>
         <div class="modal-footer">
             <div class="footer-hint" id="assessFooterHint">Выберите результат</div>
             <div class="footer-actions">
-                <button class="btn btn-secondary" onclick="closeAssessModal()">Отмена</button>
-                <button class="btn btn-primary" onclick="submitAssessment()"><i class="fas fa-pen-to-square"></i> Зафиксировать</button>
+                <button class="btn btn-secondary" onclick="closeAssessModal()">Закрыть</button>
+                <button class="btn btn-primary" id="assessSubmitBtn" onclick="submitAssessment()" style="display:none;"><i class="fas fa-pen-to-square"></i> Зафиксировать</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- AOG MANAGE -->
 <div class="modal-overlay" id="aogManageModal">
     <div class="modal" style="max-width:600px;">
         <div class="modal-header">
@@ -551,7 +511,6 @@
     </div>
 </div>
 
-<!-- PROFILE -->
 <div class="modal-overlay" id="profileModal">
     <div class="modal" style="max-width:520px;">
         <div class="modal-header">
@@ -575,13 +534,7 @@
 </div>
 
 <script>
-/* ============================================================
-   InTrAvia MCC — v2026-11-16-api-driven
-   Все данные с сервера (/api/mcc/defects).
-   Все действия через API: assign_inspection, engineer/verdict,
-   mcc/finalize, mcc/aog_update.
-   ============================================================ */
-console.log('[InTrAvia MCC] Script v2026-11-16-api-driven');
+console.log('[InTrAvia MCC] v2026-11-17 simplified');
 
 var API_URL = '/api';
 var atlbEntries = [];
@@ -589,19 +542,14 @@ var employees = [];
 var pollInterval = null;
 
 var currentQueueDetailId = null;
-var currentQueueMelId = null;
 var currentAssignId = null;
 var currentAssessId = null;
 var currentAogId = null;
 
-var selectedAssignCandidate = null;
 var mccAction = '';
-var queueMelCategory = '';
-var queueMelDueDate = '';
 
 var SKILL_NAMES = { engine:'Двигатель', avionics:'Авионика', hydraulics:'Гидравлика', electrical:'Электрика', mechanical:'Механика', general:'Общая' };
 
-/* ==== UTILS ==== */
 function esc(s) {
     if (s == null) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -664,6 +612,18 @@ function aogActionLabel(a) {
 }
 window.aogActionLabel = aogActionLabel;
 
+function routingStageLabel(stage) {
+    var map = {
+        'cpu': 'У ЦПУ',
+        'dispatcher': 'У диспетчера',
+        'technician': 'У техника',
+        'mcc_finalize': 'Ожидает решения MCC',
+        'pilot_crs': 'Ждёт подписи КВС',
+        'released': 'Выпущено'
+    };
+    return map[stage] || '—';
+}
+
 function guessATA(text) {
     var t = (text || '').toLowerCase();
     if (t.includes('двигател') || t.includes('engine')) return '72';
@@ -692,7 +652,6 @@ function guessATA(text) {
 }
 window.guessATA = guessATA;
 
-/* ==== INIT ==== */
 function init() {
     var session = sessionStorage.getItem('userSession');
     if (!session) { window.location.href = '/login.html'; return; }
@@ -709,13 +668,11 @@ function init() {
     document.getElementById('currentDate').textContent = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
 
     reloadData();
-    fetchEmployees();
     if (pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(function() { reloadData(); fetchEmployees(); }, 5000);
+    pollInterval = setInterval(reloadData, 5000);
 }
 window.init = init;
 
-/* ==== SERVER LOAD ==== */
 function reloadData() {
     return fetch(API_URL + '/mcc/defects')
         .then(function(r) { return r.json(); })
@@ -726,13 +683,6 @@ function reloadData() {
         .catch(function(err) { console.error('[reloadData]', err); });
 }
 window.reloadData = reloadData;
-
-function fetchEmployees() {
-    return fetch(API_URL + '/engineers')
-        .then(function(r) { return r.json(); })
-        .then(function(data) { employees = Array.isArray(data) ? data : []; })
-        .catch(function() { employees = []; });
-}
 
 function mapServerToLocal(r) {
     var s = r.mcc_status;
@@ -755,6 +705,7 @@ function mapServerToLocal(r) {
         createdAt: r.created_at,
         status: localStatus,
         serverStatus: s,
+        routingStage: r.routing_stage || 'mcc',
         engineerId: r.engineer_id,
         engineerName: r.engineer_name,
         engineerVerdict: r.engineer_verdict || '',
@@ -784,7 +735,12 @@ function findEntry(id) {
     return null;
 }
 
-/* ==== RENDER ==== */
+function canFinalize(e) {
+    if (e.routingStage === 'mcc_finalize') return true;
+    if (e.routingStage === 'technician' && e.engineerVerdict) return true;
+    return false;
+}
+
 function renderAll() {
     try {
         calculateKPIs();
@@ -822,7 +778,8 @@ function renderAlertStrips() {
         activeList.innerHTML = active.length === 0
             ? '<div class="alert-item" style="color:var(--aero-gray);font-size:12px;">Нет активных</div>'
             : active.slice(0, 4).map(function(e) {
-                return '<div class="alert-item"><span class="reg">' + esc(e.aircraft) + '</span><span class="desc">' + esc(shortText(e.faultType, 30)) + '</span><span class="eta">' + esc(e.engineerName || '—') + '</span></div>';
+                var st = routingStageLabel(e.routingStage);
+                return '<div class="alert-item"><span class="reg">' + esc(e.aircraft) + '</span><span class="desc">' + esc(shortText(e.faultType, 28)) + '</span><span class="eta">' + esc(st) + '</span></div>';
             }).join('');
     }
     var aog = atlbEntries.filter(function(e) { return e.aogConfirmed && e.status !== 'released' && e.status !== 'repaired'; });
@@ -831,7 +788,7 @@ function renderAlertStrips() {
         aogList.innerHTML = aog.length === 0
             ? '<div class="alert-item" style="color:var(--aero-gray);font-size:12px;">Нет активных AOG</div>'
             : aog.slice(0, 4).map(function(e) {
-                return '<div class="alert-item"><span class="reg">' + esc(e.aircraft) + '</span><span class="desc">' + esc(shortText(e.faultType, 30)) + '</span><span class="eta">ETR ' + esc(e.aogEtr || '—') + '</span></div>';
+                return '<div class="alert-item"><span class="reg">' + esc(e.aircraft) + '</span><span class="desc">' + esc(shortText(e.faultType, 28)) + '</span><span class="eta">ETR ' + esc(e.aogEtr || '—') + '</span></div>';
             }).join('');
     }
 }
@@ -855,7 +812,7 @@ function renderQueue() {
             '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div><div style="font-size:11px;color:var(--aero-text-light);margin-top:2px;">' + esc(shortText(e.defect, 100)) + '</div></td>' +
             '<td class="mono">' + esc(ata) + '</td>' +
             '<td>' + severityBadge(e.severity) + '</td>' +
-            '<td style="text-align:right;"><span class="row-open-link">Открыть →</span></td>' +
+            '<td style="text-align:right;"><span class="row-open-link">Обработать →</span></td>' +
         '</tr>';
     }).join('');
 
@@ -871,26 +828,48 @@ function renderInspection() {
     var items = atlbEntries.filter(function(e) { return e.status === 'assigned'; });
 
     if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-user-magnifying-glass"></i><p>Нет активных инспекций</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-user-magnifying-glass"></i><p>Нет активных заявок в работе</p></td></tr>';
         return;
     }
     tbody.innerHTML = items.map(function(e) {
         var age = getAge(e.createdAt);
-        var verdictTag = e.engineerVerdict
-            ? '<span class="badge" style="background:#dbeafe;color:#1e40af;">Вердикт: ' + esc(e.engineerVerdict) + '</span>'
-            : '<span class="badge" style="background:#fef3c7;color:#b45309;">Ожидается</span>';
+        var canFin = canFinalize(e);
+        var statusText, statusClass;
+        if (canFin) {
+            statusText = e.routingStage === 'mcc_finalize' ? 'Вердикт получен — финализировать' : 'Вердикт: ' + (e.engineerVerdict || 'есть');
+            statusClass = 'background:#dbeafe;color:#1e40af;';
+        } else if (e.routingStage === 'cpu') {
+            statusText = 'У ЦПУ';
+            statusClass = 'background:#e0e7ff;color:#3730a3;';
+        } else if (e.routingStage === 'dispatcher') {
+            statusText = 'У диспетчера';
+            statusClass = 'background:#ede9fe;color:#6d28d9;';
+        } else if (e.routingStage === 'technician') {
+            statusText = 'У техника · ожидает вердикт';
+            statusClass = 'background:#fef3c7;color:#b45309;';
+        } else {
+            statusText = routingStageLabel(e.routingStage);
+            statusClass = 'background:#f1f5f9;color:#475569;';
+        }
+        var btn = canFin
+            ? '<span class="row-open-link">Вердикт →</span>'
+            : '<span class="row-open-link disabled">Просмотр</span>';
         return '<tr class="clickable" data-entry-id="' + esc(e.id) + '">' +
             '<td><span class="time-age">' + age.text + '</span></td>' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br><span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
             '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div><div style="font-size:11px;color:var(--aero-text-light);margin-top:2px;">' + esc(shortText(e.defect, 80)) + '</div></td>' +
-            '<td><div>' + esc(e.engineerName || '—') + '</div>' + verdictTag + '</td>' +
-            '<td style="text-align:right;"><span class="row-open-link">Вердикт →</span></td>' +
+            '<td>' + (e.engineerVerdict ? '<span class="badge" style="background:#dbeafe;color:#1e40af;">' + esc(e.engineerVerdict) + '</span>' : '<span style="color:var(--aero-gray);">—</span>') + '</td>' +
+            '<td><span class="badge" style="' + statusClass + '">' + esc(statusText) + '</span>' +
+                (e.engineerName ? '<div style="font-size:11px;color:var(--aero-gray);margin-top:4px;">' + esc(e.engineerName) + '</div>' : '') +
+            '</td>' +
+            '<td style="text-align:right;">' + btn + '</td>' +
         '</tr>';
     }).join('');
 
     tbody.onclick = function(ev) {
         var tr = ev.target.closest('tr[data-entry-id]');
-        if (tr) openAssessModal(tr.dataset.entryId);
+        if (!tr) return;
+        openAssessModal(tr.dataset.entryId);
     };
 }
 
@@ -1015,7 +994,6 @@ function renderHistory() {
     }).join('');
 }
 
-/* ==== QUEUE DETAIL ==== */
 function openQueueDetail(id) {
     var e = findEntry(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
@@ -1046,21 +1024,15 @@ function openQueueDetail(id) {
         esc(e.defect) + '</div>';
 
     html += '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
-        '<div class="footer-hint">Выберите действие</div>' +
+        '<div class="footer-hint">Отправьте заявку в Центральный Пункт Управления</div>' +
         '<div class="footer-actions">' +
-            '<button class="btn btn-warning" id="qBtnMel"><i class="fas fa-clock"></i> MEL</button>' +
-            '<button class="btn btn-primary" id="qBtnAssign"><i class="fas fa-user-check"></i> Назначить инженера</button>' +
+            '<button class="btn btn-primary" id="qBtnProcess"><i class="fas fa-paper-plane"></i> Отправить в ЦПУ</button>' +
         '</div></div>';
 
     document.getElementById('queueDetailContent').innerHTML = html;
     document.getElementById('queueDetailModal').classList.add('show');
 
-    document.getElementById('qBtnMel').onclick = function() {
-        var eid = currentQueueDetailId;
-        closeQueueDetail();
-        if (eid) openQueueMelModal(eid);
-    };
-    document.getElementById('qBtnAssign').onclick = function() {
+    document.getElementById('qBtnProcess').onclick = function() {
         var eid = currentQueueDetailId;
         closeQueueDetail();
         if (eid) openCPUModal(eid);
@@ -1074,98 +1046,12 @@ function closeQueueDetail() {
 }
 window.closeQueueDetail = closeQueueDetail;
 
-/* ==== MEL from QUEUE ==== */
-function openQueueMelModal(id) {
-    var e = findEntry(id);
-    if (!e) return;
-    currentQueueMelId = id;
-    queueMelCategory = '';
-    queueMelDueDate = '';
-    document.getElementById('queueMelSub').textContent = e.aircraft + ' · ' + e.faultType;
-    document.getElementById('queueMelInfo').innerHTML =
-        '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">Дефект</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;">' + esc(e.faultType) + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">Описание</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;">' + esc(shortText(e.defect, 80)) + '</span></div>';
-    document.getElementById('queueMelCategory').value = '';
-    document.getElementById('queueMelDueDate').value = '';
-    document.getElementById('queueMelRef').value = '';
-    document.getElementById('queueMelComment').value = '';
-    document.getElementById('queueMelModal').classList.add('show');
-}
-window.openQueueMelModal = openQueueMelModal;
-
-function closeQueueMelModal() {
-    document.getElementById('queueMelModal').classList.remove('show');
-    currentQueueMelId = null;
-}
-window.closeQueueMelModal = closeQueueMelModal;
-
-function onQueueMelCategoryChange() {
-    var cat = document.getElementById('queueMelCategory').value;
-    queueMelCategory = cat;
-    var days = {A:1, B:3, C:10, D:120}[cat] || 0;
-    if (days > 0) {
-        var dt = new Date();
-        dt.setDate(dt.getDate() + days);
-        var iso = dt.toISOString().split('T')[0];
-        document.getElementById('queueMelDueDate').value = iso;
-        queueMelDueDate = iso;
-    } else {
-        document.getElementById('queueMelDueDate').value = '';
-        queueMelDueDate = '';
-    }
-}
-window.onQueueMelCategoryChange = onQueueMelCategoryChange;
-
-function submitQueueMel() {
-    if (!queueMelCategory) { showToast('Выберите MEL категорию', 'error'); return; }
-    var melRef = document.getElementById('queueMelRef').value.trim();
-    if (!melRef) { showToast('Укажите MEL reference', 'error'); return; }
-    var comment = document.getElementById('queueMelComment').value.trim();
-    if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
-
-    // Нужно: сначала verdict=MEL, затем finalize=MEL_DEFER
-    fetch(API_URL + '/engineer/verdict', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ request_id: currentQueueMelId, verdict: 'MEL', comment: 'Отложено MCC: ' + comment })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(vr) {
-        if (!vr.success) throw new Error(vr.error || 'verdict failed');
-        return fetch(API_URL + '/mcc/finalize', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-                request_id: currentQueueMelId,
-                action: 'MEL_DEFER',
-                comment: comment,
-                mel_category: queueMelCategory,
-                mel_ref: melRef,
-                mel_due_date: queueMelDueDate
-            })
-        }).then(function(r) { return r.json(); });
-    })
-    .then(function(res) {
-        if (res.success) {
-            closeQueueMelModal();
-            showToast('Отложено по MEL ' + queueMelCategory, 'success');
-            reloadData();
-        } else {
-            showToast('Ошибка: ' + (res.error || ''), 'error');
-        }
-    })
-    .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
-}
-window.submitQueueMel = submitQueueMel;
-
-/* ==== ASSIGN ENGINEER ==== */
 function openCPUModal(id) {
     var e = findEntry(id);
     if (!e) { showToast('Не найдено', 'error'); return; }
     currentAssignId = id;
-    selectedAssignCandidate = null;
 
     document.getElementById('cpuModalSubtitle').textContent = e.aircraft + ' · ' + e.faultType + ' · ID ' + e.id.slice(-6);
-    document.getElementById('cpuModalHint').innerHTML = '<strong>Что произойдёт?</strong><br>Инженер будет назначен, заявка перейдёт на инспекцию. Он осмотрит ВС и вынесет вердикт.';
     document.getElementById('cpuModalInfo').innerHTML =
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
@@ -1173,84 +1059,63 @@ function openCPUModal(id) {
         '<div class="ro-row"><span class="ro-label">Возраст</span><span class="ro-val">' + getAge(e.createdAt).text + '</span></div>';
 
     document.getElementById('cpuComment').value = '';
-    document.getElementById('cpuFooterHint').textContent = 'Выберите инженера';
-
-    renderAssignCandidates();
     document.getElementById('cpuModal').classList.add('show');
 }
 window.openCPUModal = openCPUModal;
 
-function renderAssignCandidates() {
-    var container = document.getElementById('cpuCandidates');
-    var list = employees.filter(function(e) { return e.status === 'free' || !e.status; });
-
-    if (list.length === 0) {
-        container.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--aero-gray);"><i class="fas fa-user-slash" style="font-size:32px;opacity:0.4;display:block;margin-bottom:8px;"></i>Нет свободных инженеров</div>';
-        return;
-    }
-
-    container.innerHTML = list.map(function(emp) {
-        var skill = SKILL_NAMES[emp.specialization] || emp.specialization || '—';
-        return '<div class="engineer-card" data-cand-id="' + esc(emp.id) + '" onclick="selectAssignCandidate(\'' + esc(emp.id) + '\')">' +
-            '<div class="eng-name">' + esc(emp.name) + '</div>' +
-            '<div class="eng-meta"><span>' + esc(emp.device_id || '') + '</span><span>' + esc(skill) + '</span></div>' +
-        '</div>';
-    }).join('');
-}
-
-function selectAssignCandidate(id) {
-    selectedAssignCandidate = id;
-    document.querySelectorAll('#cpuCandidates .engineer-card').forEach(function(el) {
-        el.classList.toggle('active', el.dataset.candId === id);
-    });
-    var emp = employees.find(function(x) { return String(x.id) === String(id); });
-    document.getElementById('cpuFooterHint').textContent = emp ? ('Выбран: ' + emp.name) : 'Выберите';
-}
-window.selectAssignCandidate = selectAssignCandidate;
-
 function closeCPUModal() {
     document.getElementById('cpuModal').classList.remove('show');
     currentAssignId = null;
-    selectedAssignCandidate = null;
 }
 window.closeCPUModal = closeCPUModal;
 
-function submitCPUAssignment() {
-    if (!selectedAssignCandidate) { showToast('Выберите инженера', 'error'); return; }
+function submitSendToCpu() {
     var comment = document.getElementById('cpuComment').value.trim();
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    fetch(API_URL + '/mcc/assign_inspection', {
+    var btn = document.querySelector('#cpuModal .btn-primary');
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка...';
+
+    fetch(API_URL + '/mcc/send_to_cpu', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
             request_id: currentAssignId,
-            engineer_id: selectedAssignCandidate,
-            comment: comment
+            comment: comment,
+            decision: 'REPAIR'
         })
     })
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (res.success) {
             closeCPUModal();
-            showToast('Инженер назначен: ' + res.engineer_name, 'success');
+            showToast('Отправлено в ЦПУ', 'success');
             reloadData();
             switchTab('inspection');
         } else {
             showToast('Ошибка: ' + (res.error || ''), 'error');
+            btn.disabled = false;
+            btn.innerHTML = orig;
         }
     })
-    .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
+    .catch(function(err) {
+        showToast('Ошибка: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
 }
-window.submitCPUAssignment = submitCPUAssignment;
+window.submitSendToCpu = submitSendToCpu;
 
-/* ==== INSPECTION ASSESS ==== */
 function openAssessModal(id) {
     var e = findEntry(id);
     if (!e) return;
-    if (e.status !== 'assigned') { showToast('Доступно только для активной инспекции', 'warning'); return; }
+    if (e.status !== 'assigned') { showToast('Заявка не на инспекции', 'warning'); return; }
 
     currentAssessId = id;
     mccAction = '';
+    var canFin = canFinalize(e);
+
     document.querySelectorAll('#mccActionGrid .choice-card').forEach(function(el) { el.classList.remove('active'); });
     document.getElementById('aogRecoveryBlock').style.display = 'none';
     document.getElementById('repairCompleteBlock').style.display = 'none';
@@ -1262,8 +1127,7 @@ function openAssessModal(id) {
     document.getElementById('assessInfoBlock').innerHTML =
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">Серьёзность</span><span class="ro-val">' + severityLabel(e.severity) + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">ATA</span><span class="ro-val">' + esc(guessATA(e.faultType)) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Статус</span><span class="ro-val">' + esc(routingStageLabel(e.routingStage)) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Инженер</span><span class="ro-val">' + esc(e.engineerName || '—') + '</span></div>';
 
     document.getElementById('verdictInfo').innerHTML =
@@ -1272,7 +1136,20 @@ function openAssessModal(id) {
         (e.engineerVerdict ? '<div class="v-row"><span class="v-label">Вердикт техника</span><span class="v-val">' + esc(e.engineerVerdict) + '</span></div>' : '');
 
     document.getElementById('assessSubtitle').textContent = e.aircraft + ' · ' + e.faultType + ' · ID ' + e.id.slice(-6);
-    document.getElementById('assessFooterHint').textContent = 'Выберите результат';
+
+    if (canFin) {
+        document.getElementById('assessNotReadyBlock').style.display = 'none';
+        document.getElementById('assessFinalizeBlock').style.display = 'block';
+        document.getElementById('assessSubmitBtn').style.display = 'inline-flex';
+        document.getElementById('assessFooterHint').textContent = 'Выберите результат';
+    } else {
+        document.getElementById('assessNotReadyBlock').style.display = 'block';
+        document.getElementById('assessFinalizeBlock').style.display = 'none';
+        document.getElementById('assessSubmitBtn').style.display = 'none';
+        document.getElementById('assessNotReadyStatus').textContent = routingStageLabel(e.routingStage);
+        document.getElementById('assessFooterHint').textContent = 'Финализация недоступна';
+    }
+
     document.getElementById('assessModal').classList.add('show');
 }
 window.openAssessModal = openAssessModal;
@@ -1320,19 +1197,17 @@ function submitAssessment() {
         comment = comment + '\n[Работы] ' + rect;
     }
 
-    // Шаг 1: фиксируем вердикт техника
     fetch(API_URL + '/engineer/verdict', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
             request_id: currentAssessId,
             verdict: verdict,
-            comment: 'MCC вердикт: ' + comment
+            comment: 'MCC финализация: ' + comment
         })
     })
     .then(function(r) { return r.json(); })
     .then(function(vr) {
         if (!vr.success) throw new Error(vr.error || 'verdict failed');
-        // Шаг 2: финализируем
         var payload = Object.assign({
             request_id: currentAssessId,
             action: finalizeAction,
@@ -1356,7 +1231,6 @@ function submitAssessment() {
 }
 window.submitAssessment = submitAssessment;
 
-/* ==== AOG MANAGE ==== */
 function openAOGManageModal(id) {
     var e = findEntry(id);
     if (!e) return;
@@ -1391,16 +1265,11 @@ function submitAOGUpdate() {
 
     fetch(API_URL + '/mcc/aog_update', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-            request_id: currentAogId,
-            etr: et,
-            aog_action: act
-        })
+        body: JSON.stringify({ request_id: currentAogId, etr: et, aog_action: act })
     })
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (res.success) {
-            // Дополнительный комментарий пишем в engineer_comment через finalize? Нет — просто в лог.
             closeAOGManageModal();
             showToast('AOG обновлён', 'success');
             reloadData();
@@ -1416,7 +1285,6 @@ function submitAOGRecovered() {
     var comment = document.getElementById('aogManageComment').value.trim();
     if (!comment) { showToast('Опишите восстановление', 'error'); return; }
 
-    // AOG Recovered = вердикт REPAIR + финализация CLOSE
     fetch(API_URL + '/engineer/verdict', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
@@ -1450,7 +1318,6 @@ function submitAOGRecovered() {
 }
 window.submitAOGRecovered = submitAOGRecovered;
 
-/* ==== NAV ==== */
 function switchTab(tab) {
     document.querySelectorAll('.section-content').forEach(function(el) { el.classList.remove('active'); });
     document.querySelectorAll('.sidebar-nav li').forEach(function(el) { el.classList.remove('active'); });
@@ -1460,7 +1327,7 @@ function switchTab(tab) {
     if (nav) nav.classList.add('active');
     var titles = {
         queue: 'Центр управления ТО',
-        inspection: 'Инспекция на перроне',
+        inspection: 'Заявки в работе',
         aog: 'AOG Recovery',
         deferred: 'Отложенные дефекты (MEL / CDL)',
         recurring: 'Повторяющиеся дефекты',
@@ -1470,7 +1337,6 @@ function switchTab(tab) {
 }
 window.switchTab = switchTab;
 
-/* ==== PROFILE ==== */
 function openProfileModal() {
     var s = JSON.parse(sessionStorage.getItem('userSession') || '{}');
     document.getElementById('profName').value = s.name || '';

@@ -107,6 +107,27 @@
         .sidebar-nav li a i { width: 18px; font-size: 14px; text-align: center; }
 
         .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+        .aeroflot-brand {
+            text-align: center;
+            padding: 16px 0;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            margin-bottom: 14px;
+            color: #8899aa;
+        }
+        .aeroflot-brand img {
+            max-width: 110px;
+            height: auto;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+        .aeroflot-brand .brand-text-small {
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1.4;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
         .btn-logout {
             width: 100%; padding: 9px; background: rgba(255, 255, 255, 0.05); color: #8899aa;
             border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px;
@@ -142,13 +163,6 @@
             letter-spacing: -0.5px;
             line-height: 1;
             font-variant-numeric: tabular-nums;
-        }
-
-        .stat-card .stat-label {
-            font-size: 12px;
-            color: var(--aero-gray);
-            margin-top: 6px;
-            font-weight: 500;
         }
 
         /* MAP */
@@ -388,7 +402,17 @@
         .request-item:last-child { border-bottom: none; }
         .request-item .req-title { font-weight: 600; font-size: 13px; }
         .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
-        .request-item .req-status { font-size: 12px; font-weight: 500; }
+        .request-item .req-delete-btn {
+            width: 28px; height: 28px; border-radius: 6px;
+            border: 1px solid #fecaca; background: #fef2f2;
+            color: var(--aero-red); cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 12px; transition: all 0.15s;
+            margin-left: 8px; flex-shrink: 0;
+        }
+        .request-item .req-delete-btn:hover {
+            background: var(--aero-red); color: #fff; border-color: var(--aero-red);
+        }
 
         .report-badge {
             display: inline-block;
@@ -868,7 +892,7 @@
         }
         @media (max-width: 768px) {
             .sidebar { width: 68px; padding: 16px 12px; }
-            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span { display: none; }
+            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span, .aeroflot-brand { display: none; }
             .sidebar-nav li a { justify-content: center; padding: 12px; }
             .main { padding: 16px; }
             .stats-grid { grid-template-columns: 1fr; }
@@ -923,6 +947,10 @@
             <a><i class="fas fa-ban"></i><span>Отменённые</span></a>
         </li>
     </ul>
+    <div class="aeroflot-brand">
+        <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
+    </div>
     <div class="sidebar-footer">
         <button class="btn-logout" onclick="logout()">
             <i class="fas fa-sign-out-alt"></i><span>Выйти</span>
@@ -971,99 +999,6 @@
             <div class="map-hint">SVO · B, C, D, E, F · спецтранспорт</div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h3>Новая заявка</h3>
-            </div>
-            <form id="dispatchForm" onsubmit="createRequest(event)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Терминал</label>
-                        <select id="terminalSelect" onchange="updateParkingList()">
-                            <option value="B">B</option>
-                            <option value="C">C</option>
-                            <option value="D" selected>D</option>
-                            <option value="E">E</option>
-                            <option value="F">F</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Выход / стоянка</label>
-                        <select id="parkingSelect"></select>
-                    </div>
-                    <div class="form-group">
-                        <label>Тип неисправности</label>
-                        <select id="faultType">
-                            <optgroup label="Двигатель">
-                                <option value="engine_failure">Отказ двигателя</option>
-                                <option value="engine_oil">Утечка масла в двигателе</option>
-                                <option value="engine_overheat">Перегрев двигателя</option>
-                                <option value="engine_vibration">Повышенная вибрация двигателя</option>
-                                <option value="engine_start">Проблема с запуском двигателя</option>
-                                <option value="fuel_leak">Утечка топлива</option>
-                                <option value="fuel_system">Отказ топливной системы</option>
-                            </optgroup>
-                            <optgroup label="Авионика">
-                                <option value="avionics_nav">Отказ навигационной системы</option>
-                                <option value="avionics_radio">Отказ радиосвязи</option>
-                                <option value="avionics_autopilot">Отказ автопилота</option>
-                                <option value="avionics_transponder">Отказ транспондера</option>
-                                <option value="avionics_display">Отказ дисплея / экрана</option>
-                                <option value="avionics_gps">Отказ GPS</option>
-                            </optgroup>
-                            <optgroup label="Гидравлика">
-                                <option value="hydraulic">Отказ гидравлики</option>
-                                <option value="hydraulic_leak">Утечка гидравлической жидкости</option>
-                                <option value="hydraulic_pressure">Падение давления в гидросистеме</option>
-                            </optgroup>
-                            <optgroup label="Электрика">
-                                <option value="electrical">Отказ электроснабжения</option>
-                                <option value="electrical_generator">Отказ генератора</option>
-                                <option value="electrical_battery">Отказ аккумулятора</option>
-                                <option value="electrical_short">Короткое замыкание</option>
-                                <option value="electrical_lighting">Отказ освещения</option>
-                            </optgroup>
-                            <optgroup label="Механика">
-                                <option value="landing_gear">Неисправность шасси</option>
-                                <option value="pneumatic">Отказ пневматики</option>
-                                <option value="brake_system">Неисправность тормозной системы</option>
-                                <option value="flap_issue">Проблема с закрылками</option>
-                                <option value="aileron_issue">Проблема с элеронами</option>
-                                <option value="rudder_issue">Проблема с рулём направления</option>
-                                <option value="wing_damage">Повреждение крыла</option>
-                                <option value="fuselage_damage">Повреждение фюзеляжа</option>
-                                <option value="door_issue">Неисправность двери</option>
-                            </optgroup>
-                            <optgroup label="Прочее">
-                                <option value="air_condition">Неисправность кондиционирования</option>
-                                <option value="pressurization">Разгерметизация кабины</option>
-                                <option value="oxygen_system">Отказ кислородной системы</option>
-                                <option value="fire_system">Неисправность пожарной системы</option>
-                                <option value="deicing_system">Отказ противообледенительной системы</option>
-                            </optgroup>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Серьёзность</label>
-                        <select id="faultSeverity">
-                            <option value="high">Высокая</option>
-                            <option value="medium" selected>Средняя</option>
-                            <option value="low">Низкая</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Номер рейса</label>
-                        <input type="text" id="flightNumber" placeholder="SU-1234" required>
-                    </div>
-                    <div class="form-group" style="display:flex;align-items:flex-end;">
-                        <button type="submit" class="btn btn-primary btn-full">
-                            <i class="fas fa-paper-plane"></i> Отправить заявку
-                        </button>
-                    </div>
-                </div>
-            </form>
-        </div>
-
         <div id="notificationContainer"></div>
 
         <div class="card">
@@ -1085,6 +1020,7 @@
         </div>
     </div>
 
+    </div>
     <div class="section-content" id="tab-delays">
         <div class="page-header">
             <div>
@@ -1541,9 +1477,9 @@ var state = {
     routeData: {}, transportLoaded: false, isUpdating: false,
     dataLoaded: false, mapMarkers: {},
     roadsLayer: null, aircraftLayer: null, parkingLayer: null,
-    currentTab: 'dispatch'
+    currentTab: 'dispatch',
+    isDragging: false
 };
-
 var STORAGE_KEY = 'dispatcherState_v19';
 var REPORTS_KEY = 'dispatcherReports_v2';
 var DELETED_REPORTS_KEY = 'dispatcherDeletedReports_v1';
@@ -1605,6 +1541,33 @@ function extractReportFromComment(comment) {
         return '';
     }
     return comment;
+}
+
+function parseRouteFromComment(comment) {
+    if (!comment || comment.indexOf('ROUTE:') !== 0) return null;
+    try {
+        var rest = comment.substring(6);
+        var depth = 0, endIdx = -1;
+        for (var i = 0; i < rest.length; i++) {
+            if (rest[i] === '{') depth++;
+            else if (rest[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+        }
+        if (endIdx <= 0) return null;
+        var parsed = JSON.parse(rest.substring(0, endIdx));
+        return {
+            from: { lat: parsed.flat, lng: parsed.flng },
+            to: { lat: parsed.tlat, lng: parsed.tlng },
+            totalTime: parsed.tt || 0,
+            usingCar: parsed.uc === true,
+            walkToCar: parsed.wc || 0,
+            bestCarTime: parsed.ct || 0,
+            bestCarLat: parsed.bclat,
+            bestCarLng: parsed.bclng,
+            bestCar: parsed.bc ? { deviceId: parsed.bc, lat: parsed.bclat, lng: parsed.bclng } : null,
+            parkingId: parsed.pid,
+            path: parsed.path || null
+        };
+    } catch (e) { return null; }
 }
 
 function hasReport(comment) {
@@ -1728,6 +1691,8 @@ function Employee(data) {
     this.status = data.status || 'free';
     this.busy = this.status !== 'free' && this.status !== 'offline';
     this.task = data.task || '';
+    this.taskStep = data.task_step || 'idle';
+    this.taskStartedAt = data.task_started_at || null;
 }
 Employee.prototype.isFree = function() { return !this.busy; };
 Employee.prototype.distanceTo = function(lat, lng) { return distanceKm(this.lat, this.lng, lat, lng); };
@@ -1776,6 +1741,87 @@ function saveStateToLocalStorage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         return true;
     } catch(e) { return false; }
+}
+
+function persistEngineerCoords(emp) {
+    if (!emp || !emp.realId) return;
+    emp._syncPending = true;
+    fetch(API_URL + '/engineers/' + emp.realId + '/coords', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: emp.lat, lng: emp.lng })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        emp._syncPending = false;
+        if (!res || !res.success) console.warn('[SYNC] engineer coords failed', res);
+    })
+    .catch(function(err) {
+        emp._syncPending = false;
+        console.error('[SYNC] engineer coords error', err);
+    });
+}
+
+function persistTransportCoords(tr) {
+    if (!tr || !tr.id) return;
+    tr._syncPending = true;
+    fetch(API_URL + '/transport/' + tr.id + '/coords', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: tr.lat, lng: tr.lng, speed: tr.speed })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        tr._syncPending = false;
+        if (!res || !res.success) console.warn('[SYNC] transport coords failed', res);
+    })
+    .catch(function(err) {
+        tr._syncPending = false;
+        console.error('[SYNC] transport coords error', err);
+    });
+}
+
+function persistRouteToServer(requestId, routeData, opts) {
+    if (!requestId || !routeData) return;
+    opts = opts || {};
+
+    var routeJSON = JSON.stringify({
+        tt: routeData.totalTime,
+        uc: routeData.usingCar,
+        wc: routeData.walkToCar,
+        ct: routeData.bestCarTime,
+        bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
+        bclat: routeData.bestCar ? routeData.bestCar.lat : null,
+        bclng: routeData.bestCar ? routeData.bestCar.lng : null,
+        flat: routeData.from.lat,
+        flng: routeData.from.lng,
+        tlat: routeData.to.lat,
+        tlng: routeData.to.lng,
+        pid: routeData.parkingId || '',
+        path: routeData.path || null
+    });
+
+    var existingTicket = null;
+    for (var i = 0; i < state.tickets.length; i++) {
+        if (state.tickets[i].id === requestId) { existingTicket = state.tickets[i]; break; }
+    }
+    if (existingTicket && existingTicket.status === 'completed') return;
+
+    var reportPart = existingTicket
+        ? extractReportFromComment(existingTicket.engineer_comment || '')
+        : '';
+
+    var payload = {
+        engineer_comment: 'ROUTE:' + routeJSON + (reportPart ? '\n' + reportPart : '')
+    };
+    if (opts.status) payload.status = opts.status;
+    if (opts.criticality) payload.criticality = opts.criticality;
+
+    fetch(API_URL + '/requests/' + requestId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(function(err) { console.warn('[ROUTE] persist failed', err); });
 }
 
 function loadStateFromLocalStorage() {
@@ -1885,19 +1931,15 @@ function init() {
 
     if (state.loadInterval) clearInterval(state.loadInterval);
     state.loadInterval = setInterval(function() {
-        if (!state.isUpdating) {
+        if (!state.isUpdating && !state.isDragging) {
             loadRequestsOnly();
-            updateActiveRequests();
-            updateStats();
-            renderMapMarkers();
-            saveStateToLocalStorage();
         }
-    }, 2000);
+    }, 1000);
 
     if (state.coordsInterval) clearInterval(state.coordsInterval);
     state.coordsInterval = setInterval(function() {
-        if (!state.isUpdating) refreshCoordsOnly();
-    }, 1000);
+        if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
+    }, 500);
 }
 
 function loadDataOnce() {
@@ -1968,7 +2010,15 @@ function processRequestsData(data) {
     for (var i = 0; i < data.length; i++) {
         var t = data[i];
 
-        if (t.source === 'pilot' || t.pilot_audio) {
+        // Заявки от пилота/ЦПУ: в блок «Заявки от КВС» отправляем только те,
+        // что ещё НЕ прошли маршрутизацию (draft / mcc / cpu-ожидание).
+        // Если заявка уже у техника или у диспетчера — она должна быть
+        // в «Активных заявках» диспетчера.
+        var isPilotSource = (t.source === 'pilot' || t.pilot_audio);
+        var stage = t.routing_stage || 'mcc';
+        var isRoutedFurther = (stage === 'technician' || stage === 'dispatcher' || stage === 'done');
+
+        if (isPilotSource && !isRoutedFurther) {
             pilotReqs.push({
                 id: t.id, source: 'pilot',
                 pilotName: t.pilot_name || t.engineer_name || 'Пилот',
@@ -2033,6 +2083,42 @@ function processRequestsData(data) {
         });
     }
 
+    // ── Сразу восстанавливаем маршруты диспетчера из ROUTE: ──
+    // Как только заявка пришла, у неё уже есть engineer_comment с ROUTE:
+    // (бэкенд пишет его при назначении). Рисуем сразу, без ожидания
+    // refreshCoordsOnly / updateRouteForEngineer.
+    for (var ir = 0; ir < state.activeRequests.length; ir++) {
+        var ar = state.activeRequests[ir];
+        if (!ar.engineerId || !ar.parking || ar.parking === '—') continue;
+        if (ar.status === 'queued') continue;
+        var ticket = null;
+        for (var it = 0; it < data.length; it++) {
+            if (data[it].id === ar.id) { ticket = data[it]; break; }
+        }
+        if (!ticket) continue;
+        var parsedRoute = parseRouteFromComment(ticket.engineer_comment || '');
+        if (!parsedRoute) continue;
+        var routeKey = 'route_' + ar.engineerId;
+        // не перезаписываем, если уже есть актуальный маршрут с тем же requestId
+        if (state.routeData[routeKey] && state.routeData[routeKey].requestId === ar.id) continue;
+        state.routeData[routeKey] = {
+            from: parsedRoute.from,
+            to: parsedRoute.to,
+            empId: ar.engineerId,
+            requestId: ar.id,
+            parkingId: parsedRoute.parkingId || ar.parking,
+            totalTime: parsedRoute.time,
+            walkTime: parsedRoute.time,
+            bestCar: parsedRoute.bestCar,
+            bestCarTime: parsedRoute.bestCarTime,
+            walkToCar: parsedRoute.walkToCar,
+            bestCarTimeExact: parsedRoute.bestCarTimeExact,
+            walkToCarExact: parsedRoute.walkToCarExact,
+            usingCar: parsedRoute.usingCar,
+            path: parsedRoute.path
+        };
+    }
+
     for (var i2 = 0; i2 < data.length; i2++) {
         var t2 = data[i2];
         if (t2.status !== 'queued') continue;
@@ -2061,7 +2147,12 @@ function processRequestsData(data) {
     state.flights = [];
     for (var i3 = 0; i3 < data.length; i3++) {
         var t3 = data[i3];
-        if (t3.source === 'pilot' || t3.pilot_audio) continue;
+        // Заявки от пилота/ЦПУ, ещё не прошедшие маршрутизацию, в «Рейсы» не берём.
+        // Прошедшие (technician/dispatcher/done) — показываем как обычные рейсы.
+        var isPilotSource3 = (t3.source === 'pilot' || t3.pilot_audio);
+        var stage3 = t3.routing_stage || 'mcc';
+        var isRoutedFurther3 = (stage3 === 'technician' || stage3 === 'dispatcher' || stage3 === 'done');
+        if (isPilotSource3 && !isRoutedFurther3) continue;
         if (t3.flight_cancelled) continue;
         var fd3 = CONFIG.FAULT_TYPES[t3.fault_type];
         var delayElapsed = 0;
@@ -2105,6 +2196,7 @@ function loadRequestsOnly() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             processRequestsData(data);
+            renderMapMarkers();          // ← перерисовать карту с новыми маршрутами
             updateActiveRequests();
             updateStats();
             if (state.currentTab === 'pilot') renderPilotRequests();
@@ -2113,6 +2205,45 @@ function loadRequestsOnly() {
             if (state.currentTab === 'flights') renderFlights();
         })
         .catch(function(err) { console.error(err); });
+}
+
+// Синхронизирует state.routeData с активными заявками:
+// — убирает маршруты для заявок, которых больше нет / сменился инженер
+// — создаёт/обновляет маршруты для назначенных инженеров
+function syncRoutesWithActiveRequests() {
+    var activeByEngineer = {};
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        var a = state.activeRequests[i];
+        if (a.engineerId && a.parking && a.parking !== '—') {
+            activeByEngineer[a.engineerId] = a;
+        }
+    }
+
+    // 1. Удаляем устаревшие маршруты
+    for (var rk in state.routeData) {
+        if (!state.routeData.hasOwnProperty(rk)) continue;
+        var rd = state.routeData[rk];
+        var empId = rd.empId;
+        var active = empId ? activeByEngineer[empId] : null;
+        if (!active || active.id !== rd.requestId) {
+            // маршрут больше не соответствует активной заявке этого инженера
+            if (empId) clearRouteForEngineer(empId);
+            else {
+                if (state.mapMarkers[rk]) { try { map.removeLayer(state.mapMarkers[rk]); } catch(e) {} delete state.mapMarkers[rk]; }
+                if (state.mapMarkers[rk + '_label']) { try { map.removeLayer(state.mapMarkers[rk + '_label']); } catch(e) {} delete state.mapMarkers[rk + '_label']; }
+                delete state.routeData[rk];
+            }
+        }
+    }
+
+    // 2. Для назначенных инженеров без маршрута — рисуем
+    for (var empId2 in activeByEngineer) {
+        if (!activeByEngineer.hasOwnProperty(empId2)) continue;
+        var routeKey = 'route_' + empId2;
+        if (!state.routeData[routeKey]) {
+            updateRouteForEngineer(empId2);
+        }
+    }
 }
 
 function enqueueTranscription(requestId) {
@@ -2165,42 +2296,63 @@ function processTranscriptionQueue() {
 }
 
 function refreshCoordsOnly() {
+    if (!state.dataLoaded) return;
+
+    // ─────────── Инженеры ───────────
     fetch(API_URL + '/engineers')
         .then(function(res) { return res.json(); })
         .then(function(data) {
+            if (!data) return;
             var changed = false;
             for (var i = 0; i < data.length; i++) {
                 var e = data[i];
                 for (var j = 0; j < state.employees.length; j++) {
-                    if (state.employees[j].realId === e.id) {
-                        var newLat = e.coords_lat || state.employees[j].lat;
-                        var newLng = e.coords_lng || state.employees[j].lng;
-                        if (Math.abs(state.employees[j].lat - newLat) > 0.00001 || Math.abs(state.employees[j].lng - newLng) > 0.00001) {
-                            state.employees[j].lat = newLat;
-                            state.employees[j].lng = newLng;
+                    var emp = state.employees[j];
+                    if (emp.realId !== e.id) continue;
+
+                    // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
+                    if (!emp._syncPending) {
+                        var newLat = (e.coords_lat !== undefined && e.coords_lat !== null) ? e.coords_lat : emp.lat;
+                        var newLng = (e.coords_lng !== undefined && e.coords_lng !== null) ? e.coords_lng : emp.lng;
+                        if (Math.abs(emp.lat - newLat) > 0.00001 ||
+                            Math.abs(emp.lng - newLng) > 0.00001) {
+                            emp.lat = newLat;
+                            emp.lng = newLng;
                             changed = true;
                         }
-                        var newStatus = e.status || 'free';
-                        var newTask = e.task || '';
-                        if (state.employees[j].status !== newStatus || state.employees[j].task !== newTask) {
-                            state.employees[j].status = newStatus;
-                            state.employees[j].busy = newStatus !== 'free' && newStatus !== 'offline';
-                            state.employees[j].task = newTask;
-                            changed = true;
-                        }
-                        break;
                     }
+                    var newStatus = e.status || 'free';
+                    var newTask = e.task || '';
+                    var newStep = e.task_step || 'idle';
+                    var newStarted = e.task_started_at || null;
+                    if (emp.status !== newStatus || emp.task !== newTask ||
+                        emp.taskStep !== newStep || emp.taskStartedAt !== newStarted) {
+                        emp.status = newStatus;
+                        emp.busy = newStatus !== 'free' && newStatus !== 'offline';
+                        emp.task = newTask;
+                        emp.taskStep = newStep;
+                        emp.taskStartedAt = newStarted;
+                        changed = true;
+                    }
+                    break;
                 }
             }
             if (changed) {
-                renderMapMarkers();
+                // Двигаем существующие маркеры без пересоздания
                 for (var k = 0; k < state.employees.length; k++) {
-                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                    var empK = state.employees[k];
+                    var mk = state.mapMarkers['emp_' + empK.realId];
+                    if (mk && empK.lat != null && empK.lng != null) {
+                        mk.setLatLng([empK.lat, empK.lng]);
+                    }
                 }
+                // Пересчитываем оставшееся время в карточках
+                if (typeof updateActiveRequests === 'function') updateActiveRequests();
             }
         })
-        .catch(function(err) { console.error(err); });
+        .catch(function(err) { console.error('[SYNC] refresh engineers', err); });
 
+    // ─────────── Транспорт ───────────
     fetch(API_URL + '/transport')
         .then(function(res) { return res.json(); })
         .then(function(data) {
@@ -2209,25 +2361,61 @@ function refreshCoordsOnly() {
             for (var i = 0; i < data.length; i++) {
                 var t = data[i];
                 for (var j = 0; j < state.transport.length; j++) {
-                    if (state.transport[j].id === t.id) {
-                        if (Math.abs(state.transport[j].lat - t.lat) > 0.00001 || Math.abs(state.transport[j].lng - t.lng) > 0.00001) {
-                            state.transport[j].lat = t.lat;
-                            state.transport[j].lng = t.lng;
+                    var tr = state.transport[j];
+                    if (tr.id !== t.id) continue;
+
+                    // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
+                    if (!tr._syncPending) {
+                        if (Math.abs(tr.lat - t.lat) > 0.00001 ||
+                            Math.abs(tr.lng - t.lng) > 0.00001) {
+                            tr.lat = t.lat;
+                            tr.lng = t.lng;
                             changed = true;
                         }
-                        if (t.speed && state.transport[j].speed !== t.speed) { state.transport[j].speed = t.speed; changed = true; }
-                        break;
+                        if (t.speed && tr.speed !== t.speed) {
+                            tr.speed = t.speed;
+                            changed = true;
+                        }
                     }
+                    tr.assignedTo = t.assigned_to || tr.assignedTo;
+                    break;
                 }
             }
             if (changed) {
-                renderMapMarkers();
-                for (var k = 0; k < state.employees.length; k++) {
-                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                for (var k = 0; k < state.transport.length; k++) {
+                    var carK = state.transport[k];
+                    var mkC = state.mapMarkers['car_' + carK.id];
+                    if (!mkC) continue;
+                    var cLat = carK.lat, cLng = carK.lng;
+                    // Если машина привязана к заявке и инженер в ней — двигаем к инженеру
+                    if (carK.assignedTo) {
+                        for (var ia2 = 0; ia2 < state.activeRequests.length; ia2++) {
+                            var aR2 = state.activeRequests[ia2];
+                            if (aR2.id === carK.assignedTo && aR2.engineerId) {
+                                var empK2 = null;
+                                for (var ie2 = 0; ie2 < state.employees.length; ie2++) {
+                                    if (state.employees[ie2].realId === aR2.engineerId) { empK2 = state.employees[ie2]; break; }
+                                }
+                                if (empK2 && empK2.taskStep === 'in_car' && empK2.lat != null && empK2.lng != null) {
+                                    cLat = empK2.lat;
+                                    cLng = empK2.lng;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (cLat != null && cLng != null) {
+                        mkC.setLatLng([cLat, cLng]);
+                    }
                 }
             }
         })
-        .catch(function(err) { console.error(err); });
+        .catch(function(err) { console.error('[SYNC] refresh transport', err); });
+
+    // Пересчитываем оставшееся время в карточках заявок
+    if (typeof updateActiveRequests === 'function') {
+        updateActiveRequests();
+    }
 }
 
 function clearRouteForEngineer(engineerId) {
@@ -2252,77 +2440,125 @@ function initMap() {
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
+    // ── Слой объектов (полигоны) — под маркерами ──
+    state.objectsLayer = L.layerGroup().addTo(map);
+
+    // ── Слой стоянок ──
+    state.parkingLayer = L.layerGroup().addTo(map);
+
+    // ── Roads (невидимый, для маршрутов) ──
     fetch('/static/roads.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('roads.geojson не найден'); return res.json(); })
+        .then(function(res) { if (!res.ok) throw new Error('roads.geojson'); return res.json(); })
         .then(function(data) {
             state.roadsLayer = L.geoJSON(data);
-            console.log('[GRAPH] roads.geojson загружен (' + data.features.length + ' фич, скрыт)');
+            console.log('[MAP] roads.geojson загружен (скрыт для расчётов)');
         })
-        .catch(function(e) { console.warn('[GRAPH] roads.geojson не загружен:', e.message); });
+        .catch(function(e) { console.warn('[MAP] roads.geojson:', e.message); });
 
-    fetch('/static/aircraft_paths.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson не найден'); return res.json(); })
-        .then(function(data) {
-            state.aircraftLayer = L.geoJSON(data);
+    // ── Объекты (все Polygon/MultiPolygon из svo_all.geojson) ──
+    fetch(API_URL + '/map-objects')
+        .then(function(r) { return r.json(); })
+        .then(function(objects) {
+            if (!Array.isArray(objects) || objects.length === 0) {
+                console.warn('[MAP] /api/map-objects вернул пусто');
+                return;
+            }
+            for (var i = 0; i < objects.length; i++) {
+                var o = objects[i];
+                if (!o.latlngs || o.latlngs.length < 3) continue;
+                var poly = L.polygon(o.latlngs, {
+                    color: o.color || '#1e40af',
+                    weight: o.weight != null ? o.weight : 1.5,
+                    opacity: o.opacity != null ? o.opacity : 0.9,
+                    fillColor: o.color || '#1e40af',
+                    fillOpacity: o.fillOpacity != null ? o.fillOpacity : 0.35,
+                    interactive: true
+                });
+                poly.bindTooltip(o.name || 'Объект', { sticky: true });
+                poly.addTo(state.objectsLayer);
+            }
+            console.log('[MAP] Объектов отрисовано:', objects.length);
+        })
+        .catch(function(err) { console.error('[MAP] objects load', err); });
 
-            var parkingOnly = {
-                type: 'FeatureCollection',
-                features: data.features.filter(function(f) {
-                    var p = f.properties || {};
-                    if (p.category !== 'parking') return false;
-                    var ref = String(p.ref || '').trim();
-                    var n = parseInt(ref, 10);
-                    if (isNaN(n)) return false;
-                    return (n >= 101 && n <= 146) || (n >= 11 && n <= 60);
-                })
-            };
+    fetch(API_URL + '/parking')
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            if (!Array.isArray(list) || list.length === 0) {
+                console.warn('[MAP] /api/parking вернул пусто');
+                return;
+            }
 
-            state.parkingLayer = L.geoJSON(parkingOnly, {
-                pointToLayer: function(feature, latlng) {
-                    var p = feature.properties || {};
-                    var ref = p.ref || '';
-                    var marker = L.marker(latlng, {
-                        icon: L.divIcon({
-                            className: 'aircraft-parking-marker',
-                            html:
-                                '<div style="background:#1e40af;color:#fff;border-radius:50%;' +
-                                'width:20px;height:20px;display:flex;flex-direction:column;' +
-                                'align-items:center;justify-content:center;' +
-                                'font-size:7px;font-weight:700;line-height:1;' +
-                                'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
-                                    '<i class="fas fa-plane" style="font-size:8px;"></i>' +
-                                    (ref ? '<span style="font-size:6px;margin-top:1px;">' + ref + '</span>' : '') +
-                                '</div>',
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
-                        })
+            for (var i = 0; i < list.length; i++) {
+                var p = list[i];
+                if (!p.ref || p.lat == null || p.lng == null) continue;
+
+                // Заполняем MAP_POINTS для расчётов маршрутов
+                CONFIG.MAP_POINTS[p.ref] = { lat: p.lat, lng: p.lng };
+
+                // Видимый маркер стоянки
+                var parkingIcon = L.divIcon({
+                    className: 'aircraft-parking-marker',
+                    html:
+                        '<div style="' +
+                            'color:#f59e0b;' +
+                            'font-family:Inter,sans-serif;' +
+                            'font-size:11px;' +
+                            'font-weight:700;' +
+                            'text-shadow:0 1px 3px rgba(0,0,0,0.65),0 0 6px rgba(255,255,255,0.9);' +
+                            'line-height:1;' +
+                            'white-space:nowrap;' +
+                            'pointer-events:auto;' +
+                            'user-select:none;' +
+                        '">' + p.ref + '</div>',
+                    iconSize: [30, 16],
+                    iconAnchor: [15, 8]
+                });
+
+                (function(parkingRef, parkingName) {
+                    var marker = L.marker([p.lat, p.lng], {
+                        icon: parkingIcon,
+                        interactive: true,
+                        riseOnHover: true
+                    });
+                    marker.bindTooltip(parkingName || ('Стоянка ' + parkingRef), {
+                        direction: 'top',
+                        offset: [0, -12]
                     });
                     marker.on('click', function() {
-                        if (!ref) return;
                         var parkingSel = document.getElementById('parkingSelect');
                         if (!parkingSel) return;
-                        for (var i = 0; i < parkingSel.options.length; i++) {
-                            if (parkingSel.options[i].value === String(ref)) {
-                                parkingSel.selectedIndex = i;
-                                showToast('Выбрана стоянка ' + ref, 'info');
+                        for (var k = 0; k < parkingSel.options.length; k++) {
+                            if (parkingSel.options[k].value === String(parkingRef)) {
+                                parkingSel.selectedIndex = k;
+                                showToast('Выбрана стоянка ' + parkingRef, 'info');
                                 break;
                             }
                         }
                     });
-                    return marker;
-                },
-                onEachFeature: function(feature, layer) {
-                    var p = feature.properties || {};
-                    var html = '<strong>' + (p.name || p.ref || 'Стоянка') + '</strong>';
-                    if (p.ref)      html += '<br>Ref: ' + p.ref;
-                    if (p.aircraft) html += '<br>ВС: ' + p.aircraft;
-                    layer.bindPopup(html);
+                    marker.addTo(state.parkingLayer);
+                })(p.ref, p.name);
+            }
+
+            // Кэшируем список стоянок для выпадающего списка
+            _allParkingsCache = list;
+            updateParkingList();
+            console.log('[MAP] Стоянок отрисовано:', list.length);
+        })
+        .catch(function(err) { console.error('[MAP] parking load', err); });
+
+    // ── Paths ВС (если файл есть) — для отображения контуров ВС ──
+    fetch('/static/aircraft_paths.geojson')
+        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson'); return res.json(); })
+        .then(function(data) {
+            state.aircraftLayer = L.geoJSON(data, {
+                style: function() {
+                    return { color: '#8a9bb5', weight: 1, opacity: 0.5, fillOpacity: 0.05 };
                 }
             }).addTo(map);
-
-            console.log('[OSM] aircraft_paths.geojson загружен (стоянок: ' + parkingOnly.features.length + ')');
+            console.log('[MAP] aircraft_paths.geojson добавлен (контуры)');
         })
-        .catch(function(e) { console.warn('[OSM] aircraft_paths.geojson не загружен:', e.message); });
+        .catch(function(e) { console.warn('[MAP] aircraft_paths.geojson:', e.message); });
 
     if (state.dataLoaded) renderMapMarkers();
 }
@@ -2360,18 +2596,59 @@ function renderMapMarkers() {
             className: 'employee-marker status-' + statusClass,
             html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18]
         });
-        var marker = L.marker([lat, lng], { icon: icon }).addTo(map).bindPopup(createEmployeePopup(emp));
-        enableDragging(marker, emp.realId, 'employee');
+        var marker = L.marker([lat, lng], {icon: icon, draggable: true, autoPan: true})
+        .on('dragstart', function() { state.isDragging = true; })
+        .on('dragend', function(e) {
+            state.isDragging = false;
+            var pos = e.target.getLatLng();
+             emp.lat = pos.lat; emp.lng = pos.lng;
+            persistEngineerCoords(emp);
+            // Диспетчер переместил инженера вручную → пересчитываем маршрут
+            if (!emp.isFree()) updateRouteForEngineer(emp.realId, true);
+            saveStateToLocalStorage();
+            showToast(emp.name + ' перемещён', 'success');
+        })
+        .addTo(map).bindPopup(createEmployeePopup(emp));
         state.mapMarkers['emp_' + emp.realId] = marker;
     }
 
     for (var iC = 0; iC < state.transport.length; iC++) {
         var car = state.transport[iC];
+        var carLat = car.lat;
+        var carLng = car.lng;
+        if (car.assignedTo) {
+            for (var ia = 0; ia < state.activeRequests.length; ia++) {
+                var aR = state.activeRequests[ia];
+                if (aR.id === car.assignedTo && aR.engineerId) {
+                    var empC = null;
+                    for (var ie = 0; ie < state.employees.length; ie++) {
+                        if (state.employees[ie].realId === aR.engineerId) { empC = state.employees[ie]; break; }
+                    }
+                    if (empC && empC.taskStep === 'in_car' && empC.lat != null && empC.lng != null) {
+                        carLat = empC.lat;
+                        carLng = empC.lng;
+                    }
+                    break;
+                }
+            }
+        }
         var iconHtmlC = '<span class="car-icon"><i class="fas fa-car"></i></span><span class="car-id">' + car.deviceId +
                         '</span><span class="car-speed">' + car.speed + ' км/ч</span>';
         var iconC = L.divIcon({ className: 'car-marker', html: iconHtmlC, iconSize: [44, 44], iconAnchor: [22, 22] });
-        var markerC = L.marker([car.lat, car.lng], { icon: iconC }).addTo(map).bindPopup(createCarPopup(car));
-        enableDragging(markerC, car.id, 'transport');
+        var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true})
+        .on('dragstart', function() { state.isDragging = true; })
+        .on('dragend', function(e) {
+            state.isDragging = false;
+            var pos = e.target.getLatLng();
+            car.lat = pos.lat; car.lng = pos.lng;
+            persistTransportCoords(car);
+            for (var k = 0; k < state.employees.length; k++) {
+                if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+            }
+            saveStateToLocalStorage();
+            showToast(car.deviceId + ' перемещён', 'success');
+        })
+        .addTo(map).bindPopup(createCarPopup(car));
         state.mapMarkers['car_' + car.id] = markerC;
     }
 
@@ -2416,7 +2693,8 @@ function calculateOptimalRoute(emp, targetLat, targetLng) {
         var carSpeed = car.speed && car.speed > 0 ? Math.min(car.speed, 20) : 20;
         var driveDist = distanceKm(car.lat, car.lng, targetLat, targetLng);
         var driveTime = driveDist / carSpeed * 60;
-        var totalTime = walkToCar + 1.5 + driveTime + 1.0;
+        // Сумма без «посадочных» коэффициентов — чтобы совпадала с бэкендом.
+        var totalTime = walkToCar + driveTime;
         if (totalTime < bestTotalTime) {
             bestTotalTime = totalTime;
             bestCar = car;
@@ -2424,12 +2702,17 @@ function calculateOptimalRoute(emp, targetLat, targetLng) {
             bestWalkToCar = walkToCar;
         }
     }
-
     return {
-        totalTime: round1(bestTotalTime), walkTime: round1(walkTime),
-        bestCar: bestCar, bestCarTime: round1(bestCarTime), walkToCar: round1(bestWalkToCar),
+        totalTime: round1(bestTotalTime),
+        walkTime: round1(walkTime),
+        bestCar: bestCar,
+        bestCarTime: round1(bestCarTime),
+        walkToCar: round1(bestWalkToCar),
+        bestCarTimeExact: bestCarTime,
+        walkToCarExact: bestWalkToCar,
         usingCar: bestCar !== null && bestTotalTime < walkTime,
-        from: { lat: emp.lat, lng: emp.lng }, to: { lat: targetLat, lng: targetLng },
+        from: { lat: emp.lat, lng: emp.lng },
+        to: { lat: targetLat, lng: targetLng },
         empId: emp.realId
     };
 }
@@ -2460,7 +2743,7 @@ function fetchExactPath(routeData) {
     });
 }
 
-function updateRouteForEngineer(engineerId) {
+function updateRouteForEngineer(engineerId, force) {
     var emp = null;
     for (var i = 0; i < state.employees.length; i++) if (state.employees[i].realId === engineerId) { emp = state.employees[i]; break; }
     if (!emp) return;
@@ -2473,6 +2756,42 @@ function updateRouteForEngineer(engineerId) {
     var routeKey = 'route_' + engineerId;
     if (!activeRequest) { clearRouteForEngineer(engineerId); return; }
 
+    // Если маршрут уже зафиксирован и НЕ пришло указание пересчитать (force)
+    // — берём ROUTE: из engineer_comment и только рисуем.
+    if (!force) {
+        var ticket = null;
+        for (var it = 0; it < state.tickets.length; it++) {
+            if (state.tickets[it].id === activeRequest.id) { ticket = state.tickets[it]; break; }
+        }
+        if (ticket) {
+            var serverRoute = parseRouteFromComment(ticket.engineer_comment || '');
+            if (serverRoute && serverRoute.path && serverRoute.path.length > 1) {
+                if (!state.routeData[routeKey] ||
+                    state.routeData[routeKey].requestId !== activeRequest.id) {
+                    state.routeData[routeKey] = {
+                        from: serverRoute.from,
+                        to: serverRoute.to,
+                        empId: engineerId,
+                        requestId: activeRequest.id,
+                        parkingId: serverRoute.parkingId || activeRequest.parking,
+                        totalTime: serverRoute.time,
+                        walkTime: serverRoute.time,
+                        bestCar: serverRoute.bestCar,
+                        bestCarTime: serverRoute.bestCarTime,
+                        walkToCar: serverRoute.walkToCar,
+                        bestCarTimeExact: serverRoute.bestCarTimeExact,
+                        walkToCarExact: serverRoute.walkToCarExact,
+                        usingCar: serverRoute.usingCar,
+                        path: serverRoute.path
+                    };
+                    drawRoute(state.routeData[routeKey]);
+                }
+                return;
+            }
+        }
+    }
+
+    // Пересчитываем (force=true или маршрута ещё нет)
     var parkingCoords = CONFIG.MAP_POINTS[activeRequest.parking];
     if (!parkingCoords) return;
 
@@ -2481,11 +2800,15 @@ function updateRouteForEngineer(engineerId) {
         from: { lat: emp.lat, lng: emp.lng },
         to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
         empId: engineerId,
+        requestId: activeRequest.id,
+        parkingId: activeRequest.parking,
         totalTime: route.totalTime,
         walkTime: route.walkTime,
         bestCar: route.bestCar,
         bestCarTime: route.bestCarTime,
         walkToCar: route.walkToCar,
+        bestCarTimeExact: route.bestCarTimeExact,
+        walkToCarExact: route.walkToCarExact,
         usingCar: route.usingCar,
         path: null
     };
@@ -2499,10 +2822,14 @@ function updateRouteForEngineer(engineerId) {
             state.routeData[routeKey] = routeData;
             drawRoute(routeData);
         }
+        persistRouteToServer(activeRequest.id, routeData);
     });
 
     for (var i3 = 0; i3 < state.activeRequests.length; i3++) {
-        if (state.activeRequests[i3].engineerId === engineerId) { state.activeRequests[i3].time = route.totalTime; break; }
+        if (state.activeRequests[i3].engineerId === engineerId) {
+            state.activeRequests[i3].time = route.totalTime;
+            break;
+        }
     }
     updateActiveRequests();
 }
@@ -2531,7 +2858,11 @@ function drawRoute(route) {
 
     var labelText;
     if (route.usingCar && route.bestCar) {
-        labelText = route.walkToCar + ' мин пешком → ' + route.bestCarTime + ' мин на машине = ' + route.totalTime + ' мин';
+        // Сумму считаем из точных слагаемых, чтобы не было 6.6 + 1.7 = 10.8
+        var wExact = (route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar;
+        var cExact = (route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime;
+        var sum = round1(wExact + cExact);
+        labelText = round1(wExact) + ' мин пешком → ' + round1(cExact) + ' мин на машине = ' + sum + ' мин';
     } else {
         labelText = route.totalTime + ' мин пешком';
     }
@@ -2648,16 +2979,54 @@ function enableDragging(marker, id, type) {
     });
 }
 
+var _allParkingsCache = null;  // кэш списка стоянок из /api/parking
+
 function updateParkingList() {
-    var terminal = document.getElementById('terminalSelect').value;
     var parkingSelect = document.getElementById('parkingSelect');
-    var parkings = CONFIG.PARKING_BY_TERMINAL[terminal] || [];
+    if (!parkingSelect) return;
+
+    // Если кэш пуст — грузим с сервера
+    if (!_allParkingsCache) {
+        fetch(API_URL + '/parking')
+            .then(function(r) { return r.json(); })
+            .then(function(list) {
+                _allParkingsCache = Array.isArray(list) ? list : [];
+                _fillParkingSelect(_allParkingsCache);
+            })
+            .catch(function(err) {
+                console.error('[PARKING] load failed', err);
+                parkingSelect.innerHTML = '<option value="">— нет данных —</option>';
+            });
+        return;
+    }
+    _fillParkingSelect(_allParkingsCache);
+}
+
+function _fillParkingSelect(list) {
+    var parkingSelect = document.getElementById('parkingSelect');
+    if (!parkingSelect) return;
+    var current = parkingSelect.value;
     parkingSelect.innerHTML = '';
-    for (var i = 0; i < parkings.length; i++) {
+    // Сортируем: числовые ref по возрастанию, затем буквенные
+    var sorted = list.slice().sort(function(a, b) {
+        var na = parseInt(a.ref, 10), nb = parseInt(b.ref, 10);
+        var aNum = !isNaN(na), bNum = !isNaN(nb);
+        if (aNum && bNum) return na - nb || String(a.ref).localeCompare(String(b.ref));
+        if (aNum) return -1;
+        if (bNum) return 1;
+        return String(a.ref).localeCompare(String(b.ref));
+    });
+    for (var i = 0; i < sorted.length; i++) {
+        var p = sorted[i];
+        if (!p.ref) continue;
         var option = document.createElement('option');
-        option.value = parkings[i];
-        option.textContent = 'Выход ' + parkings[i];
+        option.value = p.ref;
+        option.textContent = 'Стоянка ' + p.ref;
+        if (String(current) === String(p.ref)) option.selected = true;
         parkingSelect.appendChild(option);
+    }
+    if (!parkingSelect.options.length) {
+        parkingSelect.innerHTML = '<option value="">— нет стоянок —</option>';
     }
 }
 
@@ -2682,7 +3051,6 @@ function showNotification(engineer, route, flightNumber) {
 
 function createRequest(e) {
     e.preventDefault();
-    var terminal = document.getElementById('terminalSelect').value;
     var parking = document.getElementById('parkingSelect').value;
     var fault = document.getElementById('faultType').value;
     var severity = document.getElementById('faultSeverity').value;
@@ -2706,7 +3074,7 @@ function createRequest(e) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             aircraft: flightNumber, fault_type: fault, severity: severity,
-            terminal: terminal, parking_id: parking
+            parking_id: parking
         })
     })
     .then(function(res) { return res.json(); })
@@ -2729,11 +3097,12 @@ function createRequest(e) {
                 break;
             }
         }
-
         var routeData = {
             from: { lat: engineer.coords_lat || 55.975, lng: engineer.coords_lng || 37.410 },
             to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
             empId: engineerId,
+            requestId: requestId,
+            parkingId: parking,
             totalTime: result.selected.travel_time || 0,
             walkTime: result.selected.walk_time || 0,
             bestCar: result.selected.best_car_obj || null,
@@ -2747,37 +3116,31 @@ function createRequest(e) {
         drawRoute(routeData);
         showNotification(engineer, routeData, flightNumber);
 
-        if (!routeData.path) {
+        var criticality = severity === 'high' ? 'high' : (severity === 'low' ? 'low' : 'medium');
+
+        function saveAndSync() {
+            if (requestId) {
+                persistRouteToServer(requestId, routeData, {
+                    status: 'assigned',
+                    criticality: criticality
+                });
+            }
+            loadRequestsOnly();
+        }
+
+        if (routeData.path) {
+            saveAndSync();
+        } else {
             fetchExactPath(routeData).then(function(path) {
                 if (path && path.length > 0) {
                     routeData.path = path;
                     state.routeData['route_' + engineerId] = routeData;
                     drawRoute(routeData);
                 }
+                saveAndSync();
             });
         }
 
-        if (requestId) {
-            var routeJSON = JSON.stringify({
-                tt: routeData.totalTime, uc: routeData.usingCar,
-                wc: routeData.walkToCar, ct: routeData.bestCarTime,
-                bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
-                bclat: routeData.bestCar ? routeData.bestCar.lat : null,
-                bclng: routeData.bestCar ? routeData.bestCar.lng : null,
-                flat: routeData.from.lat, flng: routeData.from.lng,
-                tlat: routeData.to.lat, tlng: routeData.to.lng, pid: parking
-            });
-            fetch(API_URL + '/requests/' + requestId, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    status: 'assigned',
-                    criticality: severity === 'high' ? 'high' : (severity === 'low' ? 'low' : 'medium'),
-                    engineer_comment: 'ROUTE:' + routeJSON
-                })
-            }).catch(function(err) { console.warn('Не удалось сохранить маршрут:', err); });
-        }
-
-        loadRequestsOnly();
         setTimeout(function() { renderAll(); updateStats(); saveStateToLocalStorage(); }, 500);
         document.getElementById('flightNumber').value = '';
     })
@@ -2814,6 +3177,64 @@ function clearAllRequests() {
         .catch(function() { showToast('Ошибка соединения', 'error'); });
 }
 
+function deleteDispatcherRequest(id) {
+    // Находим заявку в локальном кэше
+    var req = null;
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        if (state.activeRequests[i].id === id) { req = state.activeRequests[i]; break; }
+    }
+
+    var msg = 'Удалить заявку?';
+    if (req) {
+        msg += '\n\nБорт: ' + (req.aircraft || '—') +
+               '\nДефект: ' + (req.fault || '—') +
+               '\nСтоянка: ' + (req.parking || '—') +
+               (req.engineer && req.engineer !== '—' ? '\nИнженер: ' + req.engineer : '');
+    }
+    msg += '\n\nДействие необратимо. Инженер будет освобождён, заявка удалена из БД.';
+
+    if (!confirm(msg)) return;
+
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Заявка удалена', 'success');
+
+                // Убираем маршрут с карты и из state.routeData
+                if (req && req.engineerId) {
+                    clearRouteForEngineer(req.engineerId);
+                }
+                // На всякий случай чистим по requestId все записи routeData,
+                // если инженер в кэше не нашёлся
+                for (var rk in state.routeData) {
+                    if (state.routeData.hasOwnProperty(rk) && state.routeData[rk].requestId === id) {
+                        var empId = state.routeData[rk].empId;
+                        if (empId) clearRouteForEngineer(empId);
+                        else {
+                            if (state.mapMarkers[rk]) { try { map.removeLayer(state.mapMarkers[rk]); } catch(e) {} delete state.mapMarkers[rk]; }
+                            if (state.mapMarkers[rk + '_label']) { try { map.removeLayer(state.mapMarkers[rk + '_label']); } catch(e) {} delete state.mapMarkers[rk + '_label']; }
+                            delete state.routeData[rk];
+                        }
+                    }
+                }
+                saveStateToLocalStorage();
+
+                // Перезагружаем данные
+                loadRequestsOnly();
+                setTimeout(function() {
+                    renderMapMarkers();
+                    updateStats();
+                }, 300);
+            } else {
+                showToast('Ошибка: ' + (res.error || ''), 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('Ошибка: ' + err.message, 'error');
+        });
+}
+window.deleteDispatcherRequest = deleteDispatcherRequest;
 function updateActiveRequests() {
     var list = document.getElementById('activeRequests');
     var badge = document.getElementById('activeBadge');
@@ -2839,10 +3260,38 @@ function updateActiveRequests() {
 
         var routeInfo = '';
         var routeKey = 'route_' + req.engineerId;
+        // Ищем инженера, чтобы взять task_started_at и task_step
+        var empForReq = null;
+        for (var ie0 = 0; ie0 < state.employees.length; ie0++) {
+            if (state.employees[ie0].realId === req.engineerId) { empForReq = state.employees[ie0]; break; }
+        }
         if (state.routeData[routeKey]) {
             var route = state.routeData[routeKey];
-            if (route.usingCar && route.bestCar) routeInfo = route.walkToCar + ' + ' + route.bestCarTime + ' мин';
-            else routeInfo = route.totalTime + ' мин';
+            var totalMin = route.totalTime || 0;
+            var elapsedMin = 0;
+            if (empForReq && empForReq.taskStartedAt) {
+                elapsedMin = Math.max(0, (Date.now() - new Date(empForReq.taskStartedAt).getTime()) / 60000);
+            }
+            var remainMin = Math.max(0, totalMin - elapsedMin);
+            var stepNow = empForReq ? empForReq.taskStep : null;
+            if (stepNow === 'accepted' || stepNow === 'in_car') {
+                if (remainMin > 0) {
+                    routeInfo = 'осталось ' + Math.ceil(remainMin) + ' мин';
+                } else {
+                    routeInfo = 'прибывает';
+                }
+            } else if (stepNow === 'arrived') {
+                routeInfo = 'на месте';
+            } else if (stepNow === 'diagnosing') {
+                routeInfo = 'диагностика';
+            } else if (route.usingCar && route.bestCar) {
+                var wE = (route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar;
+                var cE = (route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime;
+                var sumE = round1(wE + cE);
+                routeInfo = round1(wE) + ' + ' + round1(cE) + ' = ' + sumE + ' мин';
+            } else {
+                routeInfo = totalMin + ' мин';
+            }
         }
 
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
@@ -2852,10 +3301,13 @@ function updateActiveRequests() {
             '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
             '<div class="req-detail">' + req.fault + ' • Стоянка ' + req.parking + '</div>' +
             '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
             '<div style="font-weight:600;font-size:13px;">' + req.engineer + '</div>' +
             '<div class="req-status" style="color:' + (statusClass === 'free' ? 'var(--aero-green)' : 'var(--aero-orange)') + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
             '<div style="font-size:10px;color:var(--aero-gray);margin-top:2px;">' + routeInfo + '</div>' +
+            '</div>' +
+            '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
             '</div></div>';
     }
     list.innerHTML = html;
@@ -3457,7 +3909,7 @@ function moveToClick(id, type) {
                         body: JSON.stringify({ lat: lat, lng: lng })
                     }).then(function() {
                         state.isUpdating = false;
-                        renderMapMarkers(); updateRouteForEngineer(id); saveStateToLocalStorage();
+                        renderMapMarkers(); updateRouteForEngineer(id, true); saveStateToLocalStorage();
                     });
                     break;
                 }
@@ -3673,22 +4125,26 @@ function renderPilotRequests() {
             '<option value="electrical"' + (currentFault === 'electrical' ? ' selected' : '') + '>Электрика</option>' +
             '</optgroup>';
 
-        var terminalOptions = '<option value="">— выберите —</option>';
-        ['B','C','D','E','F'].forEach(function(t) {
-            terminalOptions += '<option value="' + t + '"' + (currentTerminal === t ? ' selected' : '') + '>' + t + '</option>';
-        });
-        var parkings = [];
-        if (currentTerminal && CONFIG.PARKING_BY_TERMINAL[currentTerminal]) parkings = CONFIG.PARKING_BY_TERMINAL[currentTerminal];
         var parkingOptions = '<option value="">— выберите —</option>';
-        for (var pi = 0; pi < parkings.length; pi++) {
-            parkingOptions += '<option value="' + parkings[pi] + '"' + (currentParking === String(parkings[pi]) ? ' selected' : '') + '>' + parkings[pi] + '</option>';
+        var allP = _allParkingsCache || [];
+        var sortedP = allP.slice().sort(function(a, b) {
+            var na = parseInt(a.ref, 10), nb = parseInt(b.ref, 10);
+            var aNum = !isNaN(na), bNum = !isNaN(nb);
+            if (aNum && bNum) return na - nb || String(a.ref).localeCompare(String(b.ref));
+            if (aNum) return -1;
+            if (bNum) return 1;
+            return String(a.ref).localeCompare(String(b.ref));
+        });
+        for (var pi = 0; pi < sortedP.length; pi++) {
+            var pref = sortedP[pi].ref;
+            if (!pref) continue;
+            parkingOptions += '<option value="' + pref + '"' + (currentParking === String(pref) ? ' selected' : '') + '>' + pref + '</option>';
         }
 
         var formBlock = '<div class="pilot-details-section"><h4><i class="fas fa-clipboard-list"></i> Параметры заявки</h4>' +
-            '<div class="pilot-params-grid">' +
+            '<div class="pilot-params-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">' +
             '<div class="pilot-param"><label>Судно (борт)</label><input type="text" class="pilot-input" id="pAircraft_' + escapeHtml(r.id) + '" value="' + escapeHtml(currentAircraft) + '" placeholder="SU-1234"></div>' +
             '<div class="pilot-param"><label>Тип поломки</label><select class="pilot-input" id="pFault_' + escapeHtml(r.id) + '">' + faultOptions + '</select></div>' +
-            '<div class="pilot-param"><label>Терминал</label><select class="pilot-input" id="pTerminal_' + escapeHtml(r.id) + '" onchange="onPilotTerminalChange(\'' + escapeHtml(r.id) + '\')">' + terminalOptions + '</select></div>' +
             '<div class="pilot-param"><label>Стоянка</label><select class="pilot-input" id="pParking_' + escapeHtml(r.id) + '">' + parkingOptions + '</select></div>' +
             '<div class="pilot-param-actions"><button class="btn btn-success btn-sm" onclick="savePilotParams(\'' + escapeHtml(r.id) + '\')"><i class="fas fa-save"></i> Сохранить</button></div>' +
             '</div></div>';

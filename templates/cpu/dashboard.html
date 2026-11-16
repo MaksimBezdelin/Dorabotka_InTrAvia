@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЦПУ · Центральный Пункт Управления — InTrAvia Dispatch</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --aero-blue: #003366; --aero-blue-light: #0055aa; --aero-blue-pale: #e8f0fe;
+  --aero-gold: #c9a84c;
+  --aero-red: #dc2626; --aero-green: #16a34a; --aero-orange: #f59e0b;
+  --aero-text: #1a2332; --aero-text-light: #4a5a6a;
+  --aero-gray: #8a9bb5; --aero-gray-light: #e8ecf0; --aero-bg: #f0f2f5;
+  --shadow-soft: 0 1px 3px rgba(0,0,0,0.04);
+  --mono: 'SF Mono','Consolas','Monaco',monospace;
+}
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--aero-bg); color: var(--aero-text); display: flex; height: 100vh; overflow: hidden; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: var(--aero-gray); border-radius: 4px; }
+
+.sidebar { width: 260px; background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%); padding: 20px 16px; height: 100vh; overflow-y: auto; flex-shrink: 0; display: flex; flex-direction: column; }
+.sidebar-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-brand .brand-icon { width: 40px; height: 40px; background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; flex-shrink: 0; }
+.sidebar-brand .brand-text { font-size: 17px; font-weight: 800; color: #fff; }
+.sidebar-brand .brand-vector { background: linear-gradient(135deg, #4d9fff 0%, #0066cc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; margin-right: 4px; }
+.sidebar-brand .brand-tr { color: #0039A6; }
+.sidebar-brand .brand-avia { color: #D52B1E; }
+.sidebar-user { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; }
+.sidebar-user .avatar { width: 44px; height: 44px; border-radius: 50%; background: rgba(77,159,255,0.15); border: 2px solid rgba(77,159,255,0.4); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #4d9fff; flex-shrink: 0; }
+.sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #fff; }
+.sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
+.sidebar-nav { list-style: none; flex: 1; overflow-y: auto; }
+.sidebar-nav li { margin-bottom: 4px; }
+.sidebar-nav li a { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; color: #8899aa; text-decoration: none; font-size: 13px; font-weight: 500; cursor: pointer; }
+.sidebar-nav li a:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.sidebar-nav li.active a { background: rgba(77,159,255,0.12); color: #fff; font-weight: 600; position: relative; }
+.sidebar-nav li.active a::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--aero-gold); border-radius: 0 2px 2px 0; }
+.sidebar-nav li a i { width: 20px; font-size: 15px; text-align: center; }
+.aeroflot-brand { text-align: center; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; color: #8899aa; }
+.aeroflot-brand img { max-width: 110px; height: auto; margin-bottom: 10px; display: inline-block; }
+.aeroflot-brand .brand-text-small { font-size: 10px; font-weight: 600; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.5px; }
+.sidebar-footer { margin-top: auto; padding-top: 14px; }
+.btn-logout { width: 100%; padding: 10px; background: rgba(255,255,255,0.05); color: #8899aa; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+.btn-logout:hover { background: rgba(220,38,38,0.15); color: #fca5a5; border-color: rgba(220,38,38,0.3); }
+
+.main { flex: 1; padding: 24px 32px 32px; overflow-y: auto; height: 100vh; display: flex; flex-direction: column; gap: 16px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.page-header h1 { font-size: 24px; font-weight: 700; color: var(--aero-text); letter-spacing: -0.3px; }
+.page-header .date { font-size: 13px; color: var(--aero-gray); }
+
+.card { background: #fff; border-radius: 12px; padding: 20px 24px; border: 1px solid var(--aero-gray-light); }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+.card-header h3 { font-size: 15px; font-weight: 700; color: var(--aero-text); display: flex; align-items: center; gap: 8px; }
+.card-header h3::before { content: ''; display: inline-block; width: 3px; height: 16px; background: var(--aero-blue); border-radius: 2px; }
+
+.table-wrapper { overflow-x: auto; border-radius: 10px; border: 1px solid var(--aero-gray-light); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead { background: #f8fafc; border-bottom: 2px solid var(--aero-gray-light); }
+thead th { text-align: left; padding: 12px 14px; font-weight: 700; color: var(--aero-text-light); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+tbody td { padding: 12px 14px; border-bottom: 1px solid var(--aero-gray-light); vertical-align: middle; }
+tbody tr { transition: background 0.15s; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: #f8fafc; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.row-urgent { border-left: 3px solid var(--aero-red); }
+
+.badge { padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; white-space: nowrap; }
+.badge.badge-source { background: #f1f5f9; color: #475569; }
+.badge.badge-aog { background: #fee2e2; color: var(--aero-red); }
+.badge.badge-mel { background: #fef3c7; color: #b45309; }
+.badge.badge-wait { background: var(--aero-blue-pale); color: var(--aero-blue); }
+.badge.badge-ok { background: #dcfce7; color: #15803d; }
+
+.time-age { font-weight: 700; font-family: var(--mono); font-size: 12px; }
+.time-age.critical { color: var(--aero-red); }
+.mono { font-family: var(--mono); font-size: 12px; }
+
+.btn { padding: 8px 14px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--aero-blue); color: #fff; }
+.btn-primary:hover { background: var(--aero-blue-light); }
+.btn-secondary { background: var(--aero-gray-light); color: var(--aero-text); }
+.btn-secondary:hover { background: #d0d7e2; }
+.btn-sm { padding: 6px 11px; font-size: 11px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.empty-state { text-align: center; padding: 40px; color: var(--aero-gray); }
+.empty-state i { font-size: 40px; margin-bottom: 10px; opacity: 0.4; display: block; }
+.empty-state p { font-size: 14px; }
+
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.55); z-index: 20000; justify-content: center; align-items: center; padding: 20px; }
+.modal-overlay.show { display: flex; }
+.modal { background: #fff; border-radius: 14px; max-width: 600px; width: 100%; max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 20px 24px 16px; border-bottom: 1px solid var(--aero-gray-light); }
+.modal-header h2 { font-size: 16px; font-weight: 700; }
+.modal-header .modal-sub { font-size: 12px; color: var(--aero-gray); margin-top: 4px; font-family: var(--mono); }
+.modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--aero-gray); padding: 0; line-height: 1; }
+.modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+.modal-footer { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-top: 1px solid var(--aero-gray-light); background: #fafbfc; border-radius: 0 0 14px 14px; }
+.modal-footer .footer-hint { font-size: 12px; color: var(--aero-gray); }
+.modal-footer .footer-actions { display: flex; gap: 10px; }
+
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 11px; font-weight: 700; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+.form-control { width: 100%; padding: 10px 12px; border: 1px solid var(--aero-gray-light); border-radius: 8px; font-size: 13px; font-family: inherit; }
+.form-control:focus { outline: none; border-color: var(--aero-blue); }
+
+.readonly-block { background: #f8fafc; border: 1px solid var(--aero-gray-light); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+.readonly-block .ro-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px dashed var(--aero-gray-light); }
+.readonly-block .ro-row:last-child { border-bottom: none; }
+.readonly-block .ro-label { color: var(--aero-gray); }
+.readonly-block .ro-val { font-weight: 600; font-family: var(--mono); }
+
+.info-block { border-left: 4px solid var(--aero-blue); background: var(--aero-blue-pale); padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; font-size: 12px; line-height: 1.6; color: var(--aero-text-light); }
+.info-block strong { color: var(--aero-blue); }
+
+.routing-timeline { background: #f8fafc; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+.routing-timeline .rt-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--aero-gray); margin-bottom: 8px; }
+.routing-timeline .rt-item { display: flex; gap: 10px; padding: 6px 0; font-size: 12px; border-bottom: 1px dashed var(--aero-gray-light); }
+.routing-timeline .rt-item:last-child { border-bottom: none; }
+.routing-timeline .rt-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; background: var(--aero-blue); }
+.routing-timeline .rt-stage { font-weight: 600; }
+.routing-timeline .rt-meta { color: var(--aero-gray); font-size: 11px; margin-top: 2px; }
+
+.toast { position: fixed; top: 24px; right: 24px; padding: 14px 20px; background: var(--aero-blue); color: #fff; border-radius: 8px; font-weight: 500; font-size: 13px; z-index: 99999; box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 10px; max-width: 400px; }
+.toast.success { border-left: 4px solid var(--aero-green); }
+.toast.error { border-left: 4px solid var(--aero-red); }
+.toast.warning { border-left: 4px solid var(--aero-orange); }
+
+@media (max-width: 768px) {
+  .sidebar { width: 68px; padding: 16px 12px; }
+  .sidebar-brand .brand-text, .sidebar-user .user-info, .sidebar-nav li a span, .aeroflot-brand, .sidebar-footer .btn-logout span { display: none; }
+  .sidebar-nav li a { justify-content: center; padding: 12px; }
+  .main { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-icon"><i class="fas fa-tower-cell"></i></div>
+        <div class="brand-text">
+            <span class="brand-vector">Вектор</span> <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
+        </div>
+    </div>
+    <div class="sidebar-user">
+        <div class="avatar"><i class="fas fa-headset"></i></div>
+        <div class="user-info">
+            <div class="name" id="userName">Диспетчер ЦПУ</div>
+            <div class="role" id="userRole">ЦПУ</div>
+        </div>
+    </div>
+    <ul class="sidebar-nav">
+        <li class="active"><a href="#"><i class="fas fa-inbox"></i><span>Очередь заявок</span></a></li>
+    </ul>
+    <div class="aeroflot-brand">
+        <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
+    </div>
+    <div class="sidebar-footer">
+        <button class="btn-logout" onclick="logout()"><i class="fas fa-sign-out-alt"></i><span>Выйти</span></button>
+    </div>
+</nav>
+
+<div class="main">
+    <div class="page-header">
+        <div>
+            <h1>Центральный Пункт Управления</h1>
+            <div class="date" id="currentDate"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>Очередь заявок от MCC</h3>
+            <button class="btn btn-secondary btn-sm" onclick="refresh()"><i class="fas fa-sync"></i> Обновить</button>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:8%;">Возраст</th>
+                        <th style="width:12%;">Борт</th>
+                        <th style="width:14%;">Стоянка / Рейс</th>
+                        <th style="width:26%;">Дефект</th>
+                        <th style="width:11%;">Источник</th>
+                        <th style="width:10%;">MCC</th>
+                        <th style="width:19%; text-align:right;"></th>
+                    </tr>
+                </thead>
+                <tbody id="queueBody">
+                    <tr><td colspan="7" class="empty-state"><i class="fas fa-inbox"></i><p>Очередь пуста</p></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>Отслеживание переданных заявок</h3>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:12%;">Борт</th>
+                        <th style="width:24%;">Дефект</th>
+                        <th style="width:16%;">Техник</th>
+                        <th style="width:9%;">В пути</th>
+                        <th style="width:13%;">Статус</th>
+                        <th style="width:13%;">Создана</th>
+                        <th style="width:13%; text-align:right;"></th>
+                    </tr>
+                </thead>
+                <tbody id="trackedBody">
+                    <tr><td colspan="7" class="empty-state"><i class="fas fa-route"></i><p>Нет переданных заявок</p></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="sendModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <h2>Передать диспетчеру</h2>
+                <div class="modal-sub" id="sendModalSub">—</div>
+            </div>
+            <button class="modal-close" onclick="closeSendModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="readonly-block" id="sendInfo"></div>
+            <div class="routing-timeline" id="sendRouting"></div>
+            <div class="info-block">
+                <strong>Что произойдёт?</strong><br>
+                Заявка уйдёт диспетчеру ЦПУ. Диспетчер выберет техника с учётом квалификации и загрузки, назначит его и поставит на контроль. Техник получит задачу в своём dashboard.
+            </div>
+            <div class="form-group">
+                <label>Комментарий для диспетчера *</label>
+                <textarea class="form-control" id="sendComment" rows="2" placeholder="Например: приоритетная заявка, требуется техник по двигателям..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <div class="footer-hint">Заявка будет передана диспетчеру</div>
+            <div class="footer-actions">
+                <button class="btn btn-secondary" onclick="closeSendModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="submitSend()"><i class="fas fa-paper-plane"></i> Передать</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+console.log('[InTrAvia CPU] v2026-11-17 with-delete-both');
+
+var API_URL = '/api';
+var queue = [];
+var dispatched = [];
+var working = [];
+var pollInterval = null;
+var currentSendId = null;
+
+var FAULT_LABELS = {
+    engine_failure: 'Отказ двигателя', engine_oil: 'Утечка масла', engine_overheat: 'Перегрев двигателя',
+    engine_vibration: 'Вибрация', engine_start: 'Запуск двигателя', fuel_leak: 'Утечка топлива',
+    fuel_system: 'Топливная система', avionics_nav: 'Навигация', avionics_radio: 'Радиосвязь',
+    avionics_autopilot: 'Автопилот', avionics_transponder: 'Транспондер', avionics_display: 'Дисплей',
+    avionics_gps: 'GPS', hydraulic: 'Гидравлика', hydraulic_leak: 'Утечка гидравлики',
+    hydraulic_pressure: 'Давление гидравлики', electrical: 'Электрика', electrical_generator: 'Генератор',
+    electrical_battery: 'Аккумулятор', electrical_short: 'КЗ', electrical_lighting: 'Освещение',
+    landing_gear: 'Шасси', pneumatic: 'Пневматика', brake_system: 'Тормоза', flap_issue: 'Закрылки',
+    aileron_issue: 'Элероны', rudder_issue: 'Руль направления', wing_damage: 'Крыло',
+    fuselage_damage: 'Фюзеляж', door_issue: 'Дверь', air_condition: 'Кондиционирование',
+    pressurization: 'Разгерметизация', oxygen_system: 'Кислород', fire_system: 'Пожарная система',
+    deicing_system: 'Противообледенение', pilot_voice: 'Голос КВС', other: 'Прочее'
+};
+
+function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function showToast(msg, type) {
+    type = type || 'info';
+    var existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    var t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.innerHTML = '<i class="fas ' + (type === 'error' ? 'fa-circle-xmark' : type === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-check') + '"></i> ' + esc(msg);
+    document.body.appendChild(t);
+    setTimeout(function() {
+        t.style.opacity = '0'; t.style.transition = 'opacity 0.3s';
+        setTimeout(function() { t.remove(); }, 300);
+    }, 3500);
+}
+
+function faultLabel(code) { return FAULT_LABELS[code] || code || '—'; }
+
+function getAge(iso) {
+    if (!iso) return { text: '—', critical: false };
+    var diff = new Date() - new Date(iso);
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return { text: 'только что', critical: false };
+    if (mins < 60) return { text: mins + ' мин', critical: mins > 30 };
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return { text: hours + ' ч', critical: true };
+    return { text: Math.floor(hours / 24) + ' д', critical: true };
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    try {
+        return new Date(iso).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    } catch(e) { return iso; }
+}
+
+function init() {
+    var session = sessionStorage.getItem('userSession');
+    if (!session) { window.location.href = '/login.html'; return; }
+    var user;
+    try { user = JSON.parse(session); } catch(e) { window.location.href = '/login.html'; return; }
+
+    document.getElementById('userName').textContent = user.name || 'Диспетчер ЦПУ';
+
+    var now = new Date();
+    var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    document.getElementById('currentDate').textContent = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+
+    refresh();
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(refresh, 5000);
+}
+
+function refresh() {
+    return Promise.all([
+        fetch(API_URL + '/cpu/queue').then(function(r) { return r.json(); }).catch(function() { return []; }),
+        fetch(API_URL + '/dispatcher/queue').then(function(r) { return r.json(); }).catch(function() { return []; }),
+        fetch(API_URL + '/dispatcher/assigned').then(function(r) { return r.json(); }).catch(function() { return []; })
+    ]).then(function(arr) {
+        queue = arr[0] || [];
+        dispatched = arr[1] || [];
+        working = arr[2] || [];
+        renderQueue();
+        renderTracked();
+    });
+}
+
+function renderQueue() {
+    var tbody = document.getElementById('queueBody');
+    if (!queue.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fas fa-inbox"></i><p>Очередь пуста</p></td></tr>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < queue.length; i++) {
+        var e = queue[i];
+        var age = getAge(e.created_at);
+        var urgent = e.mcc_decision === 'AOG' || e.criticality === 'high';
+        var srcBadge = e.source === 'pilot'
+            ? '<span class="badge badge-source"><i class="fas fa-headset"></i> КВС</span>'
+            : '<span class="badge badge-source"><i class="fas fa-tower-broadcast"></i> Диспетчер</span>';
+        html += '<tr class="clickable ' + (urgent ? 'row-urgent' : '') + '" data-id="' + esc(e.id) + '">' +
+            '<td><span class="time-age ' + (age.critical ? 'critical' : '') + '">' + age.text + '</span></td>' +
+            '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft || '—') + '</strong></td>' +
+            '<td><div style="font-weight:600;">' + esc(e.parking_id || '—') + '</div>' +
+            (e.flight_number ? '<div style="font-size:11px;color:var(--aero-gray);">' + esc(e.flight_number) + '</div>' : '') + '</td>' +
+            '<td><div style="font-weight:600;">' + esc(faultLabel(e.fault_type)) + '</div>' +
+            '<div style="font-size:11px;color:var(--aero-text-light);margin-top:2px;">' + esc((e.description || '').substring(0, 100)) + '</div></td>' +
+            '<td>' + srcBadge + '</td>' +
+            '<td><span class="badge ' + (e.mcc_decision === 'AOG' ? 'badge-aog' : 'badge-wait') + '">' + esc(e.mcc_decision || '—') + '</span></td>' +
+            '<td style="text-align:right;white-space:nowrap;">' +
+                '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openSendModal(\'' + esc(e.id) + '\')" style="margin-right:6px;"><i class="fas fa-paper-plane"></i> Передать</button>' +
+                '<button class="btn btn-sm" onclick="event.stopPropagation(); deleteQueueRequest(\'' + esc(e.id) + '\')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;" title="Удалить заявку"><i class="fas fa-trash"></i></button>' +
+            '</td>' +
+            '</tr>';
+    }
+    tbody.innerHTML = html;
+    tbody.onclick = function(ev) {
+        var tr = ev.target.closest('tr[data-id]');
+        if (tr) openSendModal(tr.dataset.id);
+    };
+}
+
+function renderTracked() {
+    var tbody = document.getElementById('trackedBody');
+    var all = dispatched.concat(working);
+    if (!all.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fas fa-route"></i><p>Нет переданных заявок</p></td></tr>';
+        return;
+    }
+    var statusMap = {
+        assigned: { label: 'Назначен', cls: 'badge-wait' },
+        arriving: { label: 'В пути', cls: 'badge-wait' },
+        working: { label: 'Работает', cls: 'badge-wait' },
+        inspection: { label: 'Инспекция', cls: 'badge-wait' },
+        repaired: { label: 'Отремонтирован', cls: 'badge-ok' },
+        aog_waiting: { label: 'AOG', cls: 'badge-aog' },
+        deferred: { label: 'MEL', cls: 'badge-mel' }
+    };
+    var html = '';
+    for (var i = 0; i < all.length; i++) {
+        var e = all[i];
+        var isDispatched = dispatched.indexOf(e) !== -1;
+        var s = isDispatched
+            ? { label: 'У диспетчера', cls: 'badge-wait' }
+            : (statusMap[e.status] || { label: e.status || '—', cls: 'badge-wait' });
+        html += '<tr>' +
+            '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft || '—') + '</strong></td>' +
+            '<td>' + esc(faultLabel(e.fault_type)) + '</td>' +
+            '<td>' + (e.engineer_name ? '<div>' + esc(e.engineer_name) + '</div><div style="font-size:11px;color:var(--aero-gray);font-family:var(--mono);">' + esc(e.device_id || '') + '</div>' : '<span style="color:var(--aero-gray);">—</span>') + '</td>' +
+            '<td class="mono">' + (e.travel_time ? Math.round(e.travel_time) + ' мин' : '—') + '</td>' +
+            '<td><span class="badge ' + s.cls + '">' + esc(s.label) + '</span></td>' +
+            '<td style="font-size:12px;color:var(--aero-gray);">' + formatDate(e.created_at) + '</td>' +
+            '<td style="text-align:right;white-space:nowrap;">' +
+                '<button class="btn btn-sm" onclick="deleteTrackedRequest(\'' + esc(e.id) + '\')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;" title="Удалить заявку"><i class="fas fa-trash"></i></button>' +
+            '</td>' +
+            '</tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function openSendModal(id) {
+    var e = null;
+    for (var i = 0; i < queue.length; i++) if (queue[i].id === id) { e = queue[i]; break; }
+    if (!e) { showToast('Заявка не найдена', 'error'); return; }
+
+    currentSendId = id;
+    document.getElementById('sendModalSub').textContent = e.aircraft + ' · ' + faultLabel(e.fault_type) + ' · ID ' + id.slice(-6);
+
+    document.getElementById('sendInfo').innerHTML =
+        '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft || '—') + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking_id || '—') + '</span></div>' +
+        (e.flight_number ? '<div class="ro-row"><span class="ro-label">Рейс</span><span class="ro-val">' + esc(e.flight_number) + '</span></div>' : '') +
+        '<div class="ro-row"><span class="ro-label">Дефект</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;">' + esc(faultLabel(e.fault_type)) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Возраст</span><span class="ro-val">' + getAge(e.created_at).text + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Решение MCC</span><span class="ro-val">' + esc(e.mcc_decision || '—') + '</span></div>';
+
+    var routingHtml = '';
+    if (e.routing_history && e.routing_history.length) {
+        for (var j = 0; j < e.routing_history.length; j++) {
+            var h = e.routing_history[j];
+            routingHtml += '<div class="rt-item"><div class="rt-dot"></div><div class="rt-body">' +
+                '<div class="rt-stage">' + esc(h.stage || '—') + '</div>' +
+                '<div class="rt-meta">' + esc(h.actor || '') + ' · ' + formatDate(h.at) + (h.note ? ' · ' + esc(h.note) : '') + '</div>' +
+                '</div></div>';
+        }
+    } else {
+        routingHtml = '<div style="color:var(--aero-gray);font-size:12px;">Нет истории</div>';
+    }
+    document.getElementById('sendRouting').innerHTML = '<div class="rt-title">Маршрут заявки</div>' + routingHtml;
+
+    document.getElementById('sendComment').value = '';
+    document.getElementById('sendModal').classList.add('show');
+}
+
+function closeSendModal() {
+    document.getElementById('sendModal').classList.remove('show');
+    currentSendId = null;
+}
+
+function submitSend() {
+    var comment = document.getElementById('sendComment').value.trim();
+    if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
+
+    var btn = document.querySelector('#sendModal .btn-primary');
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка...';
+
+    fetch(API_URL + '/cpu/send_to_dispatcher', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: currentSendId, comment: comment })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            closeSendModal();
+            showToast('Заявка передана диспетчеру', 'success');
+            refresh();
+        } else {
+            showToast('Ошибка: ' + (res.error || ''), 'error');
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    })
+    .catch(function(err) {
+        showToast('Ошибка: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
+}
+
+function deleteQueueRequest(id) {
+    var e = null;
+    for (var i = 0; i < queue.length; i++) if (queue[i].id === id) { e = queue[i]; break; }
+    if (!e) { showToast('Заявка не найдена', 'error'); return; }
+
+    var msg = 'Удалить заявку?\n\n' +
+              'Борт: ' + (e.aircraft || '—') + '\n' +
+              'Дефект: ' + faultLabel(e.fault_type) + '\n' +
+              'Стоянка: ' + (e.parking_id || '—') + '\n\n' +
+              'Действие необратимо. Заявка будет удалена из БД.';
+    if (!confirm(msg)) return;
+
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Заявка удалена', 'success');
+                refresh();
+            } else {
+                showToast('Ошибка: ' + (res.error || ''), 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('Ошибка: ' + err.message, 'error');
+        });
+}
+window.deleteQueueRequest = deleteQueueRequest;
+
+function deleteTrackedRequest(id) {
+    var e = null;
+    var all = dispatched.concat(working);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) { e = all[i]; break; }
+    if (!e) { showToast('Заявка не найдена', 'error'); return; }
+
+    var msg = 'Удалить заявку?\n\n' +
+              'Борт: ' + (e.aircraft || '—') + '\n' +
+              'Дефект: ' + faultLabel(e.fault_type) + '\n' +
+              (e.engineer_name ? 'Техник: ' + e.engineer_name + '\n' : '') +
+              'Статус: ' + (e.status || '—') + '\n\n' +
+              'Действие необратимо. Инженер будет освобождён, заявка удалена из БД.';
+    if (!confirm(msg)) return;
+
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Заявка удалена', 'success');
+                refresh();
+            } else {
+                showToast('Ошибка: ' + (res.error || ''), 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('Ошибка: ' + err.message, 'error');
+        });
+}
+window.deleteTrackedRequest = deleteTrackedRequest;
+
+function logout() {
+    if (pollInterval) clearInterval(pollInterval);
+    sessionStorage.removeItem('userSession');
+    window.location.href = '/login.html';
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

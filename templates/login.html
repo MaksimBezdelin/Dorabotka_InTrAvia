@@ -7,15 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* =========================================================
-           Вектор Dispatch — Login
-           ========================================================= */
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
             --aero-blue: #003366;
@@ -33,7 +25,6 @@
             --shadow-strong: 0 20px 60px rgba(0, 51, 102, 0.18);
         }
 
-        /* ===== Глобально запрещаем выделение ===== */
         html, body {
             user-select: none;
             -webkit-user-select: none;
@@ -41,7 +32,6 @@
             -ms-user-select: none;
         }
 
-        /* ===== Разрешаем выделение только в полях ввода ===== */
         input, textarea, select {
             user-select: text;
             -webkit-user-select: text;
@@ -49,7 +39,6 @@
             -ms-user-select: text;
         }
 
-        /* ===== Прозрачная подсветка вне полей ===== */
         ::selection { background: transparent; }
         input::selection, textarea::selection { background: #b3d4fc; color: inherit; }
 
@@ -64,10 +53,6 @@
             background: #0a1628;
             position: relative;
         }
-
-        /* =========================================================
-           Анимированный фон
-           ========================================================= */
 
         .bg-layer {
             position: fixed;
@@ -107,10 +92,7 @@
             -webkit-mask-image: radial-gradient(circle at center, black 30%, transparent 75%);
         }
 
-        .bg-dots {
-            position: absolute;
-            inset: 0;
-        }
+        .bg-dots { position: absolute; inset: 0; }
 
         .bg-dot {
             position: absolute;
@@ -134,7 +116,6 @@
             100% { transform: translate(var(--dx, 100px), var(--dy, -200px)) scale(0.3); opacity: 0; }
         }
 
-        /* ===== SVG-самолёты — не текст, не выделяются ===== */
         .bg-plane {
             position: absolute;
             color: rgba(255, 255, 255, 0.04);
@@ -164,10 +145,6 @@
             90% { opacity: 1; }
             100% { transform: translate(110vw, -200px) rotate(-15deg); opacity: 0; }
         }
-
-        /* =========================================================
-           Основная карточка логина
-           ========================================================= */
 
         .login-wrapper {
             width: 100%;
@@ -215,10 +192,6 @@
             100% { background-position: 200% 50%; }
         }
 
-        /* =========================================================
-           Заголовок бренда
-           ========================================================= */
-
         .brand-header {
             text-align: center;
             margin-bottom: 32px;
@@ -248,7 +221,6 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.2);
         }
 
-        /* NEW: самолёт в логотипе рядом с «Вектор» повёрнут на 90° вправо */
         .brand-logo .logo-icon svg {
             width: 30px;
             height: 30px;
@@ -302,10 +274,6 @@
             color: var(--aero-blue);
             font-weight: 700;
         }
-
-        /* =========================================================
-           Форма
-           ========================================================= */
 
         .form-title {
             font-size: 22px;
@@ -425,10 +393,6 @@
 
         .btn-login:hover i { transform: translateX(3px); }
 
-        /* =========================================================
-           Ошибка
-           ========================================================= */
-
         .error-msg {
             background: #fef2f2;
             color: #dc2626;
@@ -453,10 +417,6 @@
         }
 
         .error-msg i { font-size: 16px; }
-
-        /* =========================================================
-           Футер
-           ========================================================= */
 
         .login-footer {
             text-align: center;
@@ -501,10 +461,6 @@
             line-height: 1.6;
         }
 
-        /* =========================================================
-           Адаптив
-           ========================================================= */
-
         @media (max-width: 480px) {
             .login-card { padding: 32px 24px 28px; border-radius: 20px; }
             .brand-logo .brand-name { font-size: 28px; }
@@ -519,13 +475,11 @@
 </head>
 <body>
 
-    <!-- ===== ФОН ===== -->
     <div class="bg-layer">
         <div class="bg-gradient"></div>
         <div class="bg-grid"></div>
         <div class="bg-dots" id="bgDots"></div>
 
-        <!-- SVG-самолёты: не текст, не выделяются, нос вправо -->
         <div class="bg-plane p1" style="top: 20%; animation-delay: 0s;">
             <svg viewBox="0 0 24 24" width="120" height="120" fill="currentColor" aria-hidden="true">
                 <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
@@ -543,7 +497,6 @@
         </div>
     </div>
 
-    <!-- ===== Карточка логина ===== -->
     <div class="login-wrapper">
         <div class="login-card">
 
@@ -642,7 +595,8 @@
                 'dispatcher': '/dispatcher/dashboard.html',
                 'engineer': '/engineer/dashboard.html',
                 'pilot': '/pilot/dashboard.html',
-                'mcc': '/mcc/dashboard.html'
+                'mcc': '/mcc/dashboard.html',
+                'cpu': '/cpu/dashboard.html'
             };
 
             var session = sessionStorage.getItem('userSession');

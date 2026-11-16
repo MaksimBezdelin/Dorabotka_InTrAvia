@@ -6,182 +6,58 @@
     <title>Администратор — InTrAvia Dispatch</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Подключаем Chart.js для графиков -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/config.js"></script>
     <style>
-        /* ============================================================
-           InTrAvia Dispatch — Admin Dashboard (Aeroflot Style)
-           ============================================================ */
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         :root {
-            --aero-blue: #003366;
-            --aero-blue-dark: #001f4d;
-            --aero-blue-light: #0055aa;
-            --aero-blue-pale: #e8f0fe;
-            --aero-gold: #c9a84c;
-            --aero-gold-light: #e0c974;
-            --aero-red: #dc2626;
-            --aero-green: #16a34a;
-            --aero-orange: #f59e0b;
-            --aero-text: #1a2332;
-            --aero-text-light: #4a5a6a;
-            --aero-gray: #8a9bb5;
-            --aero-gray-light: #e8ecf0;
-            --aero-bg: #f0f2f5;
-            --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.04);
-            --shadow-card: 0 4px 20px rgba(0, 51, 102, 0.08);
-            --transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            --aero-blue: #003366; --aero-blue-dark: #001f4d; --aero-blue-light: #0055aa; --aero-blue-pale: #e8f0fe;
+            --aero-gold: #c9a84c; --aero-gold-light: #e0c974;
+            --aero-red: #dc2626; --aero-green: #16a34a; --aero-orange: #f59e0b;
+            --aero-text: #1a2332; --aero-text-light: #4a5a6a;
+            --aero-gray: #8a9bb5; --aero-gray-light: #e8ecf0; --aero-bg: #f0f2f5;
+            --shadow-soft: 0 1px 3px rgba(0,0,0,0.04); --shadow-card: 0 4px 20px rgba(0,51,102,0.08);
+            --transition: 0.25s cubic-bezier(0.16,1,0.3,1);
         }
-
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--aero-bg);
-            color: var(--aero-text);
-            display: flex;
-            min-height: 100vh;
-            overflow: hidden;
-            height: 100vh;
-        }
-
+        body { font-family: 'Inter', -apple-system, sans-serif; background: var(--aero-bg); color: var(--aero-text); display: flex; min-height: 100vh; overflow: hidden; height: 100vh; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--aero-gray); border-radius: 4px; }
 
-        /* ============================================================
-           Сайдбар
-           ============================================================ */
-        .sidebar {
-            width: 260px;
-            background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%);
-            padding: 20px 16px;
-            height: 100vh;
-            overflow-y: auto;
-            flex-shrink: 0;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            overflow-x: hidden;
-        }
+        .sidebar { width: 260px; background: linear-gradient(180deg, #0a1628 0%, #001f4d 100%); padding: 20px 16px; height: 100vh; overflow-y: auto; flex-shrink: 0; z-index: 100; display: flex; flex-direction: column; position: relative; overflow-x: hidden; }
+        .sidebar::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+        .sidebar-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); position: relative; z-index: 1; }
+        .sidebar-brand .brand-icon { width: 40px; height: 40px; background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; box-shadow: 0 6px 20px rgba(0,102,204,0.35), inset 0 1px 0 rgba(255,255,255,0.2); position: relative; overflow: hidden; flex-shrink: 0; }
+        .sidebar-brand .brand-icon::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.4) 50%, transparent 70%); animation: iconShine 5s ease-in-out infinite; }
+        @keyframes iconShine { 0%,100% { transform: translateX(-100%) translateY(-100%); } 50% { transform: translateX(100%) translateY(100%); } }
+        .sidebar-brand .brand-text { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.3px; line-height: 1; }
+        .sidebar-brand .brand-text .brand-in { color: #fff; font-weight: 700; }
+        .sidebar-brand .brand-text .brand-tr { color: #3b82f6; font-weight: 800; text-shadow: 0 0 10px rgba(59,130,246,0.6); }
+        .sidebar-brand .brand-text .brand-avia { color: #ef4444; font-weight: 800; text-shadow: 0 0 10px rgba(239,68,68,0.6); }
 
-        .sidebar::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-            background-size: 40px 40px;
-            pointer-events: none;
-        }
-
-        .sidebar-brand {
-            display: flex; align-items: center; gap: 12px;
-            margin-bottom: 8px; padding-bottom: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            position: relative; z-index: 1;
-        }
-
-        .sidebar-brand .brand-icon {
-            width: 40px; height: 40px;
-            background: linear-gradient(135deg, var(--aero-blue-light) 0%, #0066cc 100%);
-            border-radius: 12px; display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 700; font-size: 18px;
-            box-shadow: 0 6px 20px rgba(0, 102, 204, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            position: relative; overflow: hidden; flex-shrink: 0;
-        }
-
-        .sidebar-brand .brand-icon::after {
-            content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.4) 50%, transparent 70%);
-            animation: iconShine 5s ease-in-out infinite;
-        }
-
-        @keyframes iconShine {
-            0%, 100% { transform: translateX(-100%) translateY(-100%); }
-            50%      { transform: translateX(100%)  translateY(100%); }
-        }
-
-        .sidebar-brand .brand-text { font-size: 17px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; line-height: 1; }
-        .sidebar-brand .brand-text .brand-in { color: #ffffff; font-weight: 700; }
-        .sidebar-brand .brand-text .brand-tr { color: #3b82f6; font-weight: 800; text-shadow: 0 0 10px rgba(59, 130, 246, 0.6); }
-        .sidebar-brand .brand-text .brand-avia { color: #ef4444; font-weight: 800; text-shadow: 0 0 10px rgba(239, 68, 68, 0.6); }
-
-        .sidebar-user {
-            display: flex; align-items: center; gap: 12px;
-            padding: 14px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            margin-bottom: 14px; position: relative; z-index: 1;
-        }
-
-        .sidebar-user .avatar {
-            width: 44px; height: 44px; border-radius: 50%;
-            background: linear-gradient(135deg, rgba(201, 168, 76, 0.2) 0%, rgba(224, 201, 116, 0.3) 100%);
-            border: 2px solid rgba(201, 168, 76, 0.4);
-            display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
-        }
-
+        .sidebar-user { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; position: relative; z-index: 1; }
+        .sidebar-user .avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, rgba(201,168,76,0.2) 0%, rgba(224,201,116,0.3) 100%); border: 2px solid rgba(201,168,76,0.4); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
         .sidebar-user .user-info { flex: 1; min-width: 0; }
-        .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
 
-        .sidebar-nav { list-style: none; flex: 1; position: relative; z-index: 1; overflow-y: auto; padding-right: 4px;}
+        .sidebar-nav { list-style: none; flex: 1; position: relative; z-index: 1; overflow-y: auto; padding-right: 4px; }
         .sidebar-nav::-webkit-scrollbar { width: 0px; }
-        
         .sidebar-nav li { margin-bottom: 4px; }
-        .sidebar-nav li a {
-            display: flex; align-items: center; gap: 12px;
-            padding: 11px 14px; border-radius: 10px;
-            color: #8899aa; text-decoration: none;
-            font-size: 13px; font-weight: 500;
-            transition: all var(--transition); cursor: pointer;
-        }
-        .sidebar-nav li a:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
-        .sidebar-nav li.active a {
-            background: linear-gradient(90deg, rgba(77, 159, 255, 0.15) 0%, rgba(77, 159, 255, 0.05) 100%);
-            color: #ffffff; font-weight: 600; position: relative;
-        }
-        .sidebar-nav li.active a::before {
-            content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-            width: 3px; height: 20px; background: var(--aero-gold); border-radius: 0 2px 2px 0;
-        }
+        .sidebar-nav li a { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 10px; color: #8899aa; text-decoration: none; font-size: 13px; font-weight: 500; transition: all var(--transition); cursor: pointer; }
+        .sidebar-nav li a:hover { background: rgba(255,255,255,0.06); color: #fff; }
+        .sidebar-nav li.active a { background: linear-gradient(90deg, rgba(77,159,255,0.15) 0%, rgba(77,159,255,0.05) 100%); color: #fff; font-weight: 600; position: relative; }
+        .sidebar-nav li.active a::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--aero-gold); border-radius: 0 2px 2px 0; }
         .sidebar-nav li a i { width: 20px; font-size: 15px; text-align: center; }
 
-        /* Блок Аэрофлота с картинкой */
-        .aeroflot-brand {
-            text-align: center; padding: 16px 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            margin-bottom: 14px; color: #8899aa; position: relative; z-index: 1;
-        }
-        .aeroflot-brand img {
-            max-width: 110px;
-            height: auto;
-            margin-bottom: 10px;
-            display: inline-block;
-            filter: drop-shadow(0 0 10px rgba(201, 168, 76, 0.4));
-        }
+        .aeroflot-brand { text-align: center; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; color: #8899aa; position: relative; z-index: 1; }
+        .aeroflot-brand img { max-width: 110px; height: auto; margin-bottom: 10px; display: inline-block; filter: drop-shadow(0 0 10px rgba(201,168,76,0.4)); }
         .aeroflot-brand .brand-text-small { font-size: 10px; font-weight: 600; line-height: 1.4; text-transform: uppercase; letter-spacing: 0.5px; }
-
         .sidebar-footer { margin-top: auto; padding-top: 14px; position: relative; z-index: 1; }
-        .btn-logout {
-            width: 100%; padding: 10px; background: rgba(255, 255, 255, 0.05); color: #8899aa;
-            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;
-            font-size: 13px; font-weight: 500; cursor: pointer; transition: all var(--transition);
-            display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit;
-        }
-        .btn-logout:hover { background: rgba(220, 38, 38, 0.15); color: #fca5a5; border-color: rgba(220, 38, 38, 0.3); }
+        .btn-logout { width: 100%; padding: 10px; background: rgba(255,255,255,0.05); color: #8899aa; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+        .btn-logout:hover { background: rgba(220,38,38,0.15); color: #fca5a5; border-color: rgba(220,38,38,0.3); }
 
-        /* ============================================================
-           Основная область
-           ============================================================ */
-        .main {
-            flex: 1; padding: 24px 32px 32px; overflow-y: auto; height: 100vh;
-            display: flex; flex-direction: column; gap: 16px;
-        }
-
+        .main { flex: 1; padding: 24px 32px 32px; overflow-y: auto; height: 100vh; display: flex; flex-direction: column; gap: 16px; }
         .page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; flex-shrink: 0; }
         .page-header h1 { font-size: 24px; font-weight: 700; color: var(--aero-text); letter-spacing: -0.3px; }
         .page-header .date { font-size: 13px; color: var(--aero-gray); }
@@ -190,25 +66,18 @@
         .department-section.active { display: flex; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Статистика */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; flex-shrink: 0; }
-        .stat-card {
-            background: #ffffff; padding: 18px 22px; border-radius: 14px;
-            border: 1px solid var(--aero-gray-light); box-shadow: var(--shadow-soft);
-            transition: all var(--transition); position: relative; overflow: hidden;
-        }
+        .stat-card { background: #fff; padding: 18px 22px; border-radius: 14px; border: 1px solid var(--aero-gray-light); box-shadow: var(--shadow-soft); transition: all var(--transition); position: relative; overflow: hidden; }
         .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
         .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--aero-blue); }
         .stat-card .stat-value { font-size: 28px; font-weight: 800; color: var(--aero-blue); letter-spacing: -1px; line-height: 1; }
         .stat-card .stat-label { font-size: 12px; color: var(--aero-gray); margin-top: 8px; font-weight: 500; }
 
-        /* Сетка для графиков */
         .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .charts-grid .card { padding: 20px; display: flex; flex-direction: column; }
         .chart-container { position: relative; height: 250px; width: 100%; margin-top: 10px; }
 
-        /* Карточки и таблицы */
-        .card { background: #ffffff; border-radius: 14px; padding: 20px 24px; border: 1px solid var(--aero-gray-light); box-shadow: var(--shadow-soft); }
+        .card { background: #fff; border-radius: 14px; padding: 20px 24px; border: 1px solid var(--aero-gray-light); box-shadow: var(--shadow-soft); }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
         .card-header h3 { font-size: 15px; font-weight: 700; color: var(--aero-text); display: flex; align-items: center; gap: 8px; }
         .card-header h3::before { content: ''; display: inline-block; width: 3px; height: 16px; background: linear-gradient(180deg, var(--aero-blue), var(--aero-gold)); border-radius: 2px; }
@@ -228,12 +97,13 @@
         .status-badge.busy { background: #fef3c7; color: #b45309; }
         .status-badge.onway { background: #dbeafe; color: #1d4ed8; }
         .status-badge.assigned { background: #fef3c7; color: #b45309; }
+        .status-badge.cpu { background: #ede9fe; color: #6d28d9; }
 
         .btn-sm { padding: 6px 12px; border: none; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; gap: 5px; }
-        .btn-sm.btn-primary { background: linear-gradient(135deg, var(--aero-blue) 0%, var(--aero-blue-light) 100%); color: white; box-shadow: 0 2px 8px rgba(0, 51, 102, 0.2); }
-        .btn-sm.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 51, 102, 0.3); }
+        .btn-sm.btn-primary { background: linear-gradient(135deg, var(--aero-blue) 0%, var(--aero-blue-light) 100%); color: white; box-shadow: 0 2px 8px rgba(0,51,102,0.2); }
+        .btn-sm.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,51,102,0.3); }
         .btn-sm.btn-danger { background: linear-gradient(135deg, var(--aero-red) 0%, #b91c1c 100%); color: white; }
-        .btn-sm.btn-danger:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3); }
+        .btn-sm.btn-danger:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.3); }
         .btn-sm.btn-secondary { background: var(--aero-gray-light); color: var(--aero-text-light); }
         .btn-sm.btn-secondary:hover { background: #d0d7e2; }
 
@@ -241,10 +111,9 @@
         .empty-state i { font-size: 40px; opacity: 0.3; display: block; margin-bottom: 10px; }
         .empty-state p { font-size: 14px; font-weight: 500; }
 
-        /* Модалка */
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px); z-index: 20000; justify-content: center; align-items: center; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); z-index: 20000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
-        .modal { background: #ffffff; border-radius: 16px; padding: 28px 32px; max-width: 480px; width: 90%; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4); animation: modalIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); max-height: 90vh; overflow-y: auto; position: relative; overflow-x: hidden; }
+        .modal { background: #fff; border-radius: 16px; padding: 28px 32px; max-width: 480px; width: 90%; box-shadow: 0 24px 80px rgba(0,0,0,0.4); animation: modalIn 0.35s cubic-bezier(0.16,1,0.3,1); max-height: 90vh; overflow-y: auto; position: relative; overflow-x: hidden; }
         .modal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--aero-blue) 0%, #4d9fff 30%, var(--aero-gold) 70%, var(--aero-blue) 100%); background-size: 200% 100%; animation: goldShimmer 6s linear infinite; }
         @keyframes goldShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
         @keyframes modalIn { from { transform: scale(0.92) translateY(-20px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
@@ -256,24 +125,23 @@
         .modal .form-group label { display: block; font-size: 11px; font-weight: 600; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
         .modal .form-group input, .modal .form-group select { width: 100%; padding: 11px 14px; border: 2px solid var(--aero-gray-light); border-radius: 10px; font-size: 14px; font-family: inherit; background: #fafbfc; color: var(--aero-text); transition: all var(--transition); font-weight: 500; }
         .modal .form-group input:disabled { background: #e8ecf0; color: #8a9bb5; cursor: not-allowed; }
-        .modal .form-group input:focus, .modal .form-group select:focus { outline: none; border-color: var(--aero-blue); background: #ffffff; box-shadow: 0 0 0 4px rgba(0, 51, 102, 0.08); }
+        .modal .form-group input:focus, .modal .form-group select:focus { outline: none; border-color: var(--aero-blue); background: #fff; box-shadow: 0 0 0 4px rgba(0,51,102,0.08); }
         .modal-actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--aero-gray-light); }
         .modal-actions .btn { flex: 1; padding: 11px 16px; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-        .modal-actions .btn-primary { background: linear-gradient(135deg, var(--aero-blue) 0%, var(--aero-blue-light) 100%); color: white; box-shadow: 0 4px 14px rgba(0, 51, 102, 0.25); }
-        .modal-actions .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0, 51, 102, 0.35); }
+        .modal-actions .btn-primary { background: linear-gradient(135deg, var(--aero-blue) 0%, var(--aero-blue-light) 100%); color: white; box-shadow: 0 4px 14px rgba(0,51,102,0.25); }
+        .modal-actions .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,51,102,0.35); }
         .modal-actions .btn-danger { background: linear-gradient(135deg, var(--aero-red) 0%, #b91c1c 100%); color: white; }
-        .modal-actions .btn-danger:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(220, 38, 38, 0.3); }
+        .modal-actions .btn-danger:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(220,38,38,0.3); }
         .modal-actions .btn-secondary { background: var(--aero-gray-light); color: var(--aero-text-light); }
         .modal-actions .btn-secondary:hover { background: #d0d7e2; }
 
-        .toast { position: fixed; top: 24px; right: 24px; padding: 14px 24px; background: linear-gradient(135deg, #0a1628 0%, #001f4d 100%); color: #ffffff; border-radius: 12px; font-size: 13px; font-weight: 500; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); z-index: 9999; animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); font-family: inherit; max-width: 380px; border: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; gap: 10px; }
+        .toast { position: fixed; top: 24px; right: 24px; padding: 14px 24px; background: linear-gradient(135deg, #0a1628 0%, #001f4d 100%); color: #fff; border-radius: 12px; font-size: 13px; font-weight: 500; box-shadow: 0 12px 40px rgba(0,0,0,0.35); z-index: 9999; animation: slideIn 0.4s cubic-bezier(0.16,1,0.3,1); font-family: inherit; max-width: 380px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 10px; }
         .toast.success { border-left: 4px solid var(--aero-green); }
         .toast.error { border-left: 4px solid var(--aero-red); }
         @keyframes slideIn { from { opacity: 0; transform: translateX(60px) scale(0.9); } to { opacity: 1; transform: translateX(0) scale(1); } }
 
-        /* Адаптив */
-        @media (max-width: 1024px) { 
-            .stats-grid { grid-template-columns: repeat(2, 1fr); } 
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
             .charts-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 768px) {
@@ -291,7 +159,6 @@
 </head>
 <body>
 
-    <!-- ===== САЙДБАР ===== -->
     <nav class="sidebar">
         <div class="sidebar-brand">
             <div class="brand-icon">✈</div>
@@ -308,7 +175,6 @@
             </div>
         </div>
 
-        <!-- НАВИГАЦИЯ ПО ОТДЕЛАМ -->
         <ul class="sidebar-nav">
             <li class="active" id="nav-overview" onclick="showSection('overview', this)">
                 <a href="#"><i class="fas fa-chart-pie"></i><span>Обзор</span></a>
@@ -325,6 +191,9 @@
             <li id="nav-mcc" onclick="showSection('mcc', this)">
                 <a href="#"><i class="fas fa-user-cog"></i><span>Специалисты MCC</span></a>
             </li>
+            <li id="nav-cpu" onclick="showSection('cpu', this)">
+                <a href="#"><i class="fas fa-headset"></i><span>Диспетчеры ЦПУ</span></a>
+            </li>
             <li id="nav-pilots" onclick="showSection('pilots', this)">
                 <a href="#"><i class="fas fa-user-astronaut"></i><span>Пилоты</span></a>
             </li>
@@ -336,10 +205,8 @@
             </li>
         </ul>
 
-        <!-- Брендинг Аэрофлота с картинкой -->
         <div class="aeroflot-brand">
-            <!-- Относительный путь без слэша в начале, чтобы работало и в браузере, и в мобильном приложении -->
-            <img src="static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none'; this.nextElementSibling.style.marginTop='10px';">
+            <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none'; this.nextElementSibling.style.marginTop='10px';">
             <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
         </div>
 
@@ -351,7 +218,6 @@
         </div>
     </nav>
 
-    <!-- ===== ОСНОВНАЯ ОБЛАСТЬ ===== -->
     <div class="main">
 
         <div class="page-header">
@@ -359,7 +225,6 @@
             <span class="date" id="currentDate"></span>
         </div>
 
-        <!-- СЕКЦИЯ 1: ОБЗОР -->
         <div class="department-section active" id="section-overview">
             <div class="stats-grid">
                 <div class="stat-card">
@@ -423,7 +288,6 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 2: АДМИНИСТРАТОРЫ -->
         <div class="department-section" id="section-admins">
             <div class="card">
                 <div class="card-header">
@@ -441,7 +305,6 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 3: ИНЖЕНЕРЫ -->
         <div class="department-section" id="section-engineers">
             <div class="card">
                 <div class="card-header">
@@ -463,7 +326,6 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 4: ДИСПЕТЧЕРЫ -->
         <div class="department-section" id="section-dispatchers">
             <div class="card">
                 <div class="card-header">
@@ -484,7 +346,6 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 5: MCC -->
         <div class="department-section" id="section-mcc">
             <div class="card">
                 <div class="card-header">
@@ -505,7 +366,26 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 6: ПИЛОТЫ -->
+        <div class="department-section" id="section-cpu">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Диспетчеры ЦПУ</h3>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <span class="badge-count" id="cpuCount">0</span>
+                        <button class="btn-sm btn-primary" onclick="openAddCpuModal()"><i class="fas fa-plus"></i> Добавить</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr><th>Имя</th><th>Email</th><th>Статус</th><th style="text-align:center;">Действия</th></tr>
+                        </thead>
+                        <tbody id="cpuTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div class="department-section" id="section-pilots">
             <div class="card">
                 <div class="card-header">
@@ -526,7 +406,6 @@
             </div>
         </div>
 
-        <!-- СЕКЦИЯ 7: ТРАНСПОРТ -->
         <div class="department-section" id="section-transport">
             <div class="card">
                 <div class="card-header">
@@ -549,7 +428,6 @@
 
     </div>
 
-    <!-- Модалка -->
     <div class="modal-overlay" id="editModal">
         <div class="modal">
             <div class="modal-header">
@@ -607,12 +485,10 @@
             updateUI();
 
             if (loadInterval) clearInterval(loadInterval);
-            // АВТООБНОВЛЕНИЕ КАЖДЫЕ 5 СЕКУНД
-            loadInterval = setInterval(function() { 
-                // Проверяем, не открыта ли модалка. Если открыта - не обновляем DOM, чтобы не сбить ввод.
+            loadInterval = setInterval(function() {
                 if (!document.getElementById('editModal').classList.contains('show')) {
-                    loadData(); 
-                    updateUI(); 
+                    loadData();
+                    updateUI();
                 }
             }, 5000);
         }
@@ -622,18 +498,19 @@
             fetch(API_URL + '/requests').then(r => r.json()).then(d => window.tickets = Array.isArray(d) ? d : []).catch(() => window.tickets = []);
             fetch(API_URL + '/transport').then(r => r.json()).then(d => window.transport = Array.isArray(d) ? d : []).catch(() => window.transport = []);
             fetch(API_URL + '/pilots').then(r => r.json()).then(d => window.pilots = Array.isArray(d) ? d : []).catch(() => window.pilots = []);
-            
+
             fetch(API_URL + '/users')
                 .then(r => r.json())
                 .then(data => {
                     if (Array.isArray(data)) {
                         window.dispatchers = data.filter(u => u.role === 'dispatcher');
                         window.mccUsers = data.filter(u => u.role === 'mcc');
+                        window.cpuUsers = data.filter(u => u.role === 'cpu');
                         window.admins = data.filter(u => u.role === 'admin');
                     } else {
-                        window.dispatchers = []; window.mccUsers = []; window.admins = [];
+                        window.dispatchers = []; window.mccUsers = []; window.cpuUsers = []; window.admins = [];
                     }
-                }).catch(() => { window.dispatchers = []; window.mccUsers = []; window.admins = []; });
+                }).catch(() => { window.dispatchers = []; window.mccUsers = []; window.cpuUsers = []; window.admins = []; });
         }
 
         function updateUI() {
@@ -641,11 +518,12 @@
             renderEngineers();
             renderDispatchers();
             renderMcc();
+            renderCpu();
             renderPilots();
             renderTransport();
             updateStats();
-            renderCharts();       
-            renderRecentRequests(); 
+            renderCharts();
+            renderRecentRequests();
         }
 
         function renderCharts() {
@@ -664,15 +542,10 @@
                     type: 'doughnut',
                     data: {
                         labels: skillLabels,
-                        datasets: [{
-                            data: skillData,
-                            backgroundColor: ['#003366', '#0055aa', '#4d9fff', '#c9a84c', '#e0c974', '#8a9bb5'],
-                            borderWidth: 0
-                        }]
+                        datasets: [{ data: skillData, backgroundColor: ['#003366','#0055aa','#4d9fff','#c9a84c','#e0c974','#8a9bb5'], borderWidth: 0 }]
                     },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
+                        responsive: true, maintainAspectRatio: false,
                         plugins: { legend: { position: 'right', labels: { font: { family: 'Inter', size: 11 } } } },
                         cutout: '65%'
                     }
@@ -697,16 +570,10 @@
                     type: 'bar',
                     data: {
                         labels: statusLabels,
-                        datasets: [{
-                            label: 'Количество',
-                            data: statusData,
-                            backgroundColor: ['#0055aa', '#f59e0b', '#16a34a', '#dc2626'],
-                            borderRadius: 6
-                        }]
+                        datasets: [{ label: 'Количество', data: statusData, backgroundColor: ['#0055aa','#f59e0b','#16a34a','#dc2626'], borderRadius: 6 }]
                     },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
+                        responsive: true, maintainAspectRatio: false,
                         plugins: { legend: { display: false } },
                         scales: {
                             y: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Inter' } } },
@@ -726,7 +593,6 @@
                 tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-clipboard-list"></i><p>Нет заявок</p></td></tr>';
                 return;
             }
-
             var recent = window.tickets.slice(0, 5);
             var html = '';
             recent.forEach(t => {
@@ -734,7 +600,6 @@
                 var fault = SKILL_MAP[t.fault_type] || t.fault_type || 'Неисправность';
                 var statusText = t.status === 'assigned' ? 'В работе' : t.status === 'queued' ? 'В очереди' : t.status === 'completed' ? 'Выполнена' : t.status;
                 var badgeClass = t.status === 'assigned' ? 'assigned' : t.status === 'queued' ? 'busy' : t.status === 'completed' ? 'free' : 'onway';
-
                 html += `<tr>
                     <td><strong>${escapeHtml(t.aircraft || '—')}</strong></td>
                     <td>${escapeHtml(fault)}</td>
@@ -838,6 +703,34 @@
             tbody.innerHTML = html;
         }
 
+        function renderCpu() {
+            var tbody = document.getElementById('cpuTableBody');
+            var countEl = document.getElementById('cpuCount');
+            var users = window.cpuUsers || [];
+            if (!tbody) return;
+            if (!users.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state"><i class="fas fa-headset"></i><p>Нет диспетчеров ЦПУ</p></td></tr>';
+                if (countEl) countEl.textContent = '0';
+                return;
+            }
+            if (countEl) countEl.textContent = users.length;
+            var html = '';
+            users.forEach(u => {
+                var st = u.status === 'online' ? 'free' : (u.status === 'busy' ? 'busy' : 'onway');
+                var stLabel = u.status === 'online' ? 'Онлайн' : (u.status === 'busy' ? 'Занят' : 'Офлайн');
+                html += `<tr>
+                    <td><strong>${escapeHtml(u.name)}</strong></td>
+                    <td>${escapeHtml(u.email)}</td>
+                    <td><span class="status-badge ${st}">${stLabel}</span></td>
+                    <td style="text-align:center;white-space:nowrap;">
+                        <button class="btn-sm btn-secondary" onclick="openEditCpu('${u.id}')"><i class="fas fa-edit"></i></button>
+                        <button class="btn-sm btn-danger" onclick="deleteCpu('${u.id}')"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
         function renderPilots() {
             var tbody = document.getElementById('pilotsTableBody');
             var countEl = document.getElementById('pilotCount');
@@ -909,8 +802,6 @@
             loadData(); setTimeout(updateUI, 500); showToast('Данные обновлены', 'success');
         }
 
-        // --- МОДАЛЬНЫЕ ОКНА ---
-        
         function openProfileModal() {
             var session = sessionStorage.getItem('userSession');
             if (!session) return;
@@ -1049,6 +940,39 @@
             fetch(API_URL + '/users/' + id, { method: 'DELETE' }).then(() => { showToast('Удалён', 'success'); loadData(); setTimeout(updateUI, 500); });
         }
 
+        function openAddCpuModal() {
+            editType = 'cpu'; editId = null;
+            document.getElementById('modalTitle').textContent = 'Добавление диспетчера ЦПУ';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="form-group"><label>Имя</label><input type="text" id="editName"></div>
+                <div class="form-group"><label>Email (Логин)</label><input type="email" id="editEmail"></div>
+                <div class="form-group"><label>Пароль</label><input type="text" id="editPassword" value="cpu123"></div>
+                <div class="modal-actions"><button class="btn btn-primary" onclick="saveEdit()">Сохранить</button><button class="btn btn-secondary" onclick="closeModal()">Отмена</button></div>`;
+            document.getElementById('editModal').classList.add('show');
+        }
+
+        function openEditCpu(id) {
+            var u = (window.cpuUsers || []).find(x => x.id === id);
+            if (!u) return;
+            editType = 'cpu'; editId = id;
+            document.getElementById('modalTitle').textContent = 'ЦПУ: ' + u.name;
+            document.getElementById('modalContent').innerHTML = `
+                <div class="form-group"><label>Имя</label><input type="text" id="editName" value="${escapeHtml(u.name)}"></div>
+                <div class="form-group"><label>Email</label><input type="email" id="editEmail" value="${escapeHtml(u.email)}"></div>
+                <div class="form-group"><label>Пароль (пусто - не менять)</label><input type="text" id="editPassword" placeholder=""></div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="saveEdit()">Сохранить</button>
+                    <button class="btn btn-danger" onclick="deleteFromModal()">Удалить</button>
+                    <button class="btn btn-secondary" onclick="closeModal()">Отмена</button>
+                </div>`;
+            document.getElementById('editModal').classList.add('show');
+        }
+
+        function deleteCpu(id) {
+            if (!confirm('Удалить?')) return;
+            fetch(API_URL + '/users/' + id, { method: 'DELETE' }).then(() => { showToast('Удалён', 'success'); loadData(); setTimeout(updateUI, 500); });
+        }
+
         function openEditPilot(id) {
             var p = window.pilots.find(x => x.id === id);
             if (!p) return;
@@ -1121,14 +1045,10 @@
                 var name = document.getElementById('editName').value.trim();
                 var password = document.getElementById('editPassword').value.trim();
                 if (!name) return showToast('Введите имя', 'error');
-
                 var data = { name: name, status: 'online' };
                 if (password) data.password = password;
-
                 fetch(API_URL + '/users/' + editId, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
                 })
                 .then(r => r.json()).then(res => {
                     if(res.error) showToast(res.error, 'error');
@@ -1149,7 +1069,6 @@
                 var status = document.getElementById('editStatus').value;
                 var email = document.getElementById('editEmail') ? document.getElementById('editEmail').value.trim() : '';
                 if (!name) return showToast('Введите имя', 'error');
-                
                 var data = { name: name, specialization: skill, status: status };
                 if (editId === null) {
                     if (!email) return showToast('Введите email', 'error');
@@ -1167,7 +1086,6 @@
                 var shift = document.getElementById('editShift').value;
                 var email = document.getElementById('editEmail') ? document.getElementById('editEmail').value.trim() : '';
                 if (!name) return showToast('Введите имя', 'error');
-                
                 var data = { name: name, status: status, shift: shift };
                 if (editId === null) {
                     if (!email) return showToast('Введите email', 'error');
@@ -1183,15 +1101,31 @@
                 var name = document.getElementById('editName').value.trim();
                 var email = document.getElementById('editEmail').value.trim();
                 var password = document.getElementById('editPassword') ? document.getElementById('editPassword').value.trim() : '';
-                
                 if (!name) return showToast('Введите имя', 'error');
                 var data = { name: name, status: 'online' };
-                
                 if (editId === null) {
                     if (!email) return showToast('Введите email', 'error');
                     data.email = email; data.role = 'mcc'; data.password = password || 'mcc123';
                     fetch(API_URL + '/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
                         .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Специалист MCC добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
+                } else {
+                    if (email) data.email = email;
+                    if (password) data.password = password;
+                    fetch(API_URL + '/users/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Обновлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
+                }
+            }
+            else if (editType === 'cpu') {
+                var name = document.getElementById('editName').value.trim();
+                var email = document.getElementById('editEmail').value.trim();
+                var password = document.getElementById('editPassword') ? document.getElementById('editPassword').value.trim() : '';
+                if (!name) return showToast('Введите имя', 'error');
+                var data = { name: name, status: 'online' };
+                if (editId === null) {
+                    if (!email) return showToast('Введите email', 'error');
+                    data.email = email; data.role = 'cpu'; data.password = password || 'cpu123';
+                    fetch(API_URL + '/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Диспетчер ЦПУ добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
                 } else {
                     if (email) data.email = email;
                     if (password) data.password = password;
@@ -1205,7 +1139,6 @@
                 var email = document.getElementById('editEmail') ? document.getElementById('editEmail').value.trim() : '';
                 var password = document.getElementById('editPassword') ? document.getElementById('editPassword').value.trim() : '';
                 if (!name) return showToast('Введите имя', 'error');
-                
                 var data = { name: name, rank: rank, status: 'active' };
                 if (editId === null) {
                     if (!email) return showToast('Введите email', 'error');
@@ -1223,7 +1156,6 @@
                 var deviceId = document.getElementById('editDeviceId').value.trim();
                 var speed = parseInt(document.getElementById('editSpeed').value) || 50;
                 if (!deviceId) return showToast('Введите ID', 'error');
-                
                 var data = { device_id: deviceId, speed: speed, lat: 55.975, lng: 37.410 };
                 if (editId === null) {
                     fetch(API_URL + '/transport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
@@ -1239,6 +1171,7 @@
             if (editType === 'engineer') deleteEmployee(editId);
             else if (editType === 'dispatcher') deleteDispatcher(editId);
             else if (editType === 'mcc') deleteMcc(editId);
+            else if (editType === 'cpu') deleteCpu(editId);
             else if (editType === 'pilot') deletePilot(editId);
             else if (editType === 'transport') deleteTransport(editId);
             closeModal();
@@ -1275,6 +1208,7 @@
         window.openEditEngineer = openEditEngineer; window.openAddEngineerModal = openAddEngineerModal; window.deleteEmployee = deleteEmployee;
         window.openEditDispatcher = openEditDispatcher; window.openAddDispatcherModal = openAddDispatcherModal; window.deleteDispatcher = deleteDispatcher;
         window.openEditMcc = openEditMcc; window.openAddMccModal = openAddMccModal; window.deleteMcc = deleteMcc;
+        window.openEditCpu = openEditCpu; window.openAddCpuModal = openAddCpuModal; window.deleteCpu = deleteCpu;
         window.openEditPilot = openEditPilot; window.openAddPilotModal = openAddPilotModal; window.deletePilot = deletePilot;
         window.openEditTransport = openEditTransport; window.openAddTransportModal = openAddTransportModal; window.deleteTransport = deleteTransport;
         window.saveEdit = saveEdit; window.deleteFromModal = deleteFromModal; window.closeModal = closeModal;
