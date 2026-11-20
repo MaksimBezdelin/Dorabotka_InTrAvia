@@ -214,6 +214,9 @@
         <li id="nav-deferred" onclick="switchTab('deferred')">
             <a><i class="fas fa-clock"></i><span>MEL / CDL</span></a>
         </li>
+        <li id="nav-repaired" onclick="switchTab('repaired')">
+            <a><i class="fas fa-check-circle"></i><span>Устранено на месте</span></a>
+        </li>
         <li id="nav-recurring" onclick="switchTab('recurring')">
             <a><i class="fas fa-arrows-rotate"></i><span>Повторяющиеся</span></a>
         </li>
@@ -272,8 +275,8 @@
             <table>
                 <thead><tr>
                     <th style="width:8%;">Возраст</th><th style="width:10%;">Источник</th>
-                    <th style="width:14%;">Борт / Стоянка</th><th style="width:32%;">Описание дефекта</th>
-                    <th style="width:7%;">ATA</th><th style="width:10%;">Серьёз.</th><th style="width:19%; text-align:right;"></th>
+                    <th style="width:16%;">Борт / Стоянка</th><th style="width:34%;">Описание дефекта</th>
+                    <th style="width:8%;">ATA</th><th style="width:24%; text-align:right;">Действия</th>
                 </tr></thead>
                 <tbody id="table-queue"></tbody>
             </table>
@@ -289,7 +292,7 @@
                 <thead><tr>
                     <th style="width:8%;">Возраст</th><th style="width:14%;">Борт / Стоянка</th>
                     <th style="width:22%;">Дефект</th><th style="width:10%;">Тип</th>
-                    <th style="width:18%;">Статус</th><th style="width:28%; text-align:right;"></th>
+                    <th style="width:18%;">Статус</th><th style="width:28%; text-align:right;">Действия</th>
                 </tr></thead>
                 <tbody id="table-inspection"></tbody>
             </table>
@@ -305,7 +308,7 @@
                 <thead><tr>
                     <th style="width:12%;">Борт</th><th style="width:25%;">Дефект</th>
                     <th style="width:18%;">Техник</th><th style="width:12%;">ETR</th>
-                    <th style="width:15%;">Действие</th><th style="width:18%; text-align:right;"></th>
+                    <th style="width:15%;">Действие</th><th style="width:18%; text-align:right;">Действия</th>
                 </tr></thead>
                 <tbody id="table-aog"></tbody>
             </table>
@@ -321,9 +324,21 @@
                 <thead><tr>
                     <th style="width:12%;">Борт</th><th style="width:22%;">Дефект</th>
                     <th style="width:10%;">ATA</th><th style="width:13%;">MEL Ref</th>
-                    <th style="width:10%;">Cat</th><th style="width:13%;">Due Date</th><th style="width:10%;">Дней</th>
+                    <th style="width:9%;">Cat</th><th style="width:12%;">Due Date</th><th style="width:8%;">Дней</th><th style="width:14%; text-align:right;">Действия</th>
                 </tr></thead>
                 <tbody id="table-deferred"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section-content" id="section-repaired">
+        <div class="section-toolbar">
+            <button class="btn btn-clear" onclick="reloadData()"><i class="fas fa-rotate"></i> Обновить</button>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th style="width:13%;">Борт</th><th style="width:10%;">ATA</th><th style="width:25%;">Дефект</th><th style="width:18%;">Инженер</th><th style="width:18%;">Статус</th><th style="width:16%;text-align:right;">Действия</th></tr></thead>
+                <tbody id="table-repaired"></tbody>
             </table>
         </div>
     </div>
@@ -351,10 +366,10 @@
         <div class="table-wrapper">
             <table>
                 <thead><tr>
-                    <th style="width:12%;">Дата</th><th style="width:12%;">Борт</th>
-                    <th style="width:8%;">ATA</th><th style="width:25%;">Дефект</th>
-                    <th style="width:15%;">Решение</th><th style="width:13%;">MEL / ETR</th>
-                    <th style="width:15%;">CRS</th>
+                    <th style="width:10%;">Дата</th><th style="width:10%;">Борт</th>
+                    <th style="width:7%;">ATA</th><th style="width:21%;">Дефект</th>
+                    <th style="width:13%;">Решение</th><th style="width:11%;">MEL / ETR</th>
+                    <th style="width:20%;">CRS</th><th style="width:8%; text-align:right;">Действия</th>
                 </tr></thead>
                 <tbody id="table-history"></tbody>
             </table>
@@ -382,8 +397,7 @@
             <div class="readonly-block" id="cpuModalInfo"></div>
             <div class="info-block">
                 <strong>Что произойдёт?</strong><br>
-                Заявка уйдёт в Центральный Пункт Управления (ЦПУ). Диспетчер ЦПУ назначит техника.
-                Тип дефекта (AOG / MEL / Ремонт) определит инженер на месте при осмотре ВС.
+                Заявка уйдёт в ЦПУ по ветке технической диагностики. Инженер проведёт осмотр и укажет фактическое состояние ВС. Выбор этой ветки сам по себе не подтверждает AOG — заключение фиксируется в инженерском отчёте.
             </div>
             <div class="form-group">
                 <label>Комментарий для ЦПУ и техника *</label>
@@ -394,8 +408,51 @@
             <div class="footer-hint">Заявка уйдёт диспетчеру ЦПУ</div>
             <div class="footer-actions">
                 <button class="btn btn-secondary" onclick="closeCPUModal()">Отмена</button>
-                <button class="btn btn-primary" onclick="submitSendToCpu()"><i class="fas fa-paper-plane"></i> Отправить в ЦПУ</button>
+                <button class="btn btn-primary" onclick="submitSendToCpu()"><i class="fas fa-paper-plane"></i> Отправить на диагностику</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="melStartModal">
+    <div class="modal" style="max-width:760px;">
+        <div class="modal-header">
+            <div><h2><i class="fas fa-clock" style="color:#b7791f;margin-right:7px;"></i> Проверка применимости MEL</h2><div class="modal-sub" id="melStartSubtitle">—</div></div>
+            <button class="modal-close" onclick="closeMELStartModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="readonly-block" id="melStartInfo"></div>
+            <div class="info-block" style="border-left-color:#b7791f;background:#fffbeb;">
+                Заполните сведения именно из утверждённого MEL оператора для данного типа и конфигурации ВС. Программа не подставляет нормативные сроки автоматически.
+            </div>
+            <div class="form-group">
+                <label>Пункт MEL / Item No. *</label><input class="form-control" id="melRefInput" placeholder="Например, 27-2-1">
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Категория *</label><select class="form-control" id="melCategorySelect"><option value="">— выбрать —</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select></div>
+                <div class="form-group"><label>Редакция утверждённого MEL *</label><input class="form-control" id="melRevisionInput" placeholder="Номер / дата редакции"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Срок устранения из MEL</label><input type="date" class="form-control" id="melDueDateInput"></div>
+                <div class="form-group"><label>Условие / событие для Cat A</label><input class="form-control" id="melDueConditionInput" placeholder="Точное условие из пункта MEL"></div>
+            </div>
+            <div class="form-group"><label>Описание пункта MEL *</label><textarea class="form-control" id="melDescriptionInput" rows="2" placeholder="Точное описание неработающего оборудования / функции..."></textarea></div>
+            <div class="form-group"><label>Ограничения эксплуатации *</label><textarea class="form-control" id="melRestrictionsInput" rows="2" placeholder="Ограничения, provisos, условия dispatch..."></textarea></div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label><input type="checkbox" id="melORequired"> Требуется O-процедура</label>
+                    <textarea class="form-control" id="melOProcedureInput" rows="2" placeholder="Точный текст O-процедуры"></textarea>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="melMRequired"> Требуется M-процедура</label>
+                    <textarea class="form-control" id="melMProcedureInput" rows="2" placeholder="Точный текст M-процедуры"></textarea>
+                </div>
+            </div>
+            <div class="form-group"><label>Комментарий MCC *</label><textarea class="form-control" id="melMccComment" rows="2" placeholder="Основание выбора пункта MEL и проверка применимости..."></textarea></div>
+        </div>
+        <div class="modal-footer">
+            <div class="footer-hint">После сохранения заявка поступит в очередь MEL ЦПУ. Полёты пока запрещены.</div>
+            <div class="footer-actions"><button class="btn btn-secondary" onclick="closeMELStartModal()">Отмена</button><button class="btn btn-primary" onclick="submitMELStart()"><i class="fas fa-paper-plane"></i> Передать MEL в ЦПУ</button></div>
         </div>
     </div>
 </div>
@@ -416,7 +473,7 @@
                 </div>
             </div>
             <div id="assessFinalizeBlock" style="display:none;">
-                <div class="info-block">Выберите итоговое решение: <b>AOG Recovery</b> (ВС лететь не может) или <b>Ремонт завершён</b> (уйдёт пилоту на CRS).</div>
+                <div class="info-block">Выберите итоговое техническое решение. После него пилот получит статус «ПОЛЁТ ЗАПРЕЩЁН»; отдельный допуск оформляется MCC отдельно.</div>
                 <div class="form-group">
                     <label>Итоговое решение MCC</label>
                     <div class="choice-grid" id="mccActionGrid">
@@ -429,6 +486,11 @@
                             <i class="fas fa-check-double"></i>
                             <div class="choice-title">Ремонт завершён</div>
                             <div class="choice-desc">Готово к CRS</div>
+                        </div>
+                        <div class="choice-card" data-act="MEL_DEFER" onclick="selectMccAction('MEL_DEFER')">
+                            <i class="fas fa-clock"></i>
+                            <div class="choice-title">MEL · условная эксплуатация</div>
+                            <div class="choice-desc">Только по утверждённому пункту и после проверок</div>
                         </div>
                     </div>
                 </div>
@@ -455,6 +517,14 @@
                         <label>Описание выполненных работ *</label>
                         <textarea class="form-control" id="repairRect" rows="2" placeholder="Заменён датчик, проверено под давлением..."></textarea>
                     </div>
+                </div>
+                <div id="melDeferBlock" style="display:none;">
+                    <div class="readonly-block" id="melFinalizeInfo"></div>
+                    <div class="info-block" style="border-left-color:#b7791f;background:#fffbeb;">MEL станет активным только после отдельного действия MCC «Оформить MEL допуск». До этого сохраняется DO NOT FLY. Подтверждайте только после проверки утверждённой документации и всех условий.</div>
+                    <div class="form-group"><label><input type="checkbox" id="melCombinedChecked"> Проверено совокупное влияние всех действующих MEL/CDL *</label></div>
+                    <div class="form-group"><label><input type="checkbox" id="melRestrictionsVerified"> Проверены ограничения и их применимость к конфигурации ВС *</label></div>
+                    <div class="form-group"><label><input type="checkbox" id="melCrewBriefed"> Зафиксировано информирование экипажа / ответственного канала об ограничениях *</label></div>
+                    <div class="form-group"><label for="melRepairPlan">План устранения дефекта и ответственный *</label><textarea class="form-control" id="melRepairPlan" rows="3" placeholder="Укажите план, ответственного и координационные действия MCC..."></textarea></div>
                 </div>
                 <div class="form-group" style="margin-top:16px;">
                     <label>Комментарий MCC *</label>
@@ -534,12 +604,13 @@
 </div>
 
 <script>
-console.log('[InTrAvia MCC] v2026-11-17 simplified');
+console.log('[InTrAvia MCC] v2026-11-18 (source КВС/Инженер, без серьёзности, МСК GMT+3)');
 
 var API_URL = '/api';
 var atlbEntries = [];
 var employees = [];
 var pollInterval = null;
+var moscowClockInterval = null;
 
 var currentQueueDetailId = null;
 var currentAssignId = null;
@@ -580,30 +651,68 @@ function shortText(text, max) {
 }
 window.shortText = shortText;
 
-function getAge(iso) {
-    if (!iso) return { text: '—', critical: false };
-    var diff = new Date() - new Date(iso);
-    var mins = Math.floor(diff / 60000);
-    if (mins < 1) return { text: 'только что', critical: false };
-    if (mins < 60) return { text: mins + ' мин', critical: mins > 30 };
-    var hours = Math.floor(mins / 60);
-    if (hours < 24) return { text: hours + ' ч', critical: true };
-    return { text: Math.floor(hours / 24) + ' д', critical: true };
+/* ── Единая работа с датами: серверные даты SQLite считаем UTC ── */
+function parseServerDate(value) {
+    if (value == null || value === '') return null;
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+    if (typeof value === 'number') {
+        var numericDate = new Date(value);
+        return isNaN(numericDate.getTime()) ? null : numericDate;
+    }
+    var raw = String(value).trim();
+    // SQLite CURRENT_TIMESTAMP: YYYY-MM-DD HH:mm:ss хранится в UTC без суффикса.
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+        raw = raw.replace(' ', 'T') + 'Z';
+    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(raw)) {
+        // ISO без смещения также трактуем как UTC, а не как локальное время браузера.
+        raw += 'Z';
+    }
+    var parsed = new Date(raw);
+    return isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function severityBadge(sev) {
-    if (sev === 'high') return '<span class="badge" style="background:#fee2e2;color:#dc2626;">Высокая</span>';
-    if (sev === 'low') return '<span class="badge" style="background:#f1f5f9;color:#475569;">Низкая</span>';
-    return '<span class="badge" style="background:#fef3c7;color:#b45309;">Средняя</span>';
+function formatMoscow(value, withDate) {
+    var d = parseServerDate(value);
+    if (!d) return '—';
+    var opts = withDate
+        ? { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23', timeZone:'Europe/Moscow' }
+        : { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23', timeZone:'Europe/Moscow' };
+    return d.toLocaleString('ru-RU', opts) + ' МСК';
 }
-function severityLabel(sev) { return sev==='high'?'Высокая':sev==='low'?'Низкая':'Средняя'; }
-window.severityLabel = severityLabel;
+window.formatMoscow = formatMoscow;
 
-function sourceBadge(src) {
-    var icon = src === 'voice' ? 'fa-microphone' : 'fa-keyboard';
-    return '<span class="badge badge-source"><i class="fas ' + icon + '"></i> Пилот</span>';
+function updateMoscowClock() {
+    var el = document.getElementById('currentDate');
+    if (el) el.textContent = formatMoscow(new Date(), true);
 }
-function sourceLabel(src) { return src === 'voice' ? 'Голос' : 'Текст'; }
+
+function getAge(createdAt) {
+    var created = parseServerDate(createdAt);
+    if (!created) return { text: 'Дата не указана', critical: false };
+    var diffMs = Math.max(0, Date.now() - created.getTime());
+    var totalMinutes = Math.floor(diffMs / 60000);
+    var days = Math.floor(totalMinutes / 1440);
+    var hours = Math.floor((totalMinutes % 1440) / 60);
+    var minutes = totalMinutes % 60;
+    var text;
+    if (days > 0) text = days + ' д ' + hours + ' ч';
+    else if (hours > 0) text = hours + ' ч ' + minutes + ' мин';
+    else if (minutes > 0) text = minutes + ' мин';
+    else text = 'меньше минуты';
+    return { text: text, critical: diffMs >= 60 * 60 * 1000 };
+}
+
+/* ── Источник: только КВС и Инженер ── */
+function sourceBadge(labelOrSrc) {
+    var isPilot = (labelOrSrc === 'КВС' || labelOrSrc === 'pilot' || labelOrSrc === 'voice');
+    var icon = isPilot ? 'fa-user-tie' : 'fa-wrench';
+    var label = isPilot ? 'КВС' : 'Инженер';
+    return '<span class="badge badge-source"><i class="fas ' + icon + '"></i> ' + label + '</span>';
+}
+function sourceLabel(src) {
+    if (src === 'КВС' || src === 'pilot' || src === 'voice') return 'КВС';
+    return 'Инженер';
+}
 window.sourceLabel = sourceLabel;
 
 function aogActionLabel(a) {
@@ -617,40 +726,24 @@ function routingStageLabel(stage) {
         'cpu': 'У ЦПУ',
         'dispatcher': 'У диспетчера',
         'technician': 'У техника',
-        'mcc_finalize': 'Ожидает решения MCC',
-        'pilot_crs': 'Ждёт подписи КВС',
-        'released': 'Выпущено'
+        'dispatcher_report': 'Отчёт у диспетчера',
+        'cpu_report': 'Отчёт у ЦПУ',
+        'mcc_mel_finalize': 'MEL возвращён в MCC',
+        'mcc_finalize': 'Отчёт вернулся в MCC',
+        'pilot_notice': 'Пилот уведомлён: ПОЛЁТ ЗАПРЕЩЁН',
+        'pilot_crs': 'Ожидает CRS',
+        'released': 'Допуск оформлен MCC'
     };
     return map[stage] || '—';
 }
 
-function guessATA(text) {
-    var t = (text || '').toLowerCase();
-    if (t.includes('двигател') || t.includes('engine')) return '72';
-    if (t.includes('масл') || t.includes('oil')) return '79';
-    if (t.includes('гидравли') || t.includes('hydraul')) return '29';
-    if (t.includes('электр') || t.includes('electr')) return '24';
-    if (t.includes('шасси') || t.includes('gear')) return '32';
-    if (t.includes('навигац') || t.includes('nav')) return '34';
-    if (t.includes('радио') || t.includes('radio') || t.includes('связ')) return '23';
-    if (t.includes('тормоз') || t.includes('brake')) return '32';
-    if (t.includes('топлив') || t.includes('fuel')) return '28';
-    if (t.includes('двер') || t.includes('door')) return '52';
-    if (t.includes('крыл') || t.includes('wing')) return '57';
-    if (t.includes('фюзеляж') || t.includes('fuselage')) return '53';
-    if (t.includes('закрыл') || t.includes('flap')) return '27';
-    if (t.includes('кондиц') || t.includes('air condition')) return '21';
-    if (t.includes('разгерм') || t.includes('pressur')) return '21';
-    if (t.includes('кислород') || t.includes('oxygen')) return '35';
-    if (t.includes('пожар') || t.includes('fire')) return '26';
-    if (t.includes('дисплей') || t.includes('display')) return '31';
-    if (t.includes('автопилот') || t.includes('autopilot')) return '22';
-    if (t.includes('транспондер') || t.includes('transponder')) return '34';
-    if (t.includes('gps')) return '34';
-    if (t.includes('пневмат') || t.includes('pneumatic')) return '36';
-    return '—';
+function formatATA(value) {
+    var code = value == null ? '' : String(value).trim();
+    if (!code) return 'Не назначен';
+    return code;
 }
-window.guessATA = guessATA;
+
+window.formatATA = formatATA;
 
 function init() {
     var session = sessionStorage.getItem('userSession');
@@ -663,9 +756,9 @@ function init() {
 
     document.getElementById('userName').textContent = user.name || 'Специалист MCC';
     document.getElementById('userAvatar').innerHTML = '<i class="fas fa-user-tie"></i>';
-    var now = new Date();
-    var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-    document.getElementById('currentDate').textContent = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+    updateMoscowClock();
+    if (moscowClockInterval) clearInterval(moscowClockInterval);
+    moscowClockInterval = setInterval(updateMoscowClock, 1000);
 
     reloadData();
     if (pollInterval) clearInterval(pollInterval);
@@ -687,9 +780,9 @@ window.reloadData = reloadData;
 function mapServerToLocal(r) {
     var s = r.mcc_status;
     var localStatus = 'open';
-    if (s === 'INSPECTION') localStatus = 'assigned';
+    if (s === 'INSPECTION' || s === 'MEL_REVIEW' || s === 'MEL_PENDING_CPU' || s === 'MEL_MAINTENANCE_REQUIRED' || s === 'MEL_CPU_CHECKED') localStatus = 'assigned';
     else if (s === 'AOG_CONFIRMED') localStatus = 'in_work';
-    else if (s === 'MEL') localStatus = 'deferred';
+    else if (['MEL','MEL_READY','MEL_ACTIVE','MEL_EXPIRED'].indexOf(s) >= 0) localStatus = 'deferred';
     else if (s === 'REPAIRED') localStatus = 'repaired';
     else if (s === 'RELEASED') localStatus = 'released';
 
@@ -700,12 +793,17 @@ function mapServerToLocal(r) {
         flightNumber: r.flight_number || '',
         faultType: r.fault_type || '',
         defect: r.description || r.engineer_comment || '',
-        severity: r.severity || 'medium',
-        source: r.source === 'pilot' ? 'voice' : 'text',
+        source: r.source || '',
+        sourceLabel: r.source_label || '',
         createdAt: r.created_at,
+        ata: r.mcc_ata || '',
         status: localStatus,
         serverStatus: s,
         routingStage: r.routing_stage || 'mcc',
+        flightStatus: r.flight_status || 'DO_NOT_FLY',
+        flightStatusReason: r.flight_status_reason || 'Ожидает решения MCC',
+        engineerCondition: r.engineer_condition || '',
+        engineerReportAt: r.engineer_report_at || null,
         engineerId: r.engineer_id,
         engineerName: r.engineer_name,
         engineerVerdict: r.engineer_verdict || '',
@@ -715,6 +813,27 @@ function mapServerToLocal(r) {
         melCategory: r.mcc_mel_category || '',
         melRef: r.mcc_mel_ref || '',
         melDueDate: r.mcc_due_date || '',
+        melDueCondition: r.mcc_due_condition || '',
+        melRevision: r.mcc_mel_revision || '',
+        melDescription: r.mcc_mel_description || '',
+        melRestrictions: r.mcc_mel_restrictions || '',
+        melORequired: !!r.mcc_proc_o,
+        melMRequired: !!r.mcc_proc_m,
+        melOProcedure: r.mcc_proc_o_text || '',
+        melMProcedure: r.mcc_proc_m_text || '',
+        melMProcedureCompletedByEngineer: !!r.mel_m_procedure_completed,
+        melMProcedureEngineerComment: r.mel_m_procedure_comment || '',
+        melInitialEngineerReport: r.mel_initial_engineer_report || '',
+        melInitialEngineerReportAt: r.mel_initial_engineer_report_at || '',
+        melInitialAssessedBy: r.mel_initial_assessed_by || '',
+        cpuMelOCompleted: !!r.cpu_mel_o_completed,
+        cpuMelMCompleted: !!r.cpu_mel_m_completed,
+        cpuMelCheckComment: r.cpu_mel_check_comment || '',
+        cpuMelCheckedAt: r.cpu_mel_checked_at || null,
+        cpuMelCheckedBy: r.cpu_mel_checked_by || '',
+        cpuMelEngineerRequired: !!r.cpu_mel_engineer_required,
+        cpuMelMComment: r.cpu_mel_m_comment || '',
+        melWorkflow: r.mcc_mel_choice === 'MEL',
         aogConfirmed: s === 'AOG_CONFIRMED',
         aogEtr: r.etr || '',
         aogAction: r.aog_action || '',
@@ -735,10 +854,64 @@ function findEntry(id) {
     return null;
 }
 
+function mccDeleteButton(id) {
+    return '<button type="button" class="btn btn-danger btn-sm mcc-delete-btn" data-delete-id="' + esc(id) + '" onclick="event.preventDefault();event.stopPropagation();deleteMccRequest(this.dataset.deleteId)" title="Удалить заявку"><i class="fas fa-trash"></i> Удалить</button>';
+}
+
+function deleteMccRequest(id) {
+    var entry = findEntry(id);
+    if (!entry) { showToast('Заявка уже отсутствует', 'warning'); return; }
+    var message = 'Удалить заявку без возможности восстановления?\n\n' +
+        'Борт: ' + (entry.aircraft || '—') + '\n' +
+        'Дефект: ' + (entry.faultType || '—') + '\n' +
+        'Стоянка: ' + (entry.parking || '—') + '\n\n' +
+        'Если заявка назначена инженеру, его задача и транспорт будут освобождены.';
+    if (!window.confirm(message)) return;
+
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data || data.success !== true) {
+                    throw new Error((data && (data.error || data.message)) || 'Не удалось удалить заявку');
+                }
+                return data;
+            });
+        })
+        .then(function() {
+            atlbEntries = atlbEntries.filter(function(item) { return String(item.id) !== String(id); });
+            renderAll();
+            showToast('Заявка удалена', 'success');
+            reloadData();
+        })
+        .catch(function(error) { showToast('Ошибка удаления: ' + error.message, 'error'); });
+}
+window.deleteMccRequest = deleteMccRequest;
+
+function hasEngineerReport(e) {
+    return !!(e && e.engineerReportAt && e.engineerVerdict &&
+        e.engineerCondition && (e.engineerComment || '').indexOf('ОТЧЁТ О ДИАГНОСТИКЕ') !== -1);
+}
+
 function canFinalize(e) {
-    if (e.routingStage === 'mcc_finalize') return true;
-    if (e.routingStage === 'technician' && e.engineerVerdict) return true;
-    return false;
+    if (!e) return false;
+    if (e.melWorkflow) {
+        var engineerFoundAog = e.engineerVerdict === 'AOG';
+        return ['MEL_CPU_CHECKED', 'MEL_REVIEW'].indexOf(e.serverStatus) >= 0 && e.routingStage === 'mcc_mel_finalize' && !!e.cpuMelCheckedAt &&
+            (engineerFoundAog ? (!!e.engineerReportAt && (!e.melMRequired || !!e.cpuMelMComment)) :
+                ((!e.melORequired || e.cpuMelOCompleted) && (!e.melMRequired || (e.cpuMelMCompleted && !!e.engineerReportAt))));
+    }
+    return e.routingStage === 'mcc_finalize' && hasEngineerReport(e);
+}
+
+function inspectionStageLabel(e) {
+    if (e && e.melWorkflow && e.routingStage === 'cpu_mel_review') return 'Проверка MEL в ЦПУ';
+    if (e && e.melWorkflow && e.routingStage === 'dispatcher') return 'M-процедура · у диспетчера';
+    if (e && e.melWorkflow && e.routingStage === 'technician') return 'M-процедура · инженер';
+    if (e && e.melWorkflow && e.routingStage === 'cpu_report') return 'M-процедура · отчёт в ЦПУ';
+    if (e && e.routingStage === 'mcc_finalize' && !hasEngineerReport(e)) {
+        return e.engineerId ? 'У инженера — отчёт ещё не отправлен' : 'Ожидает назначения инженера';
+    }
+    return routingStageLabel(e ? e.routingStage : '');
 }
 
 function renderAll() {
@@ -749,6 +922,7 @@ function renderAll() {
         renderInspection();
         renderAOG();
         renderDeferred();
+        renderRepaired();
         renderRecurring();
         renderHistory();
     } catch(e) { console.error('[renderAll]', e); }
@@ -799,24 +973,25 @@ function renderQueue() {
     var items = atlbEntries.filter(function(e) { return e.status === 'open'; });
 
     if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fas fa-check-circle"></i><p>Очередь пуста</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-check-circle"></i><p>Очередь пуста</p></td></tr>';
         return;
     }
     tbody.innerHTML = items.map(function(e) {
         var age = getAge(e.createdAt);
-        var ata = guessATA(e.faultType || e.defect);
+        var ata = formatATA(e.ata);
         return '<tr class="clickable" data-entry-id="' + esc(e.id) + '">' +
             '<td><span class="time-age ' + (age.critical ? 'critical' : '') + '">' + age.text + '</span></td>' +
-            '<td>' + sourceBadge(e.source) + '</td>' +
+            '<td>' + sourceBadge(e.sourceLabel || e.source) + '</td>' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br><span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
             '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div><div style="font-size:11px;color:var(--aero-text-light);margin-top:2px;">' + esc(shortText(e.defect, 100)) + '</div></td>' +
             '<td class="mono">' + esc(ata) + '</td>' +
-            '<td>' + severityBadge(e.severity) + '</td>' +
-            '<td style="text-align:right;"><span class="row-open-link">Обработать →</span></td>' +
+            '<td style="text-align:right;white-space:nowrap;"><span class="row-open-link">Обработать →</span> ' + mccDeleteButton(e.id) + '</td>' +
         '</tr>';
     }).join('');
 
     tbody.onclick = function(ev) {
+        var del = ev.target.closest('[data-delete-id]');
+        if (del) { ev.preventDefault(); ev.stopPropagation(); deleteMccRequest(del.dataset.deleteId); return; }
         var tr = ev.target.closest('tr[data-entry-id]');
         if (tr) openQueueDetail(tr.dataset.entryId);
     };
@@ -825,7 +1000,7 @@ function renderQueue() {
 function renderInspection() {
     var tbody = document.getElementById('table-inspection');
     if (!tbody) return;
-    var items = atlbEntries.filter(function(e) { return e.status === 'assigned'; });
+    var items = atlbEntries.filter(function(e) { return e.status === 'assigned' && !canFinalize(e); });
 
     if (items.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-user-magnifying-glass"></i><p>Нет активных заявок в работе</p></td></tr>';
@@ -836,7 +1011,7 @@ function renderInspection() {
         var canFin = canFinalize(e);
         var statusText, statusClass;
         if (canFin) {
-            statusText = e.routingStage === 'mcc_finalize' ? 'Вердикт получен — финализировать' : 'Вердикт: ' + (e.engineerVerdict || 'есть');
+            statusText = e.melWorkflow ? 'ЦПУ проверило MEL — решение MCC' : (e.routingStage === 'mcc_finalize' ? 'Вердикт получен — финализировать' : 'Вердикт: ' + (e.engineerVerdict || 'есть'));
             statusClass = 'background:#dbeafe;color:#1e40af;';
         } else if (e.routingStage === 'cpu') {
             statusText = 'У ЦПУ';
@@ -845,16 +1020,19 @@ function renderInspection() {
             statusText = 'У диспетчера';
             statusClass = 'background:#ede9fe;color:#6d28d9;';
         } else if (e.routingStage === 'technician') {
-            statusText = 'У техника · ожидает вердикт';
+            statusText = 'Инженер выполняет диагностику · отчёт не отправлен';
+            statusClass = 'background:#fef3c7;color:#b45309;';
+        } else if (e.routingStage === 'mcc_finalize' && !hasEngineerReport(e)) {
+            statusText = e.engineerId ? 'Инженер выполняет диагностику · отчёт не отправлен' : 'Отчёт инженера не получен';
             statusClass = 'background:#fef3c7;color:#b45309;';
         } else {
-            statusText = routingStageLabel(e.routingStage);
+            statusText = inspectionStageLabel(e);
             statusClass = 'background:#f1f5f9;color:#475569;';
         }
         var btn = canFin
-            ? '<span class="row-open-link">Вердикт →</span>'
-            : '<span class="row-open-link disabled">Просмотр</span>';
-        return '<tr class="clickable" data-entry-id="' + esc(e.id) + '">' +
+            ? '<span class="row-open-link">' + (e.melWorkflow ? 'Решение по MEL →' : 'Вердикт и решение →') + '</span>'
+            : '<span class="row-open-link disabled">Ожидаем отчёт инженера</span>';
+        return '<tr class="' + (canFin ? 'clickable' : '') + '" data-entry-id="' + esc(e.id) + '">' +
             '<td><span class="time-age">' + age.text + '</span></td>' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br><span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
             '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div><div style="font-size:11px;color:var(--aero-text-light);margin-top:2px;">' + esc(shortText(e.defect, 80)) + '</div></td>' +
@@ -862,13 +1040,20 @@ function renderInspection() {
             '<td><span class="badge" style="' + statusClass + '">' + esc(statusText) + '</span>' +
                 (e.engineerName ? '<div style="font-size:11px;color:var(--aero-gray);margin-top:4px;">' + esc(e.engineerName) + '</div>' : '') +
             '</td>' +
-            '<td style="text-align:right;">' + btn + '</td>' +
+            '<td style="text-align:right;white-space:nowrap;">' + btn + ' ' + mccDeleteButton(e.id) + '</td>' +
         '</tr>';
     }).join('');
 
     tbody.onclick = function(ev) {
+        var del = ev.target.closest('[data-delete-id]');
+        if (del) { ev.preventDefault(); ev.stopPropagation(); deleteMccRequest(del.dataset.deleteId); return; }
         var tr = ev.target.closest('tr[data-entry-id]');
         if (!tr) return;
+        var entry = findEntry(tr.dataset.entryId);
+        if (!canFinalize(entry)) {
+            showToast('Отчёт инженера ещё не поступил. Решение MCC пока недоступно.', 'warning');
+            return;
+        }
         openAssessModal(tr.dataset.entryId);
     };
 }
@@ -876,53 +1061,110 @@ function renderInspection() {
 function renderAOG() {
     var tbody = document.getElementById('table-aog');
     if (!tbody) return;
-    var items = atlbEntries.filter(function(e) { return e.aogConfirmed && e.status !== 'released' && e.status !== 'repaired'; });
+    var items = atlbEntries.filter(function(e) {
+        var waitingMcc = e.status === 'assigned' && e.engineerVerdict === 'AOG' && e.routingStage === 'mcc_finalize';
+        return waitingMcc || (e.aogConfirmed && e.status !== 'released' && e.status !== 'repaired');
+    });
 
     if (items.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-check-circle"></i><p>Нет активных AOG</p></td></tr>';
         return;
     }
     tbody.innerHTML = items.map(function(e) {
-        return '<tr class="row-aog clickable" data-entry-id="' + esc(e.id) + '">' +
+        var waitingMcc = e.status === 'assigned' && e.engineerVerdict === 'AOG' && e.routingStage === 'mcc_finalize';
+        return '<tr class="row-aog clickable" data-entry-id="' + esc(e.id) + '" data-waiting-mcc="' + (waitingMcc ? '1' : '0') + '">' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong></td>' +
             '<td><div style="font-weight:600;">' + esc(e.faultType || '—') + '</div><div style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</div></td>' +
             '<td>' + esc(e.engineerName || '—') + '</td>' +
             '<td class="mono"><strong>' + esc(e.aogEtr || '—') + '</strong></td>' +
-            '<td>' + esc(aogActionLabel(e.aogAction)) + '</td>' +
-            '<td style="text-align:right;"><span class="row-open-link">Открыть →</span></td>' +
+            '<td>' + (waitingMcc ? '<span class="badge" style="background:#dbeafe;color:#1e40af;">Ожидает решения MCC</span>' : esc(aogActionLabel(e.aogAction))) + '</td>' +
+            '<td style="text-align:right;white-space:nowrap;"><span class="row-open-link">' + (waitingMcc ? 'Решение MCC →' : 'Открыть →') + '</span> ' + mccDeleteButton(e.id) + '</td>' +
         '</tr>';
     }).join('');
 
     tbody.onclick = function(ev) {
+        var del = ev.target.closest('[data-delete-id]');
+        if (del) { ev.preventDefault(); ev.stopPropagation(); deleteMccRequest(del.dataset.deleteId); return; }
         var tr = ev.target.closest('tr[data-entry-id]');
-        if (tr) openAOGManageModal(tr.dataset.entryId);
+        if (tr) {
+            if (tr.dataset.waitingMcc === '1') openAssessModal(tr.dataset.entryId);
+            else openAOGManageModal(tr.dataset.entryId);
+        }
     };
 }
 
 function renderDeferred() {
     var tbody = document.getElementById('table-deferred');
     if (!tbody) return;
-    var items = atlbEntries.filter(function(e) { return e.status === 'deferred'; });
+    var items = atlbEntries.filter(function(e) {
+        var waitingMcc = e.status === 'assigned' && e.melWorkflow && e.routingStage === 'mcc_mel_finalize';
+        return waitingMcc || e.status === 'deferred';
+    });
 
     if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fas fa-clipboard-check"></i><p>Нет отложенных дефектов</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="fas fa-clipboard-check"></i><p>Нет отложенных дефектов</p></td></tr>';
         return;
     }
     tbody.innerHTML = items.map(function(e) {
-        var cat = e.melCategory || 'C';
-        var dueDate = e.melDueDate ? new Date(e.melDueDate) : null;
-        var daysLeft = dueDate ? Math.ceil((dueDate - new Date()) / 86400000) : 0;
-        var rowCls = daysLeft <= 1 ? 'row-critical' : daysLeft <= 3 ? 'row-warning' : '';
-        return '<tr class="' + rowCls + '">' +
+        var cat = e.melCategory || '—';
+        var dueDate = e.melDueDate ? new Date(e.melDueDate + 'T23:59:59') : null;
+        var daysLeft = dueDate ? Math.ceil((dueDate - new Date()) / 86400000) : null;
+        var isExpired = e.serverStatus === 'MEL_EXPIRED';
+        var isActive = e.serverStatus === 'MEL_ACTIVE';
+        var waitingMcc = e.status === 'assigned' && e.melWorkflow && e.routingStage === 'mcc_mel_finalize';
+        var rowCls = waitingMcc ? 'clickable' : (isExpired || (daysLeft !== null && daysLeft < 0) ? 'row-critical' : (daysLeft !== null && daysLeft <= 3 ? 'row-warning' : ''));
+        return '<tr class="' + rowCls + '" data-entry-id="' + esc(e.id) + '" data-waiting-mcc="' + (waitingMcc ? '1' : '0') + '">' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong></td>' +
             '<td>' + esc(e.faultType || '—') + '</td>' +
-            '<td class="mono">' + esc(guessATA(e.faultType)) + '</td>' +
+            '<td class="mono">' + esc(formatATA(e.ata)) + '</td>' +
             '<td class="mono" style="font-size:11px;">' + esc(e.melRef || '—') + '</td>' +
             '<td><span class="badge cat-' + cat.toLowerCase() + '">Cat ' + cat + '</span></td>' +
-            '<td>' + (dueDate ? dueDate.toLocaleDateString('ru-RU') : '—') + '</td>' +
-            '<td><strong>' + daysLeft + ' дн.</strong></td>' +
+            '<td>' + (dueDate ? dueDate.toLocaleDateString('ru-RU') : esc(e.melDueCondition || 'По условию')) + '</td>' +
+            '<td><strong>' + (waitingMcc ? 'Ожидает решения MCC' : isExpired ? 'Срок истёк' : isActive ? 'MEL активно' : (daysLeft === null ? '—' : (daysLeft + ' дн.'))) + '</strong></td>' +
+            '<td style="text-align:right;white-space:nowrap;">' +
+                (waitingMcc ? '<span class="row-open-link">Решение MCC →</span> ' : '') +
+                (isExpired ? '<button class="btn btn-primary btn-sm" style="margin-right:6px;" onclick="event.stopPropagation();mccStartExpiredMelRecovery(\'' + esc(e.id) + '\')">Передать на устранение</button>' : '') +
+                mccDeleteButton(e.id) + '</td>' +
         '</tr>';
     }).join('');
+    tbody.onclick = function(ev) {
+        var del = ev.target.closest('[data-delete-id]');
+        if (del) { ev.preventDefault(); ev.stopPropagation(); deleteMccRequest(del.dataset.deleteId); return; }
+        var tr = ev.target.closest('tr[data-entry-id]');
+        if (tr && tr.dataset.waitingMcc === '1') openAssessModal(tr.dataset.entryId);
+    };
+}
+
+function renderRepaired() {
+    var tbody = document.getElementById('table-repaired');
+    if (!tbody) return;
+    var items = atlbEntries.filter(function(e) {
+        var waitingMcc = e.status === 'assigned' && e.engineerVerdict === 'REPAIR' && e.routingStage === 'mcc_finalize';
+        var awaitingRelease = e.status === 'repaired' && e.engineerVerdict === 'REPAIR';
+        return waitingMcc || awaitingRelease;
+    });
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-check-circle"></i><p>Нет заявок с результатом «Устранено на месте»</p></td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map(function(e) {
+        var waitingMcc = e.status === 'assigned' && e.routingStage === 'mcc_finalize';
+        var status = waitingMcc ? 'Ожидает решения MCC' : 'Ожидает отдельного допуска MCC';
+        return '<tr class="' + (waitingMcc ? 'clickable' : '') + '" data-entry-id="' + esc(e.id) + '" data-waiting-mcc="' + (waitingMcc ? '1' : '0') + '">' +
+            '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong></td>' +
+            '<td class="mono">' + esc(formatATA(e.ata)) + '</td>' +
+            '<td>' + esc(e.faultType || '—') + '<div style="font-size:11px;color:var(--aero-gray);">' + esc(shortText(e.defect, 80)) + '</div></td>' +
+            '<td>' + esc(e.engineerName || '—') + '</td>' +
+            '<td><span class="badge" style="background:' + (waitingMcc ? '#dbeafe;color:#1e40af' : '#fef3c7;color:#92400e') + ';">' + status + '</span></td>' +
+            '<td style="text-align:right;white-space:nowrap;">' + (waitingMcc ? '<span class="row-open-link">Решение MCC →</span> ' : '') + mccDeleteButton(e.id) + '</td>' +
+        '</tr>';
+    }).join('');
+    tbody.onclick = function(ev) {
+        var del = ev.target.closest('[data-delete-id]');
+        if (del) { ev.preventDefault(); ev.stopPropagation(); deleteMccRequest(del.dataset.deleteId); return; }
+        var tr = ev.target.closest('tr[data-entry-id]');
+        if (tr && tr.dataset.waitingMcc === '1') openAssessModal(tr.dataset.entryId);
+    };
 }
 
 function renderRecurring() {
@@ -944,11 +1186,11 @@ function renderRecurring() {
     }
     tbody.innerHTML = recurring.map(function(g) {
         var last = g.items[0];
-        var lastDate = new Date(last.createdAt).toLocaleDateString('ru-RU');
+        var lastDate = formatMoscow(last.createdAt, true).split(' ')[0];
         var activeStatus = last.status === 'released' ? 'Закрыт' : 'В работе';
         return '<tr>' +
             '<td><strong style="font-family:var(--mono);">' + esc(g.aircraft) + '</strong></td>' +
-            '<td class="mono">' + esc(guessATA(g.faultType)) + '</td>' +
+            '<td class="mono">' + esc(formatATA(g.items[0] && g.items[0].ata)) + '</td>' +
             '<td>' + esc(g.faultType || '—') + '</td>' +
             '<td><span class="badge badge-wait">' + g.items.length + '×</span></td>' +
             '<td>' + lastDate + '</td>' +
@@ -957,12 +1199,53 @@ function renderRecurring() {
     }).join('');
 }
 
+function mccStartExpiredMelRecovery(id) {
+    var entry = findEntry(id);
+    if (!entry || entry.serverStatus !== 'MEL_EXPIRED') {
+        showToast('Заявка не находится в статусе «MEL — срок истёк»', 'warning');
+        return;
+    }
+    var comment = window.prompt('Укажите основание передачи просроченного MEL на устранение дефекта. Заявка будет направлена в ЦПУ по обычной ветке AOG/ремонта:', 'Срок пункта MEL истёк. Требуется устранение неисправности и последующая оценка MCC.');
+    if (comment === null) return;
+    comment = comment.trim();
+    if (!comment) { showToast('Основание обязательно', 'error'); return; }
+    if (!window.confirm('Передать ' + (entry.aircraft || 'ВС') + ' в ЦПУ для организации устранения неисправности? DO NOT FLY сохраняется.')) return;
+    fetch(API_URL + '/mcc/send_to_cpu', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({request_id:id, comment:comment})
+    }).then(function(r) { return r.json().then(function(data) { if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось передать заявку'); return data; }); })
+      .then(function() { showToast('Заявка передана в ЦПУ на устранение. DO NOT FLY сохраняется.', 'success'); reloadData(); })
+      .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
+}
+window.mccStartExpiredMelRecovery = mccStartExpiredMelRecovery;
+
+function authorizeFlightRelease(id) {
+    var entry = findEntry(id);
+    if (!entry) return;
+    var session = {};
+    try { session = JSON.parse(sessionStorage.getItem('userSession') || '{}'); } catch(e) {}
+    var authorizedBy = (session.name || '').trim();
+    if (!authorizedBy) { showToast('В профиле MCC не указано имя уполномоченного сотрудника', 'error'); return; }
+    var comment = window.prompt('Укажите основание и проверенные документы для оформления допуска. Это действие снимает программный запрет:', 'Заключение и документация проверены MCC; основание допуска внесено в техническую запись.');
+    if (comment === null) return;
+    comment = comment.trim();
+    if (!comment) { showToast('Основание допуска обязательно', 'error'); return; }
+    if (!window.confirm('Подтвердить оформление допуска для ' + (entry.aircraft || 'ВС') + '? Система снимет отметку «ПОЛЁТ ЗАПРЕЩЁН».')) return;
+    fetch(API_URL + '/mcc/authorize_release', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({request_id:id, authorized_by:authorizedBy, comment:comment})
+    }).then(function(r) { return r.json().then(function(data) { if (!r.ok || !data.success) throw new Error(data.error || 'Допуск не оформлен'); return data; }); })
+      .then(function() { showToast('Решение MCC зафиксировано. Статус пилота обновлён.', 'success'); reloadData(); })
+      .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
+}
+window.authorizeFlightRelease = authorizeFlightRelease;
+
 function renderHistory() {
     var tbody = document.getElementById('table-history');
     if (!tbody) return;
-    var items = atlbEntries.filter(function(e) { return e.status === 'released' || e.status === 'repaired'; });
+    var items = atlbEntries.filter(function(e) { return e.status === 'released' || e.status === 'repaired' || e.status === 'deferred' || (e.routingStage === 'pilot_notice'); });
     if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fas fa-archive"></i><p>История пуста</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="fas fa-archive"></i><p>История пуста</p></td></tr>';
         return;
     }
     tbody.innerHTML = items.slice(0, 200).map(function(e) {
@@ -973,23 +1256,28 @@ function renderHistory() {
         else { decision = '<span class="badge badge-wait">Ремонт</span>'; }
 
         var crsInfo;
-        if (e.crs.signed) {
-            crsInfo = '<div style="font-size:11px;color:#0055aa;"><i class="fas fa-signature"></i> ' + esc(e.crs.signedBy || '') + '</div>' +
-                     '<div style="font-size:10px;color:var(--aero-gray);">' + new Date(e.crs.signedAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>';
-        } else if (e.status === 'repaired') {
-            crsInfo = '<span style="color:#b45309;font-size:11px;">ждёт подписи</span>';
+        if (e.flightStatus === 'MEL_ACTIVE') {
+            crsInfo = '<div style="color:#166534;font-weight:800;font-size:11px;">MEL АКТИВНО · УСЛОВНАЯ ЭКСПЛУАТАЦИЯ</div>' +
+                '<div style="font-size:10px;color:var(--aero-gray);max-width:230px;">' + esc(e.flightStatusReason || '') + '</div>';
+        } else if (e.flightStatus !== 'RELEASED') {
+            crsInfo = '<div style="color:#b91c1c;font-weight:800;font-size:11px;">ПОЛЁТ ЗАПРЕЩЁН</div>' +
+                '<div style="font-size:10px;color:var(--aero-gray);max-width:230px;">' + esc(e.flightStatusReason || 'Ожидается решение MCC') + '</div>' +
+                ((e.routingStage === 'pilot_notice' && (e.serverStatus === 'REPAIRED' || e.serverStatus === 'MEL_READY' || e.serverStatus === 'MEL')) ?
+                    '<button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="event.stopPropagation();authorizeFlightRelease(\'' + esc(e.id) + '\')">' + (e.serverStatus === 'MEL_READY' || e.serverStatus === 'MEL' ? 'Оформить MEL допуск' : 'Оформить допуск') + '</button>' : '');
         } else {
-            crsInfo = '—';
+            crsInfo = '<div style="font-size:11px;color:#15803d;font-weight:700;">Допуск MCC оформлен</div>' +
+                     '<div style="font-size:10px;color:var(--aero-gray);">' + esc(e.flightStatusReason || '') + '</div>';
         }
 
         return '<tr>' +
-            '<td>' + new Date(e.createdAt).toLocaleDateString('ru-RU') + '</td>' +
+            '<td>' + formatMoscow(e.createdAt, true).split(' ')[0] + '</td>' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong></td>' +
-            '<td class="mono">' + esc(guessATA(e.faultType)) + '</td>' +
+            '<td class="mono">' + esc(formatATA(e.ata)) + '</td>' +
             '<td>' + esc(e.faultType || '—') + '</td>' +
             '<td>' + decision + '</td>' +
             '<td class="mono" style="font-size:11px;">' + melOrEtr + '</td>' +
             '<td>' + crsInfo + '</td>' +
+            '<td style="text-align:right;">' + mccDeleteButton(e.id) + '</td>' +
         '</tr>';
     }).join('');
 }
@@ -1000,7 +1288,7 @@ function openQueueDetail(id) {
     currentQueueDetailId = id;
 
     var age = getAge(e.createdAt);
-    var ata = guessATA(e.faultType || e.defect);
+    var ata = formatATA(e.ata);
 
     document.getElementById('queueDetailTitle').textContent = e.faultType || 'Заявка от пилота';
     document.getElementById('queueDetailSub').textContent =
@@ -1011,12 +1299,11 @@ function openQueueDetail(id) {
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
         (e.flightNumber ? '<div class="ro-row"><span class="ro-label">Рейс</span><span class="ro-val">' + esc(e.flightNumber) + '</span></div>' : '') +
-        '<div class="ro-row"><span class="ro-label">Источник</span><span class="ro-val">' + esc(sourceLabel(e.source)) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Источник</span><span class="ro-val">' + esc(e.sourceLabel || sourceLabel(e.source)) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Возраст</span><span class="ro-val" style="color:' + (age.critical ? '#dc2626' : '#1a2332') + ';">' + age.text + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">Серьёзность</span><span class="ro-val">' + severityLabel(e.severity) + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">ATA</span><span class="ro-val">' + esc(ata) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">ATA</span><span class="ro-val" id="queueAtaValue">' + esc(ata) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Зарегистрировано</span><span class="ro-val">' +
-            new Date(e.createdAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) +
+            formatMoscow(e.createdAt, true) +
         '</span></div></div>';
 
     html += '<div class="defect-description">' +
@@ -1024,19 +1311,20 @@ function openQueueDetail(id) {
         esc(e.defect) + '</div>';
 
     html += '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
-        '<div class="footer-hint">Отправьте заявку в Центральный Пункт Управления</div>' +
-        '<div class="footer-actions">' +
-            '<button class="btn btn-primary" id="qBtnProcess"><i class="fas fa-paper-plane"></i> Отправить в ЦПУ</button>' +
+        '<div class="footer-hint">Результат MEL / AOG / «Устранено» определяет техник после диагностики. MCC направляет заявку в ЦПУ.</div>' +
+        '<div class="footer-actions" style="flex-wrap:wrap;justify-content:flex-end;">' +
+            '<button class="btn btn-primary" id="qBtnAog"><i class="fas fa-paper-plane"></i> Передать в ЦПУ на диагностику</button>' +
         '</div></div>';
 
     document.getElementById('queueDetailContent').innerHTML = html;
     document.getElementById('queueDetailModal').classList.add('show');
 
-    document.getElementById('qBtnProcess').onclick = function() {
+    document.getElementById('qBtnAog').onclick = function() {
         var eid = currentQueueDetailId;
         closeQueueDetail();
         if (eid) openCPUModal(eid);
     };
+    // MEL is selected by the technician only after diagnosis.
 }
 window.openQueueDetail = openQueueDetail;
 
@@ -1045,6 +1333,73 @@ function closeQueueDetail() {
     currentQueueDetailId = null;
 }
 window.closeQueueDetail = closeQueueDetail;
+
+function openMELStartModal(id) {
+    showToast('MEL определяет техник после диагностики — сначала передайте заявку в ЦПУ.', 'warning');
+    return;
+    var e = findEntry(id);
+    if (!e) { showToast('Заявка не найдена', 'error'); return; }
+    currentAssignId = id;
+    document.getElementById('melStartSubtitle').textContent = e.aircraft + ' · ' + e.faultType + ' · ID ' + e.id.slice(-6);
+    document.getElementById('melStartInfo').innerHTML =
+        '<div class="ro-row"><span class="ro-label">Борт / стоянка</span><span class="ro-val">' + esc(e.aircraft) + ' · ' + esc(e.parking || '—') + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Дефект</span><span class="ro-val" style="font-weight:400;max-width:65%;text-align:right;">' + esc(e.faultType || '—') + ' · ' + esc(e.defect || '') + '</span></div>';
+    document.getElementById('melRefInput').value = '';
+    document.getElementById('melCategorySelect').value = '';
+    document.getElementById('melRevisionInput').value = '';
+    document.getElementById('melDueDateInput').value = '';
+    document.getElementById('melDueConditionInput').value = '';
+    document.getElementById('melDescriptionInput').value = '';
+    document.getElementById('melRestrictionsInput').value = '';
+    document.getElementById('melORequired').checked = false;
+    document.getElementById('melMRequired').checked = false;
+    document.getElementById('melOProcedureInput').value = '';
+    document.getElementById('melMProcedureInput').value = '';
+    document.getElementById('melMccComment').value = '';
+    document.getElementById('melStartModal').classList.add('show');
+}
+window.openMELStartModal = openMELStartModal;
+
+function closeMELStartModal() {
+    document.getElementById('melStartModal').classList.remove('show');
+    currentAssignId = null;
+}
+window.closeMELStartModal = closeMELStartModal;
+
+function submitMELStart() {
+    if (!currentAssignId) return;
+    var payload = {
+        request_id: currentAssignId,
+        mel_ref: document.getElementById('melRefInput').value.trim(),
+        mel_category: document.getElementById('melCategorySelect').value,
+        revision: document.getElementById('melRevisionInput').value.trim(),
+        due_date: document.getElementById('melDueDateInput').value,
+        due_condition: document.getElementById('melDueConditionInput').value.trim(),
+        mel_description: document.getElementById('melDescriptionInput').value.trim(),
+        restrictions: document.getElementById('melRestrictionsInput').value.trim(),
+        o_required: document.getElementById('melORequired').checked,
+        m_required: document.getElementById('melMRequired').checked,
+        o_procedure: document.getElementById('melOProcedureInput').value.trim(),
+        m_procedure: document.getElementById('melMProcedureInput').value.trim(),
+        comment: document.getElementById('melMccComment').value.trim()
+    };
+    if (!payload.mel_ref || !payload.mel_category || !payload.revision || !payload.mel_description || !payload.restrictions || !payload.comment) {
+        showToast('Заполните MEL Ref, категорию, редакцию, описание, ограничения и комментарий MCC', 'error'); return;
+    }
+    if (payload.mel_category !== 'A' && !payload.due_date) { showToast('Укажите срок устранения из утверждённого MEL', 'error'); return; }
+    if (payload.mel_category === 'A' && !payload.due_date && !payload.due_condition) { showToast('Для Cat A укажите срок или условие устранения', 'error'); return; }
+    if (payload.o_required && !payload.o_procedure) { showToast('Добавьте текст O-процедуры', 'error'); return; }
+    if (payload.m_required && !payload.m_procedure) { showToast('Добавьте текст M-процедуры', 'error'); return; }
+    fetch(API_URL + '/mcc/start_mel_review', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+    }).then(function(r) { return r.json().then(function(data) { if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось отправить MEL в ЦПУ'); return data; }); })
+      .then(function() {
+        closeMELStartModal();
+        showToast('MEL передан в очередь проверки ЦПУ. Полёты пока запрещены.', 'success');
+        reloadData(); switchTab('inspection');
+      }).catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
+}
+window.submitMELStart = submitMELStart;
 
 function openCPUModal(id) {
     var e = findEntry(id);
@@ -1056,6 +1411,7 @@ function openCPUModal(id) {
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Дефект</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;">' + esc(e.faultType) + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">Источник</span><span class="ro-val">' + esc(e.sourceLabel || sourceLabel(e.source)) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Возраст</span><span class="ro-val">' + getAge(e.createdAt).text + '</span></div>';
 
     document.getElementById('cpuComment').value = '';
@@ -1111,6 +1467,10 @@ function openAssessModal(id) {
     var e = findEntry(id);
     if (!e) return;
     if (e.status !== 'assigned') { showToast('Заявка не на инспекции', 'warning'); return; }
+    if (!canFinalize(e)) {
+        showToast('Сначала инженер должен отправить отчёт, затем он должен пройти диспетчера и ЦПУ.', 'warning');
+        return;
+    }
 
     currentAssessId = id;
     mccAction = '';
@@ -1119,6 +1479,18 @@ function openAssessModal(id) {
     document.querySelectorAll('#mccActionGrid .choice-card').forEach(function(el) { el.classList.remove('active'); });
     document.getElementById('aogRecoveryBlock').style.display = 'none';
     document.getElementById('repairCompleteBlock').style.display = 'none';
+    document.getElementById('melDeferBlock').style.display = 'none';
+    var melCard = document.querySelector('#mccActionGrid .choice-card[data-act="MEL_DEFER"]');
+    if (melCard) melCard.style.display = e.engineerVerdict === 'MEL' && e.melWorkflow ? 'block' : 'none';
+    var aogCard = document.querySelector('#mccActionGrid .choice-card[data-act="AOG_RECOVERY"]');
+    if (aogCard) aogCard.style.display = e.engineerVerdict === 'AOG' ? 'block' : 'none';
+    var repairCard = document.querySelector('#mccActionGrid .choice-card[data-act="REPAIR_COMPLETE"]');
+    if (repairCard) repairCard.style.display = e.engineerVerdict === 'REPAIR' && !e.melWorkflow ? 'block' : 'none';
+    ['melCombinedChecked','melRestrictionsVerified','melCrewBriefed'].forEach(function(id) {
+        var el = document.getElementById(id); if (el) el.checked = false;
+    });
+    var melPlan = document.getElementById('melRepairPlan');
+    if (melPlan) melPlan.value = '';
     document.getElementById('mccComment').value = '';
     document.getElementById('aogEt').value = '';
     document.getElementById('aogAction').value = '';
@@ -1128,27 +1500,36 @@ function openAssessModal(id) {
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Статус</span><span class="ro-val">' + esc(routingStageLabel(e.routingStage)) + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">Инженер</span><span class="ro-val">' + esc(e.engineerName || '—') + '</span></div>';
+        '<div class="ro-row"><span class="ro-label">Инженер</span><span class="ro-val">' + esc(e.engineerName || '—') + '</span></div>' +
+        '';
 
     document.getElementById('verdictInfo').innerHTML =
         '<div class="v-row"><span class="v-label">Дефект</span><span class="v-val" style="max-width:65%;text-align:right;font-weight:400;font-family:inherit;">' + esc(e.faultType) + '</span></div>' +
         (e.defect ? '<div class="v-row"><span class="v-label">Описание</span><span class="v-val" style="max-width:65%;text-align:right;font-weight:400;font-family:inherit;">' + esc(shortText(e.defect, 150)) + '</span></div>' : '') +
-        (e.engineerVerdict ? '<div class="v-row"><span class="v-label">Вердикт техника</span><span class="v-val">' + esc(e.engineerVerdict) + '</span></div>' : '');
+        (e.engineerVerdict ? '<div class="v-row"><span class="v-label">Предварительное заключение</span><span class="v-val">' + esc(e.engineerVerdict) + '</span></div>' : '') +
+        (e.engineerCondition ? '<div class="v-row"><span class="v-label">Результат диагностики</span><span class="v-val">' + esc(e.engineerCondition) + '</span></div>' : '') +
+        (e.engineerComment ? '<div style="margin-top:10px;padding:12px;background:#f8fafc;border:1px solid #e8ecf0;border-radius:8px;white-space:pre-wrap;font-size:12px;line-height:1.5;"><strong>Отчёт инженера</strong>\n' + esc(e.engineerComment) + '</div>' : '') +
+        (e.melWorkflow && e.melInitialEngineerReport ? '<div style="margin-top:10px;padding:12px;background:#fffbeb;border:1px solid #f2d28a;border-radius:8px;white-space:pre-wrap;font-size:12px;line-height:1.5;"><strong>Первичная диагностика MEL · ' + esc(e.melInitialAssessedBy || 'инженер') + ' · ' + esc(e.melInitialEngineerReportAt || '—') + '</strong>\n' + esc(e.melInitialEngineerReport) + '</div>' : '') +
+        (e.melWorkflow ? '<div style="margin-top:12px;padding:12px;background:#fffbeb;border:1px solid #f2d28a;border-radius:8px;font-size:12px;line-height:1.5;"><strong>Пункт MEL ' + esc(e.melRef) + ' · Cat ' + esc(e.melCategory) + '</strong><br>Редакция: ' + esc(e.melRevision || '—') + '<br>Срок / условие: ' + esc(e.melDueDate || e.melDueCondition || '—') + '<br>Ограничения: ' + esc(e.melRestrictions || '—') + '<br>Проверка ЦПУ: ' + esc(e.cpuMelCheckComment || '—') + '<br>O: ' + (e.melORequired ? (e.cpuMelOCompleted ? 'подтверждена' : 'не подтверждена') : 'не требуется') + ' · M: ' + (e.melMRequired ? (e.cpuMelMCompleted ? 'подтверждена ЦПУ' : 'не подтверждена') : 'не требуется') + '<br>Выполнение M техником: ' + (e.melMRequired ? (e.melMProcedureCompletedByEngineer ? 'подтверждено' : 'нет подтверждения') : 'не требуется') + (e.melMProcedureEngineerComment ? '<br>Отчёт техника по M: ' + esc(e.melMProcedureEngineerComment) : '') + '</div>' : '') +
+        '<div style="margin-top:10px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px;font-weight:700;">До отдельного решения MCC эксплуатационный статус не активирован.</div>';
+    if (e.melWorkflow) {
+        var melFinalizeInfo = document.getElementById('melFinalizeInfo');
+        if (melFinalizeInfo) melFinalizeInfo.innerHTML =
+            '<div class="ro-row"><span class="ro-label">MEL пункт</span><span class="ro-val">' + esc(e.melRef) + ' · Cat ' + esc(e.melCategory) + '</span></div>' +
+            '<div class="ro-row"><span class="ro-label">Срок / условие</span><span class="ro-val">' + esc(e.melDueDate || e.melDueCondition || '—') + '</span></div>' +
+            '<div class="ro-row"><span class="ro-label">O-процедура</span><span class="ro-val">' + (e.melORequired ? (e.cpuMelOCompleted ? 'Подтверждена ЦПУ' : 'Не подтверждена') : 'Не требуется') + '</span></div>' +
+            '<div class="ro-row"><span class="ro-label">M-процедура</span><span class="ro-val">' + (e.melMRequired ? (e.cpuMelMCompleted ? 'Инженер + ЦПУ подтверждены' : 'Не подтверждена') : 'Не требуется') + '</span></div>' +
+            '<div class="ro-row"><span class="ro-label">Ограничения</span><span class="ro-val" style="font-weight:400;max-width:65%;text-align:right;">' + esc(e.melRestrictions || '—') + '</span></div>';
+    }
 
     document.getElementById('assessSubtitle').textContent = e.aircraft + ' · ' + e.faultType + ' · ID ' + e.id.slice(-6);
 
-    if (canFin) {
-        document.getElementById('assessNotReadyBlock').style.display = 'none';
-        document.getElementById('assessFinalizeBlock').style.display = 'block';
-        document.getElementById('assessSubmitBtn').style.display = 'inline-flex';
-        document.getElementById('assessFooterHint').textContent = 'Выберите результат';
-    } else {
-        document.getElementById('assessNotReadyBlock').style.display = 'block';
-        document.getElementById('assessFinalizeBlock').style.display = 'none';
-        document.getElementById('assessSubmitBtn').style.display = 'none';
-        document.getElementById('assessNotReadyStatus').textContent = routingStageLabel(e.routingStage);
-        document.getElementById('assessFooterHint').textContent = 'Финализация недоступна';
-    }
+    document.getElementById('assessNotReadyBlock').style.display = 'none';
+    document.getElementById('assessFinalizeBlock').style.display = 'block';
+    document.getElementById('assessSubmitBtn').style.display = 'inline-flex';
+    document.getElementById('assessFooterHint').textContent = e.melWorkflow
+        ? 'ЦПУ завершило проверки MEL. Зафиксируйте решение MCC.'
+        : 'Отчёт инженера получен. Выберите итоговое решение MCC.';
 
     document.getElementById('assessModal').classList.add('show');
 }
@@ -1167,9 +1548,11 @@ function selectMccAction(action) {
     if (sel) sel.classList.add('active');
     document.getElementById('aogRecoveryBlock').style.display = action === 'AOG_RECOVERY' ? 'block' : 'none';
     document.getElementById('repairCompleteBlock').style.display = action === 'REPAIR_COMPLETE' ? 'block' : 'none';
+    document.getElementById('melDeferBlock').style.display = action === 'MEL_DEFER' ? 'block' : 'none';
     document.getElementById('assessFooterHint').textContent =
         action === 'AOG_RECOVERY' ? 'AOG Recovery' :
-        action === 'REPAIR_COMPLETE' ? 'Ремонт завершён' : 'Выберите результат';
+        action === 'REPAIR_COMPLETE' ? 'Ремонт завершён' :
+        action === 'MEL_DEFER' ? 'MEL готов к отдельному условному допуску MCC' : 'Выберите результат';
 }
 window.selectMccAction = selectMccAction;
 
@@ -1178,54 +1561,59 @@ function submitAssessment() {
     var comment = document.getElementById('mccComment').value.trim();
     if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
 
-    var verdict, finalizeAction, extra = {};
-
+    var finalizeAction, extra = {};
     if (mccAction === 'AOG_RECOVERY') {
         var et = document.getElementById('aogEt').value.trim();
         var act = document.getElementById('aogAction').value;
         if (!et) { showToast('Укажите ETR', 'error'); return; }
         if (!act) { showToast('Выберите действие', 'error'); return; }
-        verdict = 'AOG';
         finalizeAction = 'AOG_RECOVERY';
         extra.etr = et;
         extra.aog_action = act;
+    } else if (mccAction === 'MEL_DEFER') {
+        var combinedChecked = document.getElementById('melCombinedChecked').checked;
+        var restrictionsVerified = document.getElementById('melRestrictionsVerified').checked;
+        var crewBriefed = document.getElementById('melCrewBriefed').checked;
+        var repairPlan = document.getElementById('melRepairPlan').value.trim();
+        if (!combinedChecked || !restrictionsVerified || !crewBriefed || repairPlan.length < 5) {
+            showToast('Завершите все проверки MCC и укажите план устранения', 'error'); return;
+        }
+        finalizeAction = 'MEL_DEFER';
+        extra.mel_combined_checked = true;
+        extra.mel_restrictions_verified = true;
+        extra.mel_crew_briefed = true;
+        extra.mel_repair_plan = repairPlan;
     } else {
         var rect = document.getElementById('repairRect').value.trim();
         if (!rect) { showToast('Опишите работы', 'error'); return; }
-        verdict = 'REPAIR';
         finalizeAction = 'CLOSE';
         comment = comment + '\n[Работы] ' + rect;
     }
 
-    fetch(API_URL + '/engineer/verdict', {
+    // Инженерный вердикт (в том числе AOG) уже записан вместе с отчётом.
+    // MCC фиксирует только своё итоговое решение и не перезаписывает диагноз инженера.
+    var reviewerName = 'MCC';
+    try { reviewerName = (JSON.parse(sessionStorage.getItem('userSession') || '{}').name || reviewerName); } catch (e) {}
+    var payload = Object.assign({
+        request_id: currentAssessId,
+        action: finalizeAction,
+        comment: comment,
+        reviewer: reviewerName
+    }, extra);
+    fetch(API_URL + '/mcc/finalize', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-            request_id: currentAssessId,
-            verdict: verdict,
-            comment: 'MCC финализация: ' + comment
-        })
+        body: JSON.stringify(payload)
     })
-    .then(function(r) { return r.json(); })
-    .then(function(vr) {
-        if (!vr.success) throw new Error(vr.error || 'verdict failed');
-        var payload = Object.assign({
-            request_id: currentAssessId,
-            action: finalizeAction,
-            comment: comment
-        }, extra);
-        return fetch(API_URL + '/mcc/finalize', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify(payload)
-        }).then(function(r) { return r.json(); });
+    .then(function(r) {
+        return r.json().then(function(data) {
+            if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось сохранить решение MCC');
+            return data;
+        });
     })
     .then(function(res) {
-        if (res.success) {
-            closeAssessModal();
-            showToast('Решение зафиксировано: ' + finalizeAction, 'success');
-            reloadData();
-        } else {
-            showToast('Ошибка: ' + (res.error || ''), 'error');
-        }
+        closeAssessModal();
+        showToast(finalizeAction === 'MEL_DEFER' ? 'Проверка MEL завершена. Теперь MCC может отдельно активировать условную эксплуатацию.' : 'Решение MCC зафиксировано. Пилоту передано ограничение на вылет.', 'success');
+        reloadData();
     })
     .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
@@ -1240,7 +1628,7 @@ function openAOGManageModal(id) {
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Стоянка</span><span class="ro-val">' + esc(e.parking || '—') + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Инженер</span><span class="ro-val">' + esc(e.engineerName || '—') + '</span></div>' +
-        '<div class="ro-row"><span class="ro-label">AOG Since</span><span class="ro-val">' + (e.aogSince ? new Date(e.aogSince).toLocaleString('ru-RU') : '—') + '</span></div>' +
+        '<div class="ro-row"><span class="ro-label">AOG Since</span><span class="ro-val">' + formatMoscow(e.aogSince, true) + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">ETR</span><span class="ro-val">' + esc(e.aogEtr || '—') + '</span></div>' +
         '<div class="ro-row"><span class="ro-label">Описание</span><span class="ro-val" style="max-width:60%;text-align:right;font-weight:400;font-family:inherit;">' + esc(e.faultType) + '</span></div>';
     document.getElementById('aogManageEt').value = e.aogEtr || '';
@@ -1283,36 +1671,22 @@ window.submitAOGUpdate = submitAOGUpdate;
 
 function submitAOGRecovered() {
     var comment = document.getElementById('aogManageComment').value.trim();
-    if (!comment) { showToast('Опишите восстановление', 'error'); return; }
+    if (!comment) { showToast('Опишите выполненное восстановление', 'error'); return; }
+    var session = {};
+    try { session = JSON.parse(sessionStorage.getItem('userSession') || '{}'); } catch(e) {}
+    var authorizedBy = (session.name || '').trim();
+    if (!authorizedBy) { showToast('Укажите имя сотрудника MCC в профиле', 'error'); return; }
+    if (!window.confirm('Зафиксировать завершение AOG Recovery? Запрет на вылет останется до отдельного оформления допуска MCC.')) return;
 
-    fetch(API_URL + '/engineer/verdict', {
+    fetch(API_URL + '/mcc/aog_recovered', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-            request_id: currentAogId,
-            verdict: 'REPAIR',
-            comment: 'AOG Recovered: ' + comment
-        })
+        body: JSON.stringify({ request_id: currentAogId, comment: comment, authorized_by: authorizedBy })
     })
-    .then(function(r) { return r.json(); })
-    .then(function(vr) {
-        if (!vr.success) throw new Error(vr.error || 'verdict failed');
-        return fetch(API_URL + '/mcc/finalize', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-                request_id: currentAogId,
-                action: 'CLOSE',
-                comment: 'AOG Recovered: ' + comment
-            })
-        }).then(function(r) { return r.json(); });
-    })
-    .then(function(res) {
-        if (res.success) {
-            closeAOGManageModal();
-            showToast('AOG Recovered', 'success');
-            reloadData();
-        } else {
-            showToast('Ошибка: ' + (res.error || ''), 'error');
-        }
+    .then(function(r) { return r.json().then(function(data) { if (!r.ok || !data.success) throw new Error(data.error || 'AOG Recovery не закрыт'); return data; }); })
+    .then(function() {
+        closeAOGManageModal();
+        showToast('AOG Recovery завершён. Пилот по-прежнему видит запрет на вылет.', 'success');
+        reloadData();
     })
     .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });
 }
@@ -1329,7 +1703,8 @@ function switchTab(tab) {
         queue: 'Центр управления ТО',
         inspection: 'Заявки в работе',
         aog: 'AOG Recovery',
-        deferred: 'Отложенные дефекты (MEL / CDL)',
+        deferred: 'MEL / CDL',
+        repaired: 'Устранено на месте',
         recurring: 'Повторяющиеся дефекты',
         history: 'История решений'
     };

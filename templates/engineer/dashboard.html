@@ -292,6 +292,7 @@
         var taskStep = 'idle';
         var lastRequestId = null;
         var diagnoseStartedAt = null;
+        var pendingMelMProcedureDraft = null;
         var diagnoseTimerInterval = null;
         var blockReloadUntil = 0;
         var lastRouteSignature = '';
@@ -604,7 +605,9 @@
                 condition: g('reportCondition'), category: g('reportCategory'),
                 findings: g('reportFindings'), actions: g('reportActions'),
                 duration: g('reportDuration'), materials: g('reportMaterials'),
-                needParts: chk('reportNeedParts'), comment: g('reportComment')
+                needParts: chk('reportNeedParts'), comment: g('reportComment'),
+                melItemRef: g('melItemRef'),
+                melMProcedureCompleted: chk('melMProcedureCompleted'), melMProcedureComment: g('melMProcedureComment')
             };
         }
 
@@ -620,6 +623,10 @@
             set('reportMaterials', draft.materials);
             setChk('reportNeedParts', draft.needParts);
             set('reportComment', draft.comment);
+            pendingMelMProcedureDraft = { completed: !!draft.melMProcedureCompleted, comment: draft.melMProcedureComment || '' };
+            set('melItemRef', draft.melItemRef);
+            set('melMProcedureComment', draft.melMProcedureComment);
+            setChk('melMProcedureCompleted', draft.melMProcedureCompleted);
         }
 
         function isReportFormOpen() { return !!document.querySelector('.report-form'); }
@@ -728,6 +735,12 @@
                     }
 
                     taskData = request;
+                    // Маршрут-превью показываем сразу после назначения.
+                    // До принятия инженером не запускаем движение и ETA-таймер.
+                    if (request.status === 'assigned' || taskStep === 'pending') {
+                        if (moveInterval) stopMoving();
+                        if (taskStep !== 'pending') taskStep = 'pending';
+                    }
                     if (lastRequestId !== request.id) {
                         lastRequestId = request.id;
                         if (taskStep === 'idle' || taskStep === 'completed') taskStep = 'pending';
@@ -816,6 +829,12 @@
             return html;
         }
 
+        function escapeTaskHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>\"']/g, function(ch) {
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch];
+            });
+        }
+
         function updateTaskWithRoute(request) {
             if (Date.now() < blockReloadUntil) return;
             var taskList = document.getElementById('taskList');
@@ -828,7 +847,9 @@
             };
             var status = statusMap[engineerData.status] || statusMap.free;
 
-            var routeText = '';
+            if (taskStep === 'idle') taskStep = 'pending';
+            var routeText = taskStep === 'pending'
+                ? 'Маршрут начнётся после принятия назначения' : '';
             if (currentRoute) {
                 if (currentRoute.usingCar && currentRoute.bestCar) {
                     routeText = currentRoute.walkToCar + ' мин пешком + ' +
@@ -840,9 +861,14 @@
             }
 
             var faultName = request.fault_type ? request.fault_type.replace(/_/g, ' ') : 'Неизвестная';
-
-            if (taskStep === 'idle') {
-                taskStep = 'pending';
+            var melTaskHtml = '';
+            if (request.mcc_mel_choice === 'MEL' && request.mcc_proc_m) {
+                melTaskHtml = '<div style="margin-top:12px;padding:14px 16px;background:#fffbeb;border:1px solid #f2cf79;border-left:4px solid #d69e2e;border-radius:9px;">' +
+                    '<div style="font-size:12px;font-weight:800;color:#854d0e;margin-bottom:7px;"><i class="fas fa-clipboard-check"></i> ЗАДАНИЕ ПО M-ПРОЦЕДУРЕ MEL</div>' +
+                    '<div style="font-size:12px;color:#78350f;line-height:1.55;white-space:pre-wrap;">' + escapeTaskHtml(request.mcc_proc_m_text || 'Выполнить M-процедуру согласно утверждённому MEL') + '</div>' +
+                    '<div style="font-size:11px;color:#92400e;margin-top:8px;">Пункт MEL: ' + escapeTaskHtml(request.mcc_mel_ref || '—') + ' · Cat ' + escapeTaskHtml(request.mcc_mel_category || '—') + '</div>' +
+                    (request.mcc_mel_restrictions ? '<div style="font-size:11px;color:#92400e;margin-top:5px;white-space:pre-wrap;"><strong>Ограничения:</strong> ' + escapeTaskHtml(request.mcc_mel_restrictions) + '</div>' : '') +
+                '</div>';
             }
 
             if (taskStep === 'diagnosing' && isReportFormOpen()) {
@@ -859,12 +885,10 @@
             } else if (taskStep === 'accepted') {
                 if (currentRoute && currentRoute.usingCar) {
                     actionsHtml =
-                        '<button class="btn btn-primary" onclick="stepInCar()"><i class="fas fa-car"></i> Сел в спецтранспорт</button>' +
-                        '<button class="btn btn-danger" onclick="rejectTask(\'' + request.id + '\')"><i class="fas fa-times"></i> Отклонить</button>';
+                        '<button class="btn btn-primary" onclick="stepInCar()"><i class="fas fa-car"></i> Сел в спецтранспорт</button>';
                 } else {
                     actionsHtml =
-                        '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>' +
-                        '<button class="btn btn-danger" onclick="rejectTask(\'' + request.id + '\')"><i class="fas fa-times"></i> Отклонить</button>';
+                        '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>';
                 }
             } else if (taskStep === 'in_car') {
                 actionsHtml = '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>';
@@ -888,11 +912,25 @@
                 '<span class="route-icon"><i class="fas fa-route"></i></span>' +
                 '<span>' + routeText + '</span>' +
                 '</div>' +
+                melTaskHtml +
                 '</div>' +
                 '<div class="task-actions">' + actionsHtml + '</div>' +
                 '</div>';
 
+            pendingMelMProcedureDraft = null;
             restoreReportDraft(draft);
+            if (taskStep === 'diagnosing' && document.getElementById('reportMelCatalog')) {
+                var melRefInput = document.getElementById('melItemRef');
+                if (melRefInput && !melRefInput.value && request.mcc_mel_ref) melRefInput.value = request.mcc_mel_ref;
+                var melAtaInput = document.getElementById('engineerMelAta');
+                var melCategoryInput = document.getElementById('engineerMelCategory');
+                var melRevisionInput = document.getElementById('engineerMelRevision');
+                if (melAtaInput && !melAtaInput.value && request.mcc_ata) melAtaInput.value = request.mcc_ata;
+                if (melCategoryInput && !melCategoryInput.value && request.mcc_mel_category) melCategoryInput.value = request.mcc_mel_category;
+                if (melRevisionInput && !melRevisionInput.value && request.mcc_mel_revision) melRevisionInput.value = request.mcc_mel_revision;
+                updateEngineerMelVisibility();
+                updateEngineerMProcedureVisibility();
+            }
         }
 
         function renderReportForm() {
@@ -901,18 +939,19 @@
             var defaultDuration = diagnoseStartedAt
                 ? Math.max(1, Math.round((Date.now() - diagnoseStartedAt) / 60000)) : 30;
 
+            var isMelMaintenance = !!(taskData && taskData.mcc_mel_choice === 'MEL' && taskData.mcc_proc_m);
             return '<div class="report-form">' +
-                '<h4><i class="fas fa-clipboard-list"></i> Отчёт о диагностике</h4>' +
+                '<h4><i class="fas fa-clipboard-list"></i> ' + (isMelMaintenance ? 'Отчёт о выполнении M-процедуры MEL' : 'Отчёт о диагностике') + '</h4>' +
                 '<div id="diagnoseTimer" style="background:#e8f0fe;border:1px solid #bfdbfe;color:#003366;padding:10px 14px;border-radius:8px;font-weight:600;font-size:13px;margin-bottom:16px;text-align:center;">' +
                     'Идёт диагностика: ' + elapsedMin + ' мин' +
                 '</div>' +
                 '<div class="form-row">' +
-                    '<div class="form-group"><label>Состояние ВС</label>' +
-                    '<select id="reportCondition">' +
-                        '<option value="repaired">Устранено на месте</option>' +
-                        '<option value="needs_parts">Требуется замена деталей</option>' +
-                        '<option value="needs_service">Требуется заводской ремонт</option>' +
-                        '<option value="no_fault">Неисправность не подтверждена</option>' +
+                    '<div class="form-group"><label>Техническое заключение техника *</label>' +
+                    '<select id="reportCondition" onchange="window.updateEngineerMelVisibility()">' +
+                        '<option value="" selected disabled>Выберите итог диагностики</option>' +
+                        '<option value="mel_deferred">MEL — дефект допускается по утверждённому пункту MEL</option>' +
+                        '<option value="aog">AOG — эксплуатация запрещена</option>' +
+                        '<option value="repaired">Устранено — неисправность устранена</option>' +
                     '</select></div>' +
                     '<div class="form-group"><label>Категория неисправности</label>' +
                     '<select id="reportCategory">' +
@@ -923,6 +962,22 @@
                         '<option value="mechanical">Механика</option>' +
                         '<option value="other">Другое</option>' +
                     '</select></div>' +
+                '</div>' +
+                '<div id="reportMelCatalog" style="display:none;margin:14px 0;padding:16px;background:#fffbeb;border:1px solid #f2cf79;border-left:4px solid #d69e2e;border-radius:10px;">' +
+                    '<div class="form-group" style="margin-bottom:8px;"><label>Пункт MEL *</label><input id="melItemRef" type="text" maxlength="80" placeholder="Например: 27-2-1" autocomplete="off"></div>' +
+                    '<div class="form-row" style="gap:10px;">' +
+                        '<div class="form-group" style="flex:1;"><label>ATA *</label><input id="engineerMelAta" type="text" maxlength="20" placeholder="Например: 27" autocomplete="off"></div>' +
+                        '<div class="form-group" style="flex:1;"><label>Категория MEL *</label><input id="engineerMelCategory" type="text" maxlength="20" placeholder="Например: B" autocomplete="off"></div>' +
+                    '</div>' +
+                    '<div class="form-group" style="margin-bottom:8px;"><label>Редакция MEL *</label><input id="engineerMelRevision" type="text" maxlength="80" placeholder="Например: Rev. 12 / 2026-01" autocomplete="off"></div>' +
+                    '<div id="melMProcedureBlock" style="display:none;margin-top:12px;padding:12px;background:#fff;border:1px solid #e9c46a;border-radius:8px;">' +
+                        '<div style="font-weight:800;color:#854d0e;margin-bottom:6px;">Для этой задачи требуется M-процедура</div>' +
+                        '<div id="melMProcedureText" style="font-size:12px;color:#78350f;line-height:1.5;white-space:pre-wrap;margin-bottom:10px;"></div>' +
+                        '<div id="melMProcedureExecutionFields">' +
+                            '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:700;font-size:12px;"><input id="melMProcedureCompleted" type="checkbox" style="margin-top:2px;"> M-процедура выполнена техником по утверждённому MEL *</label>' +
+                            '<div class="form-group" style="margin:10px 0 0;"><label>Что выполнено по M-процедуре *</label><textarea id="melMProcedureComment" rows="3" placeholder="Укажите фактически выполненные действия, проверки и результат…"></textarea></div>' +
+                        '</div>' +
+                    '</div>' +
                 '</div>' +
                 '<div class="form-group"><label>Что обнаружено *</label>' +
                 '<textarea id="reportFindings" placeholder="Опишите результаты диагностики..." style="min-height:140px;"></textarea></div>' +
@@ -944,6 +999,22 @@
                     '<button class="btn btn-primary" onclick="submitReport()"><i class="fas fa-paper-plane"></i> Завершить и отправить отчёт</button>' +
                 '</div>' +
             '</div>';
+        }
+
+        function updateEngineerMelVisibility() {
+            var condition = document.getElementById('reportCondition');
+            var block = document.getElementById('reportMelCatalog');
+            if (block) block.style.display = condition && condition.value === 'mel_deferred' ? 'block' : 'none';
+            updateEngineerMProcedureVisibility();
+        }
+        window.updateEngineerMelVisibility = updateEngineerMelVisibility;
+
+        function updateEngineerMProcedureVisibility() {
+            var block = document.getElementById('melMProcedureBlock');
+            var text = document.getElementById('melMProcedureText');
+            var isFollowup = !!(taskData && taskData.mcc_mel_choice === 'MEL' && taskData.mcc_proc_m);
+            if (block) block.style.display = isFollowup ? 'block' : 'none';
+            if (text) text.textContent = isFollowup ? (taskData.mcc_proc_m_text || 'Выполнить M-процедуру по утверждённой документации оператора.') : '';
         }
 
         function releaseEngineerLocal() {
@@ -1205,23 +1276,30 @@
         }
 
         window.acceptTask = function() {
-            taskStep = 'accepted';
-            showToast('Задача принята', 'success');
-            if (engineerData) {
-                fetch('/api/engineers/' + engineerId, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: engineerData.name,
-                        specialization: engineerData.specialization,
-                        status: 'busy',
-                        task: engineerData.task,
-                        phone: engineerData.phone || ''
-                    })
-                }).catch(function(err) { console.error(err); });
+            if (!taskData || !taskData.id || !engineerId) {
+                showToast('Не удалось определить назначенную заявку', 'error');
+                return;
             }
-            reportStep('accepted');
-            startMoving();
-            if (taskData) updateTaskWithRoute(taskData);
+            var buttons = document.querySelectorAll('.task-actions button');
+            for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+            fetch('/api/requests/' + encodeURIComponent(taskData.id) + '/accept', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engineer_id: engineerId })
+            })
+            .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
+            .then(function(result) {
+                if (!result.ok || !result.data || !result.data.success) {
+                    throw new Error((result.data && result.data.error) || 'Не удалось принять назначение');
+                }
+                taskStep = 'accepted';
+                showToast('Задача принята. Маршрут запущен', 'success');
+                loadRequestDetails();
+            })
+            .catch(function(err) {
+                showToast(err.message || 'Ошибка принятия заявки', 'error');
+                loadTasks();
+            });
         };
 
         window.stepInCar = function() {
@@ -1304,8 +1382,27 @@
             var materials = document.getElementById('reportMaterials').value.trim();
             var needParts = document.getElementById('reportNeedParts').checked;
             var comment = document.getElementById('reportComment').value.trim();
+            var melItemRef = ((document.getElementById('melItemRef') || {}).value || '').trim();
+            var engineerMelAta = ((document.getElementById('engineerMelAta') || {}).value || '').trim();
+            var engineerMelCategory = ((document.getElementById('engineerMelCategory') || {}).value || '').trim();
+            var engineerMelRevision = ((document.getElementById('engineerMelRevision') || {}).value || '').trim();
+            var melMProcedureCompletedEl = document.getElementById('melMProcedureCompleted');
+            var melMProcedureCompleted = !!(melMProcedureCompletedEl && melMProcedureCompletedEl.checked);
+            var melMProcedureCommentEl = document.getElementById('melMProcedureComment');
+            var melMProcedureComment = melMProcedureCommentEl ? melMProcedureCommentEl.value.trim() : '';
+            var isMelMaintenanceTask = !!(taskData && taskData.mcc_mel_choice === 'MEL' && taskData.mcc_proc_m);
 
+            if (['aog', 'repaired', 'mel_deferred'].indexOf(condition) < 0) { showToast('Выберите одно из трёх заключений: MEL, AOG или «Устранено»', 'error'); return; }
             if (!findings) { showToast('Опишите, что обнаружено', 'error'); return; }
+            if (condition === 'mel_deferred' && !melItemRef) {
+                showToast('Укажите номер пункта MEL, например 27-2-1', 'error'); return;
+            }
+            if (condition === 'mel_deferred' && (!engineerMelAta || !engineerMelCategory || !engineerMelRevision)) {
+                showToast('Заполните ATA, категорию и редакцию MEL', 'error'); return;
+            }
+            if (condition === 'mel_deferred' && isMelMaintenanceTask && (!melMProcedureCompleted || melMProcedureComment.length < 5)) {
+                showToast('Для этой задачи обязательна M-процедура: подтвердите выполнение и подробно опишите работу', 'error'); return;
+            }
             if (isNaN(duration) || duration < 1) { showToast('Укажите время диагностики', 'error'); return; }
             if (duration > 480) { showToast('Максимум 480 мин', 'error'); return; }
 
@@ -1331,10 +1428,9 @@
             }
 
             var conditionText = {
-                'repaired': 'Устранено на месте',
-                'needs_parts': 'Требуется замена деталей',
-                'needs_service': 'Требуется заводской ремонт',
-                'no_fault': 'Неисправность не подтверждена'
+                'aog': 'AOG — техник установил запрет эксплуатации',
+                'repaired': 'Устранено — неисправность устранена',
+                'mel_deferred': 'MEL — техник выбрал пункт утверждённого MEL; требуется дальнейшая проверка ЦПУ и MCC'
             }[condition] || condition;
 
             var categoryText = {
@@ -1357,23 +1453,48 @@
                 'Материалы: ' + (materials || '—') + '\n' +
                 'Нужны детали: ' + (needParts ? 'ДА' : 'нет') + '\n' +
                 'Комментарий: ' + (comment || '—') + '\n' +
+                (condition === 'mel_deferred' ? ('ПУНКТ MEL: ' + melItemRef + '\n' +
+                    'ATA: ' + engineerMelAta + '\n' +
+                    'КАТЕГОРИЯ MEL: ' + engineerMelCategory + '\n' +
+                    'РЕДАКЦИЯ MEL: ' + engineerMelRevision + '\n' +
+                    (isMelMaintenanceTask ? ('M-процедура выполнена техником: ' + (melMProcedureCompleted ? 'ДА' : 'НЕТ') + '\nОтчёт по M-процедуре: ' + melMProcedureComment + '\n') : '')) : '') +
                 '──────────────────────────';
 
-            fetch('/api/requests/' + taskData.id, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            fetch('/api/engineer/submit_report', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    status: 'completed',
-                    criticality: taskData.criticality || 'medium',
-                    engineer_comment: reportText
+                    request_id: taskData.id,
+                    engineer_id: engineerId,
+                    condition: condition,
+                    category: category,
+                    findings: findings,
+                    actions: actions,
+                    duration: Math.max(1, Math.min(480, realDurationMin || duration)),
+                    materials: materials,
+                    need_parts: needParts,
+                    comment: comment,
+                    mel_item_ref: condition === 'mel_deferred' ? melItemRef : '',
+                    mel_ata: condition === 'mel_deferred' ? engineerMelAta : '',
+                    mel_category: condition === 'mel_deferred' ? engineerMelCategory : '',
+                    mel_revision: condition === 'mel_deferred' ? engineerMelRevision : '',
+                    mel_catalog_id: '',
+                    mel_assessment_comment: '',
+                    mel_m_procedure_completed: condition === 'mel_deferred' && isMelMaintenanceTask ? melMProcedureCompleted : false,
+                    mel_m_procedure_comment: condition === 'mel_deferred' && isMelMaintenanceTask ? melMProcedureComment : '',
+                    report_text: reportText
                 })
             })
-            .then(function(res) { return res.json(); })
-            .then(function() { return fetch('/api/complete/' + engineerId, { method: 'POST' }); })
+            .then(function(res) {
+                return res.json().then(function(data) {
+                    if (!res.ok || !data.success) throw new Error(data.error || 'Не удалось передать отчёт');
+                    return data;
+                });
+            })
             .then(function() {
                 stopMoving();
                 taskStep = 'completed';
-                showToast('Отчёт отправлен диспетчеру', 'success');
-                showNotification('Задача завершена', 'Отчёт отправлен. Ожидайте новое назначение.');
+                showToast('Отчёт передан непосредственно в ЦПУ. Далее — проверка и решение MCC.', 'success');
+                showNotification('Отчёт принят системой', 'Техническое заключение техника передано в ЦПУ. Далее ЦПУ проверит отчёт, после чего он поступит в MCC.');
                 drawRouteOnMap(null);
                 currentRoute = null;
                 lastRouteSignature = '';
@@ -1383,8 +1504,7 @@
             })
             .catch(function(err) {
                 console.error(err);
-                showToast('Ошибка отправки отчёта', 'error');
-                forceReleaseEngineer();
+                showToast('Отчёт не отправлен: ' + err.message + '. Задача остаётся у вас.', 'error');
             });
         };
 
@@ -1408,7 +1528,7 @@
                     '<div style="display:flex;justify-content:space-between;align-items:flex-start;' +
                                 'margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e8ecf0;gap:12px;">' +
                         '<div>' +
-                            '<h2 style="font-size:16px;font-weight:700;color:#1a2332;margin:0;">Отмена задачи</h2>' +
+                            '<h2 style="font-size:16px;font-weight:700;color:#1a2332;margin:0;">Отклонить назначение</h2>' +
                             '<p style="font-size:12px;color:#8a9bb5;margin-top:3px;">Укажите причину — она будет передана диспетчеру</p>' +
                         '</div>' +
                         '<button id="cancelModalClose" style="background:none;border:none;' +
@@ -1432,7 +1552,7 @@
                                     'color:#4a5a6a;margin-bottom:6px;text-transform:uppercase;' +
                                     'letter-spacing:0.3px;">Причина *</label>' +
                         '<textarea id="cancelReasonInput" rows="3" ' +
-                            'placeholder="Опишите причину отмены..." ' +
+                            'placeholder="Опишите причину отказа..." ' +
                             'style="width:100%;padding:8px 10px;border:1px solid #e8ecf0;' +
                                     'border-radius:6px;font-size:13px;font-family:inherit;' +
                                     'resize:vertical;min-height:80px;"></textarea>' +
@@ -1441,7 +1561,7 @@
                         '<button id="cancelConfirmBtn" ' +
                             'style="flex:1;padding:10px 20px;border:none;border-radius:8px;' +
                                     'background:#dc2626;color:#fff;font-weight:600;font-size:13px;' +
-                                    'cursor:pointer;font-family:inherit;">Отменить задачу</button>' +
+                                    'cursor:pointer;font-family:inherit;">Отклонить назначение</button>' +
                         '<button id="cancelDismissBtn" ' +
                             'style="flex:1;padding:10px 20px;border:none;border-radius:8px;' +
                                     'background:#e8ecf0;color:#4a5a6a;font-weight:600;font-size:13px;' +
@@ -1474,7 +1594,7 @@
 
             confirmBtn.addEventListener('click', function() {
                 var reason = (textarea.value || '').trim();
-                if (!reason) { showToast('Укажите причину отмены', 'error'); textarea.focus(); return; }
+                if (!reason) { showToast('Укажите причину отказа', 'error'); textarea.focus(); return; }
 
                 confirmBtn.disabled = true;
                 confirmBtn.textContent = 'Отправка...';
@@ -1482,7 +1602,7 @@
                 if (diagnoseTimerInterval) clearInterval(diagnoseTimerInterval);
                 diagnoseTimerInterval = null; diagnoseStartedAt = null;
 
-                fetch('/api/requests/' + requestId + '/cancel', {
+                fetch('/api/requests/' + requestId + '/reject', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ engineer_id: engineerId, reason: reason })
@@ -1490,28 +1610,26 @@
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
                     if (!data || !data.success) {
-                        showToast((data && data.error) || 'Ошибка отмены', 'error');
+                        showToast((data && data.error) || 'Ошибка отклонения назначения', 'error');
                         confirmBtn.disabled = false;
-                        confirmBtn.textContent = 'Отменить задачу';
+                        confirmBtn.textContent = 'Отклонить назначение';
                         return;
                     }
 
                     closeModal();
-                    showToast('Задача отменена', 'warning');
+                    showToast('Назначение отклонено', 'warning');
 
                     var notifText = 'Причина: ' + reason + '.';
                     if (data.reassigned && data.selected && data.selected.engineer) {
-                        notifText += ' Новый инженер: ' +
-                            data.selected.engineer.name +
-                            ' (' + data.selected.engineer.device_id + '), ' +
-                            'в пути ' + data.selected.travel_time + ' мин.';
+                        notifText += ' Новый инженер: ' + data.selected.engineer.name +
+                            ' (' + data.selected.engineer.device_id + '). Назначение ожидает принятия; маршрут ещё не запущен.';
                     } else if (data.queued) {
-                        notifText += ' Нет свободных — заявка в очереди.';
+                        notifText += ' Нет свободных инженеров — заявка возвращена в очередь.';
                     } else {
-                        notifText += ' Ожидайте новое назначение.';
+                        notifText += ' Ожидайте нового назначения.';
                     }
 
-                    showNotification('Задача отменена', notifText);
+                    showNotification('Назначение отклонено', notifText);
                     stopMoving();
                     reportStep('idle');
                     blockReloadUntil = Date.now() + 5000;
@@ -1540,7 +1658,7 @@
                     console.error(err);
                     showToast('Ошибка соединения', 'error');
                     confirmBtn.disabled = false;
-                    confirmBtn.textContent = 'Отменить задачу';
+                    confirmBtn.textContent = 'Отклонить назначение';
                 });
             });
 

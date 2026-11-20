@@ -6,10 +6,11 @@ import json
 import base64
 import sqlite3
 import tempfile
+import hashlib
 import subprocess
 import threading
 import networkx as nx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask_cors import CORS
 from flask import (Flask, request, jsonify, session,
                    render_template, redirect, url_for, Response, abort)
@@ -523,6 +524,39 @@ def get_db():
 def ensure_schema(conn):
     cur = conn.cursor()
 
+    # Operator-controlled reference data. These tables are populated through the REST import API.
+    cur.execute("""CREATE TABLE IF NOT EXISTS aircraft_registry (
+        registration TEXT PRIMARY KEY,
+        aircraft_type TEXT NOT NULL,
+        configuration TEXT DEFAULT '',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS mel_catalog (
+        id TEXT PRIMARY KEY,
+        aircraft_type TEXT NOT NULL,
+        configuration TEXT DEFAULT '',
+        ata TEXT NOT NULL,
+        item_ref TEXT NOT NULL,
+        revision TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        rectification_interval TEXT NOT NULL,
+        deadline_mode TEXT NOT NULL DEFAULT 'CONDITION',
+        deadline_value TEXT DEFAULT '',
+        deadline_start_rule TEXT DEFAULT '',
+        deadline_condition TEXT DEFAULT '',
+        restrictions TEXT NOT NULL,
+        o_required INTEGER DEFAULT 0,
+        o_procedure TEXT DEFAULT '',
+        m_required INTEGER DEFAULT 0,
+        m_procedure TEXT DEFAULT '',
+        applicability_codes TEXT DEFAULT '',
+        source_document TEXT DEFAULT '',
+        active INTEGER DEFAULT 1,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(aircraft_type, configuration, ata, item_ref, revision)
+    )""")
+
     cur.execute("""CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
         name TEXT NOT NULL, role TEXT NOT NULL, avatar TEXT, phone TEXT,
@@ -545,6 +579,17 @@ def ensure_schema(conn):
         id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT UNIQUE NOT NULL,
         lat REAL NOT NULL, lng REAL NOT NULL, speed INTEGER DEFAULT 50,
         assigned_to TEXT)""")
+
+    # Canonical persistent positions for movable map objects. Existing engineer/transport
+    # coordinate columns are kept in sync for backward compatibility.
+    cur.execute("""CREATE TABLE IF NOT EXISTS map_object_positions (
+        object_type TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (object_type, object_id)
+    )""")
 
     cur.execute("""CREATE TABLE IF NOT EXISTS requests (
         id TEXT PRIMARY KEY, aircraft TEXT, fault_type TEXT,
@@ -593,6 +638,24 @@ def ensure_schema(conn):
         'mcc_recurring_action': "TEXT DEFAULT ''",
         'mcc_escalation': "TEXT DEFAULT ''", 'mcc_dce_name': "TEXT DEFAULT ''",
         'mcc_kupol_ref': "TEXT DEFAULT ''", 'aog_since': "TIMESTAMP",
+        'mcc_mel_revision': "TEXT DEFAULT ''", 'mcc_mel_description': "TEXT DEFAULT ''",
+        'mcc_mel_restrictions': "TEXT DEFAULT ''", 'mcc_due_condition': "TEXT DEFAULT ''",
+        'mcc_proc_o_text': "TEXT DEFAULT ''", 'mcc_proc_m_text': "TEXT DEFAULT ''",
+        'cpu_mel_o_completed': "INTEGER DEFAULT 0", 'cpu_mel_m_completed': "INTEGER DEFAULT 0",
+        'cpu_mel_check_comment': "TEXT DEFAULT ''", 'cpu_mel_checked_at': "TIMESTAMP",
+        'cpu_mel_checked_by': "TEXT DEFAULT ''", 'cpu_mel_engineer_required': "INTEGER DEFAULT 0",
+        'cpu_mel_m_comment': "TEXT DEFAULT ''",
+        'mel_catalog_id': "TEXT DEFAULT ''", 'mel_assessed_by': "TEXT DEFAULT ''",
+        'mel_assessment_comment': "TEXT DEFAULT ''", 'mel_rectification_interval': "TEXT DEFAULT ''",
+        'mel_m_procedure_completed': "INTEGER DEFAULT 0", 'mel_m_procedure_comment': "TEXT DEFAULT ''",
+        'mel_initial_engineer_report': "TEXT DEFAULT ''", 'mel_initial_engineer_report_at': "TIMESTAMP",
+        'mel_initial_assessed_by': "TEXT DEFAULT ''",
+        'mel_deadline_mode': "TEXT DEFAULT ''", 'mel_deadline_value': "TEXT DEFAULT ''",
+        'mel_deadline_start_rule': "TEXT DEFAULT ''", 'cpu_mel_applicability_confirmed': "INTEGER DEFAULT 0",
+        'cpu_mel_o_comment': "TEXT DEFAULT ''", 'mcc_mel_reviewed_by': "TEXT DEFAULT ''",
+        'mcc_mel_reviewed_at': "TIMESTAMP", 'mcc_mel_review_comment': "TEXT DEFAULT ''",
+        'mcc_mel_combined_checked': "INTEGER DEFAULT 0", 'mcc_mel_crew_briefed': "INTEGER DEFAULT 0",
+        'mcc_mel_restrictions_verified': "INTEGER DEFAULT 0", 'mcc_mel_repair_plan': "TEXT DEFAULT ''",
         'etr': "TEXT DEFAULT ''", 'reported_by': "TEXT DEFAULT ''",
         'engineer_verdict': "TEXT DEFAULT ''",
         'engineer_verdict_at': "TIMESTAMP",
@@ -604,6 +667,13 @@ def ensure_schema(conn):
         'crs_signed_by': "TEXT",
         'routing_stage': "TEXT DEFAULT 'mcc'",
         'routing_history': "TEXT DEFAULT '[]'",
+        'flight_status': "TEXT DEFAULT 'DO_NOT_FLY'",
+        'flight_status_reason': "TEXT DEFAULT 'Ожидает решения MCC'",
+        'engineer_condition': "TEXT DEFAULT ''",
+        'engineer_report_at': "TIMESTAMP",
+        'dispatcher_report_at': "TIMESTAMP",
+        'cpu_report_at': "TIMESTAMP",
+        'pilot_notice_at': "TIMESTAMP",
     }
     for col, typ in needed.items():
         if col not in existing:
@@ -629,6 +699,20 @@ def ensure_schema(conn):
         except sqlite3.OperationalError as e:
             print(f"[MIGRATION] skip engineers.task_started_at: {e}")
 
+    # Новая заявка по умолчанию блокирует вылет до решения MCC.
+    # Уже выпущенные записи сохраняют свой исторический статус.
+    cur.execute("UPDATE requests SET flight_status='RELEASED' WHERE mcc_status='RELEASED' AND (flight_status IS NULL OR flight_status='DO_NOT_FLY')")
+    cur.execute("UPDATE requests SET flight_status='DO_NOT_FLY' WHERE flight_status IS NULL OR flight_status=''")
+
+    # A request must not appear as returned to MCC unless an engineer report
+    # was actually submitted. Repair stale stage values left by older builds.
+    cur.execute("""UPDATE requests
+        SET routing_stage=CASE
+            WHEN engineer_id IS NOT NULL AND engineer_id!='' THEN 'technician'
+            ELSE 'dispatcher'
+        END
+        WHERE routing_stage='mcc_finalize'
+          AND (engineer_report_at IS NULL OR TRIM(COALESCE(engineer_verdict,''))='')""")
     conn.commit()
 
 
@@ -834,7 +918,7 @@ def set_engineer_busy(conn, engineer_id, task_text):
     cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
     if not cur.fetchone():
         return False
-    cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+    cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                 (task_text, engineer_id))
     return cur.rowcount > 0
 
@@ -846,7 +930,7 @@ def set_engineer_free(conn, engineer_id):
     cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
     if not cur.fetchone():
         return False
-    cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+    cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?",
                 (engineer_id,))
     return cur.rowcount > 0
 
@@ -932,9 +1016,10 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
     all_free = [dict(r) for r in cur.fetchall()]
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
-                   WHERE status NOT IN ('completed','cancelled','flight_cancelled')
+                   WHERE routing_stage='technician'
+                     AND status IN ('assigned','arriving','in_progress','working')
                      AND engineer_id IS NOT NULL""")
-    busy_with_requests = {r['engineer_id'] for r in cur.fetchall()}
+    busy_with_requests = {str(r['engineer_id']) for r in cur.fetchall()}
 
     all_free = [e for e in all_free
                 if str(e['id']) not in exclude_ids
@@ -1009,9 +1094,10 @@ def try_reassign_queued():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
-                   WHERE status NOT IN ('completed','cancelled','flight_cancelled')
+                   WHERE routing_stage='technician'
+                     AND status IN ('assigned','arriving','in_progress','working')
                      AND engineer_id IS NOT NULL""")
-    busy = {r['engineer_id'] for r in cur.fetchall()}
+    busy = {str(r['engineer_id']) for r in cur.fetchall()}
 
     cur.execute("""SELECT id, aircraft, fault_type, parking_id, rejected_by
                    FROM requests WHERE status='queued' ORDER BY created_at ASC""")
@@ -1031,27 +1117,23 @@ def try_reassign_queued():
         if not eng:
             continue
         cur.execute("""UPDATE requests SET engineer_id=?, engineer_name=?,
-            travel_time=?, using_car=?, walk_to_car=?, car_time=?, best_car=?,
-            status='assigned', routing_stage='technician',
+            travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
+            engineer_comment='', status='assigned', routing_stage='technician',
+            inspection_assigned_at=NULL,
             delay_minutes=0, delay_reason='', delay_started_at=NULL,
             delay_approved_by='', all_rejected=0
             WHERE id=?""",
-            (eng['id'], eng['name'], route['travel_time'],
-             1 if route['using_car'] else 0, route['walk_to_car'],
-             route['best_car_time'],
-             route['best_car']['device_id'] if route['best_car'] else None, q['id']))
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to=? WHERE id=?",
-                        (q['id'], route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+            (eng['id'], eng['name'], q['id']))
+        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + (q['aircraft'] or ''), eng['id']))
         busy.add(eng['id'])
         assigned.append(q['id'])
     conn.commit()
     conn.close()
 
-    for rid in assigned:
-        _recalc_route_for_request_id(rid, force=True)
+    # Для автоматически назначенных заявок сразу готовим маршрут-превью.
+    for assigned_rid in assigned:
+        _recalc_route_for_request_id(assigned_rid, force=True)
 
 # ============================================================
 # Пересчёт ROUTE
@@ -1165,11 +1247,19 @@ def _recalc_route_for_request_id(request_id, force=False):
         return
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id, engineer_id, parking_id, engineer_comment, status
-                   FROM requests WHERE id=? AND status NOT IN
+    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment, r.status,
+                          e.task_step AS engineer_task_step
+                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.id=? AND r.status NOT IN
                    ('completed','cancelled','flight_cancelled','draft')""", (request_id,))
     req = cur.fetchone()
     if not req:
+        conn.close()
+        return
+    # Маршрут-превью строится сразу после назначения, ещё до ответа инженера.
+    # Фактический выезд/отсчёт ETA запускается только после принятия.
+    if req['engineer_task_step'] not in ('pending', 'idle', '', None,
+                                         'accepted', 'in_car', 'arrived', 'diagnosing'):
         conn.close()
         return
     old_comment = req['engineer_comment'] or ''
@@ -1234,10 +1324,12 @@ def _recalc_all_active_routes():
     маршруты остальных заявок могли измениться."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id FROM requests
-                   WHERE status NOT IN ('completed','cancelled','flight_cancelled','draft','queued')
-                     AND engineer_id IS NOT NULL
-                     AND parking_id IS NOT NULL AND parking_id != ''""")
+    cur.execute("""SELECT r.id FROM requests r
+                   JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.status NOT IN ('completed','cancelled','flight_cancelled','draft','queued')
+                     AND e.task_step IN ('accepted','in_car','arrived','diagnosing')
+                     AND r.engineer_id IS NOT NULL
+                     AND r.parking_id IS NOT NULL AND r.parking_id != ''""")
     ids = [r['id'] for r in cur.fetchall()]
     conn.close()
     for rid in ids:
@@ -1325,6 +1417,17 @@ def api_parking():
 @app.route('/api/map-objects', methods=['GET'])
 def api_map_objects():
     return jsonify(MAP_OBJECTS)
+
+
+@app.route('/api/map/object-positions', methods=['GET'])
+def api_map_object_positions():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT object_type,object_id,lat,lng,updated_at
+                   FROM map_object_positions ORDER BY object_type,object_id""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
 
 
 @app.route('/api/restricted-zones', methods=['GET'])
@@ -1456,6 +1559,186 @@ def delete_user(user_id):
 
 
 # ============================================================
+# Operator reference-data REST integration (no Kupol integration)
+# ============================================================
+def _mel_import_api_authorized():
+    expected = os.environ.get('INTRAVIA_IMPORT_API_KEY', '').strip()
+    supplied = (request.headers.get('X-API-Key') or '').strip()
+    return bool(expected) and supplied and supplied == expected
+
+
+def _stable_mel_catalog_id(item):
+    raw = '|'.join(str(item.get(k) or '').strip() for k in
+                   ('aircraft_type', 'configuration', 'ata', 'item_ref', 'revision'))
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]
+
+
+@app.route('/api/v1/import/reference-data', methods=['POST'])
+def import_reference_data_v1():
+    """Import aircraft profiles and approved operator MEL catalogue records via REST."""
+    if not os.environ.get('INTRAVIA_IMPORT_API_KEY', '').strip():
+        return jsonify({'success': False, 'error': 'REST import is disabled: configure INTRAVIA_IMPORT_API_KEY on the server'}), 503
+    if not _mel_import_api_authorized():
+        return jsonify({'success': False, 'error': 'Invalid or missing X-API-Key'}), 401
+
+    data = request.get_json(silent=True) or {}
+    aircraft_rows = data.get('aircraft') or data.get('aircraft_registry') or []
+    mel_rows = data.get('mel_items') or data.get('mel_catalog') or []
+    if not isinstance(aircraft_rows, list) or not isinstance(mel_rows, list) or not (aircraft_rows or mel_rows):
+        return jsonify({'success': False, 'error': 'Expected aircraft[] and/or mel_items[] arrays'}), 400
+    if len(aircraft_rows) > 5000 or len(mel_rows) > 10000:
+        return jsonify({'success': False, 'error': 'Import batch exceeds limits'}), 413
+
+    conn = get_db()
+    cur = conn.cursor()
+    imported_aircraft = 0
+    imported_mel = 0
+    try:
+        for a in aircraft_rows:
+            if not isinstance(a, dict):
+                raise ValueError('Each aircraft record must be an object')
+            registration = str(a.get('registration') or '').strip().upper()
+            aircraft_type = str(a.get('aircraft_type') or '').strip()
+            configuration = str(a.get('configuration') or '').strip()
+            if not registration or not aircraft_type:
+                raise ValueError('Aircraft record requires registration and aircraft_type')
+            cur.execute("""INSERT INTO aircraft_registry(registration, aircraft_type, configuration, updated_at)
+                VALUES(?,?,?,CURRENT_TIMESTAMP)
+                ON CONFLICT(registration) DO UPDATE SET aircraft_type=excluded.aircraft_type,
+                    configuration=excluded.configuration, updated_at=CURRENT_TIMESTAMP""",
+                (registration, aircraft_type, configuration))
+            imported_aircraft += 1
+
+        allowed_modes = ('CALENDAR_DAYS', 'FLIGHT_HOURS', 'FLIGHT_CYCLES', 'CONDITION')
+        allowed_start_rules = ('DEFECT_REPORTED_AT', 'ENGINEER_ASSESSMENT_AT')
+        for item in mel_rows:
+            if not isinstance(item, dict):
+                raise ValueError('Each mel_items record must be an object')
+            aircraft_type = str(item.get('aircraft_type') or '').strip()
+            configuration = str(item.get('configuration') or '').strip()
+            ata = str(item.get('ata') or '').strip()
+            item_ref = str(item.get('item_ref') or '').strip()
+            revision = str(item.get('revision') or '').strip()
+            category = str(item.get('category') or '').strip().upper()
+            description = str(item.get('description') or '').strip()
+            interval = str(item.get('rectification_interval') or '').strip()
+            mode = str(item.get('deadline_mode') or '').strip().upper()
+            restrictions = str(item.get('restrictions') or '').strip()
+            if not all((aircraft_type, ata, item_ref, revision, description, interval, restrictions)):
+                raise ValueError('MEL item requires aircraft_type, ATA, item_ref, revision, description, rectification_interval and restrictions')
+            o_required = bool(item.get('o_required'))
+            m_required = bool(item.get('m_required'))
+            o_procedure = str(item.get('o_procedure') or '').strip()
+            m_procedure = str(item.get('m_procedure') or '').strip()
+            if o_required and not o_procedure:
+                raise ValueError('MEL item with o_required=true must include the complete o_procedure text')
+            if m_required and not m_procedure:
+                raise ValueError('MEL item with m_required=true must include the complete m_procedure text')
+            if category not in ('A', 'B', 'C', 'D'):
+                raise ValueError('MEL category must be A, B, C or D')
+            if mode not in allowed_modes:
+                raise ValueError('deadline_mode is required and must be CALENDAR_DAYS, FLIGHT_HOURS, FLIGHT_CYCLES or CONDITION')
+            value = str(item.get('deadline_value') or '').strip()
+            start_rule = str(item.get('deadline_start_rule') or '').strip().upper()
+            condition = str(item.get('deadline_condition') or '').strip()
+            if mode == 'CALENDAR_DAYS':
+                try:
+                    days = int(value)
+                except (TypeError, ValueError):
+                    raise ValueError('CALENDAR_DAYS requires a positive integer deadline_value')
+                if days < 1 or start_rule not in allowed_start_rules:
+                    raise ValueError('CALENDAR_DAYS requires deadline_start_rule DEFECT_REPORTED_AT or ENGINEER_ASSESSMENT_AT')
+            elif mode in ('FLIGHT_HOURS', 'FLIGHT_CYCLES'):
+                try:
+                    if float(value) <= 0: raise ValueError()
+                except (TypeError, ValueError):
+                    raise ValueError(mode + ' requires positive deadline_value')
+            elif not condition:
+                raise ValueError('CONDITION requires deadline_condition')
+            row_id = str(item.get('id') or _stable_mel_catalog_id({
+                'aircraft_type': aircraft_type, 'configuration': configuration,
+                'ata': ata, 'item_ref': item_ref, 'revision': revision
+            })).strip()
+            cur.execute("""INSERT INTO mel_catalog(
+                id,aircraft_type,configuration,ata,item_ref,revision,category,description,
+                rectification_interval,deadline_mode,deadline_value,deadline_start_rule,
+                deadline_condition,restrictions,o_required,o_procedure,m_required,m_procedure,
+                applicability_codes,source_document,active,imported_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                ON CONFLICT(aircraft_type,configuration,ata,item_ref,revision) DO UPDATE SET
+                    id=excluded.id, category=excluded.category, description=excluded.description,
+                    rectification_interval=excluded.rectification_interval,
+                    deadline_mode=excluded.deadline_mode, deadline_value=excluded.deadline_value,
+                    deadline_start_rule=excluded.deadline_start_rule,
+                    deadline_condition=excluded.deadline_condition, restrictions=excluded.restrictions,
+                    o_required=excluded.o_required, o_procedure=excluded.o_procedure,
+                    m_required=excluded.m_required, m_procedure=excluded.m_procedure,
+                    applicability_codes=excluded.applicability_codes,
+                    source_document=excluded.source_document, active=excluded.active,
+                    imported_at=CURRENT_TIMESTAMP""", (
+                row_id, aircraft_type, configuration, ata, item_ref, revision, category,
+                description, interval, mode, value, start_rule, condition, restrictions,
+                1 if o_required else 0, o_procedure,
+                1 if m_required else 0, m_procedure,
+                str(item.get('applicability_codes') or '').strip(),
+                str(item.get('source_document') or '').strip(),
+                1 if item.get('active', True) else 0))
+            imported_mel += 1
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    conn.close()
+    return jsonify({'success': True, 'imported_aircraft': imported_aircraft,
+                    'imported_mel_items': imported_mel})
+
+
+@app.route('/api/mel/catalog', methods=['GET'])
+def get_engineer_mel_catalog():
+    request_id = str(request.args.get('request_id') or '').strip()
+    ata = str(request.args.get('ata') or '').strip()
+    search = str(request.args.get('q') or '').strip()
+    if not request_id:
+        return jsonify({'success': False, 'error': 'request_id is required'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT r.aircraft, ar.aircraft_type, ar.configuration
+        FROM requests r LEFT JOIN aircraft_registry ar ON ar.registration=UPPER(r.aircraft)
+        WHERE r.id=?""", (request_id,))
+    profile = cur.fetchone()
+    if not profile:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    aircraft_type = str(profile['aircraft_type'] or '').strip()
+    configuration = str(profile['configuration'] or '').strip()
+    if not aircraft_type:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Для борта не загружен профиль типа/конфигурации. Импортируйте aircraft[] через REST API; выбор MEL пока заблокирован.'}), 409
+    sql = """SELECT id, aircraft_type, configuration, ata, item_ref, revision, category,
+        description, rectification_interval, deadline_mode, deadline_value, deadline_start_rule,
+        deadline_condition, restrictions, o_required, o_procedure, m_required, m_procedure,
+        applicability_codes, source_document
+        FROM mel_catalog WHERE active=1 AND aircraft_type=?
+          AND (configuration='' OR configuration=?)
+          AND (o_required=0 OR TRIM(COALESCE(o_procedure,''))<>'')
+          AND (m_required=0 OR TRIM(COALESCE(m_procedure,''))<>'')"""
+    params = [aircraft_type, configuration]
+    if ata:
+        sql += ' AND ata=?'; params.append(ata)
+    if search:
+        sql += ' AND (item_ref LIKE ? OR description LIKE ? OR applicability_codes LIKE ?)'
+        q = '%' + search + '%'; params.extend([q, q, q])
+    sql += ' ORDER BY ata, item_ref LIMIT 500'
+    cur.execute(sql, params)
+    rows = [dict(x) for x in cur.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'aircraft': profile['aircraft'],
+                    'aircraft_type': aircraft_type, 'configuration': configuration,
+                    'items': rows})
+
+
+# ============================================================
 # MCC
 # ============================================================
 def _compute_recurring_map(conn):
@@ -1474,21 +1757,90 @@ def _compute_recurring_map(conn):
     return out
 
 
+def sync_expired_mel(conn):
+    """Move MEL cases past their operator-entered calendar deadline to DO_NOT_FLY.
+
+    This covers both an activated MEL and one still awaiting final activation. No category-based
+    default interval is calculated: due dates are stored exactly as entered from the approved MEL.
+    Category A may be condition-based and have no date, in which case the condition needs manual control.
+    """
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, mcc_mel_ref, mcc_due_date FROM requests
+        WHERE mcc_status IN ('MEL_ACTIVE','MEL_READY','MEL') AND COALESCE(TRIM(mcc_due_date),'')!=''
+          AND date('now') > date(mcc_due_date)""")
+    expired = [dict(r) for r in cur.fetchall()]
+    for row in expired:
+        cur.execute("""UPDATE requests SET mcc_status='MEL_EXPIRED', status='mel_expired',
+            routing_stage='pilot_notice', flight_status='DO_NOT_FLY',
+            flight_status_reason=?, pilot_notice_at=CURRENT_TIMESTAMP
+            WHERE id=? AND mcc_status IN ('MEL_ACTIVE','MEL_READY','MEL')""", (
+                'Срок MEL ' + str(row.get('mcc_mel_ref') or '') + ' истёк. Полёты запрещены до устранения дефекта или допустимого оформления продления.',
+                row['id']))
+        if cur.rowcount:
+            _log_routing_event(conn, row['id'], 'pilot_notice', 'Система',
+                'Срок MEL истёк (' + str(row.get('mcc_due_date') or '') + '); установлен DO_NOT_FLY')
+    if expired:
+        conn.commit()
+    return len(expired)
+
+
+@app.route('/api/mcc/ata', methods=['POST'])
+def mcc_set_ata():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    ata = str(data.get('ata') or '').strip()
+    # Разрешаем только реальные главы ATA, которые представлены в интерфейсе MCC.
+    valid_ata = {
+        '00','01','02','03','04','05','06','07','08','09','10','11','12','20','21','22','23','24','25','26',
+        '27','28','29','30','31','32','33','34','35','36','37','38','41','42','44','45','46','47','48','49','50',
+        '51','52','53','54','55','56','57','60','61','62','63','64','65','66','67','70',
+        '71','72','73','74','75','76','77','78','79','80','81','82','83','84'
+    }
+    if not rid:
+        return jsonify({'success': False, 'error': 'request_id обязателен'}), 400
+    if ata not in valid_ata:
+        return jsonify({'success': False, 'error': 'Укажите действующую главу ATA из списка'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM requests WHERE id=?', (rid,))
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    cur.execute('UPDATE requests SET mcc_ata=? WHERE id=?', (ata, rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'ata': ata})
+
+
 @app.route('/api/mcc/defects', methods=['GET'])
 def get_mcc_defects():
     conn = get_db()
+    sync_expired_mel(conn)
     cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, fault_type, description, parking_id, terminal,
         source, pilot_name, pilot_rank, pilot_audio_text, engineer_id, engineer_name,
-        created_at, status, mcc_status, mcc_decision, mcc_comment, mcc_ata,
+        created_at, status, mcc_status, mcc_decision, mcc_comment, engineer_comment, mcc_ata,
         mcc_mel_choice, mcc_mel_ref, mcc_amm_verdict, mcc_proc_o, mcc_proc_m,
         mcc_proc_mh, mcc_mel_category, mcc_due_date, mcc_combined_check,
+        mcc_mel_revision, mcc_mel_description, mcc_mel_restrictions, mcc_due_condition,
+        mcc_proc_o_text, mcc_proc_m_text, cpu_mel_o_completed, cpu_mel_m_completed,
+        mel_catalog_id, mel_assessed_by, mel_assessment_comment, mel_rectification_interval,
+        mel_m_procedure_completed, mel_m_procedure_comment,
+        mel_initial_engineer_report, mel_initial_engineer_report_at, mel_initial_assessed_by,
+        mel_deadline_mode, mel_deadline_value, mel_deadline_start_rule,
+        cpu_mel_applicability_confirmed, cpu_mel_o_comment, cpu_mel_m_comment,
+        mcc_mel_reviewed_by, mcc_mel_reviewed_at, mcc_mel_review_comment,
+        mcc_mel_combined_checked, mcc_mel_crew_briefed, mcc_mel_restrictions_verified, mcc_mel_repair_plan,
+        cpu_mel_check_comment, cpu_mel_checked_at, cpu_mel_checked_by,
+        cpu_mel_engineer_required, cpu_mel_m_comment,
         mcc_recurring_action, mcc_escalation, mcc_dce_name, mcc_kupol_ref,
         aog_since, etr, reported_by, severity, criticality,
         engineer_verdict, engineer_verdict_at, aog_action, inspection_assigned_at,
         flight_number, travel_time, using_car, best_car,
         crs_signature, crs_signed_at, crs_signed_by,
-        routing_stage, routing_history
+        routing_stage, routing_history, flight_status, flight_status_reason,
+        engineer_condition, engineer_report_at, dispatcher_report_at, cpu_report_at, pilot_notice_at
         FROM requests WHERE status NOT IN ('cancelled','flight_cancelled','draft')
         ORDER BY created_at DESC""")
     rows = cur.fetchall()
@@ -1497,6 +1849,14 @@ def get_mcc_defects():
     out = []
     for r in rows:
         d = dict(r)
+
+        # ── Подпись источника: пилот/голос → «КВС», остальное → «Инженер» ──
+        src = (d.get('source') or '').strip().lower()
+        if src in ('pilot', 'voice'):
+            d['source_label'] = 'КВС'
+        else:
+            d['source_label'] = 'Инженер'
+
         d['reported_by'] = d.get('pilot_name') or d.get('engineer_name') or 'Pilot'
         d['mel_category'] = d.get('mcc_mel_category') or ''
         d['mel_ref'] = d.get('mcc_mel_ref') or ''
@@ -1516,6 +1876,14 @@ def get_mcc_defects():
     return jsonify(out)
 
 
+@app.route('/api/mcc/start_mel_review', methods=['POST'])
+def mcc_start_mel_review():
+    # Deprecated by the engineer-led MEL workflow. Keep the route for old clients,
+    # but refuse to let MCC manually set the item/category/deadline.
+    return jsonify({'success': False,
+                    'error': 'Пункт MEL, категорию и интервал определяет инженер по справочнику утверждённого MEL. MCC выполняет проверку и контроль.'}), 410
+
+
 @app.route('/api/mcc/send_to_cpu', methods=['POST'])
 def mcc_send_to_cpu():
     data = request.get_json() or {}
@@ -1529,27 +1897,33 @@ def mcc_send_to_cpu():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, aircraft, routing_stage FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT id, aircraft, routing_stage, mcc_status FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['routing_stage'] not in ('mcc', None, ''):
+    expired_mel_recovery = (row['routing_stage'] == 'pilot_notice' and row['mcc_status'] == 'MEL_EXPIRED')
+    if row['routing_stage'] not in ('mcc', None, '') and not expired_mel_recovery:
         conn.close()
         return jsonify({'success': False,
                         'error': 'Заявка уже передана (stage=%s)' % row['routing_stage']}), 400
 
+    event_note = ('Срок MEL истёк. MCC направил заявку в обычную ветку AOG/ремонта: ' if expired_mel_recovery else '') + comment
+    log_prefix = '\n[→ЦПУ · MEL EXPIRED → AOG/TECH] ' if expired_mel_recovery else '\n[→ЦПУ · AOG/TECH] '
     cur.execute("""UPDATE requests SET
-                   routing_stage='cpu',
+                   routing_stage='cpu', mcc_decision='AOG_DIAGNOSIS', mcc_mel_choice='',
                    mcc_comment=COALESCE(mcc_comment,'') || ?,
-                   mcc_status='INSPECTION'
+                   mcc_status='INSPECTION',
+                   flight_status='DO_NOT_FLY',
+                   flight_status_reason='Передано на техническую диагностику по ветке AOG/ремонт. До отдельного допуска MCC полёт запрещён.'
                    WHERE id=?""",
-                ('\n[→ЦПУ] ' + comment, rid))
-    _log_routing_event(conn, rid, 'cpu', 'MCC', comment)
+                (log_prefix + comment, rid))
+    _log_routing_event(conn, rid, 'cpu', 'MCC', event_note)
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'cpu'})
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'cpu',
+                    'expired_mel_recovery': expired_mel_recovery})
 
 
 @app.route('/api/mcc/assign_inspection', methods=['POST'])
@@ -1557,33 +1931,181 @@ def mcc_assign_inspection_legacy():
     return mcc_send_to_cpu()
 
 
-@app.route('/api/engineer/verdict', methods=['POST'])
-def engineer_verdict():
+@app.route('/api/engineer/submit_report', methods=['POST'])
+def engineer_submit_report():
+    """Инженер завершает диагностику и сразу передаёт отчёт в ЦПУ, не выпуская ВС."""
     data = request.get_json() or {}
     rid = data.get('request_id')
-    verdict = (data.get('verdict') or '').upper()
-    comment = (data.get('comment') or '').strip()
-    if not rid or verdict not in ('AOG', 'REPAIR', 'MEL'):
-        return jsonify({'success': False, 'error': 'Неверный вердикт'}), 400
-    if not comment:
-        return jsonify({'success': False, 'error': 'Комментарий обязателен'}), 400
+    engineer_id = str(data.get('engineer_id') or '')
+    condition = (data.get('condition') or '').strip()
+    category = (data.get('category') or '').strip()
+    findings = (data.get('findings') or '').strip()
+    report_text = (data.get('report_text') or '').strip()
+    mel_item_ref = str(data.get('mel_item_ref') or '').strip()[:80]
+    mel_ata = str(data.get('mel_ata') or '').strip()[:20]
+    mel_category = str(data.get('mel_category') or '').strip()[:20]
+    mel_revision = str(data.get('mel_revision') or '').strip()[:80]
+    mel_catalog_id = ''
+    mel_assessment_comment = ''
+    mel_m_procedure_completed = bool(data.get('mel_m_procedure_completed'))
+    mel_m_procedure_comment = str(data.get('mel_m_procedure_comment') or '').strip()
+    try:
+        duration = int(data.get('duration') or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if not rid or condition not in ('aog', 'repaired', 'mel_deferred'):
+        return jsonify({'success': False, 'error': 'Выберите один из трёх результатов диагностики: AOG, MEL или «Устранено»'}), 400
+    if condition == 'mel_deferred' and not mel_item_ref:
+        return jsonify({'success': False, 'error': 'Укажите номер пункта MEL, например 27-2-1'}), 400
+    if condition == 'mel_deferred' and not (mel_ata and mel_category and mel_revision):
+        return jsonify({'success': False, 'error': 'Заполните ATA, категорию и редакцию MEL'}), 400
+    if not findings or not report_text:
+        return jsonify({'success': False, 'error': 'Отчёт и описание обнаруженного обязательны'}), 400
+    if duration < 1 or duration > 480:
+        return jsonify({'success': False, 'error': 'Время диагностики должно быть от 1 до 480 минут'}), 400
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, engineer_id, mcc_status, engineer_comment FROM requests WHERE id=?", (rid,))
+    cur.execute("""SELECT id, aircraft, created_at, engineer_id, engineer_name, routing_stage, status, engineer_comment,
+        mcc_mel_choice, mel_catalog_id, mcc_proc_m, mcc_proc_o, mcc_proc_m_text, mcc_proc_o_text, cpu_mel_applicability_confirmed,
+        cpu_mel_o_completed, cpu_mel_o_comment FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'technician' or row['status'] in ('completed','cancelled','flight_cancelled'):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка уже не находится у инженера'}), 409
+    if engineer_id and str(row['engineer_id'] or '') != engineer_id:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Эта заявка назначена другому инженеру'}), 403
 
-    old_comment = row['engineer_comment'] or ''
-    new_comment = old_comment + '\n[Вердикт] ' + verdict + ': ' + comment
+    # Инженер вручную указывает номер пункта MEL; операторский справочник не блокирует ввод.
+    mel_values = {
+        'mcc_mel_choice': '', 'mcc_ata': '', 'mcc_mel_ref': '', 'mcc_mel_category': '',
+        'mcc_due_date': None, 'mcc_due_condition': '', 'mcc_mel_revision': '',
+        'mcc_mel_description': '', 'mcc_mel_restrictions': '', 'mcc_proc_o': 0,
+        'mcc_proc_m': 0, 'mcc_proc_o_text': '', 'mcc_proc_m_text': '',
+        'mel_catalog_id': '', 'mel_assessed_by': '', 'mel_assessment_comment': '',
+        'mel_rectification_interval': '', 'mel_deadline_mode': '', 'mel_deadline_value': '',
+        'mel_deadline_start_rule': ''
+    }
+    preliminary_verdict = {'aog': 'AOG', 'mel_deferred': 'MEL', 'repaired': 'REPAIR'}[condition]
+    is_mel_m_followup = bool(row['mcc_mel_choice'] == 'MEL' and row['mcc_proc_m'])
+    if preliminary_verdict == 'MEL':
+        if is_mel_m_followup and str(row['mcc_mel_ref'] or '').strip().casefold() != mel_item_ref.casefold():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для отдельной M-задачи нельзя менять исходный номер пункта MEL.'}), 409
+        mel_m_maintenance_task = is_mel_m_followup
+        if mel_m_maintenance_task and (not mel_m_procedure_completed or len(mel_m_procedure_comment) < 5):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для этой задачи обязательна M-процедура. Подтвердите выполнение и опишите работы.'}), 400
+        if not mel_m_maintenance_task:
+            mel_m_procedure_completed = False
+            mel_m_procedure_comment = ''
+        mel_values.update({
+            'mcc_mel_choice': 'MEL', 'mcc_mel_ref': mel_item_ref,
+            'mcc_ata': mel_ata, 'mcc_mel_category': mel_category,
+            'mcc_mel_revision': mel_revision,
+            'mcc_proc_m': 1 if mel_m_maintenance_task else 0,
+            'mcc_proc_m_text': str(row['mcc_proc_m_text'] or '') if mel_m_maintenance_task else '',
+            'mcc_proc_o': int(row['mcc_proc_o'] or 0) if mel_m_maintenance_task else 0,
+            'mcc_proc_o_text': str(row['mcc_proc_o_text'] or '') if mel_m_maintenance_task else '',
+            'mel_assessed_by': row['engineer_name'] or engineer_id,
+            'mel_m_procedure_completed': 1 if mel_m_procedure_completed else 0,
+            'mel_m_procedure_comment': mel_m_procedure_comment
+        })
+    if preliminary_verdict != 'MEL':
+        mel_m_procedure_completed = False
+        mel_m_procedure_comment = ''
+
+    preserve_cpu_mel_o = bool(preliminary_verdict == 'MEL' and row['mcc_mel_choice'] == 'MEL' and
+        str(row['mcc_mel_ref'] or '').strip().casefold() == mel_item_ref.casefold() and row['cpu_mel_applicability_confirmed'])
+
+    flight_reason = (
+        'AOG установлен инженером: полёт запрещён. Отчёт передан в ЦПУ.' if preliminary_verdict == 'AOG' else
+        ('Инженер сопоставил дефект с пунктом MEL ' + str(mel_values['mcc_mel_ref']) +
+         '. Условная эксплуатация не активна; ожидаются проверка ЦПУ и решение MCC.' if preliminary_verdict == 'MEL' else
+         'Инженер завершил диагностику. Отчёт передан в ЦПУ; полёт запрещён до решения MCC и отдельного допуска.')
+    )
+    # ROUTE:{...} is kept together with the report so the dispatcher can
+    # rebuild the ETA and map after refresh. Do not depend on browser localStorage.
+    previous_comment = row['engineer_comment'] or ''
+    route_prefix = ''
+    if previous_comment.startswith('ROUTE:'):
+        route_payload = previous_comment[6:]
+        depth = 0
+        end_index = -1
+        for idx, char in enumerate(route_payload):
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    end_index = idx + 1
+                    break
+        if end_index > 0:
+            route_prefix = 'ROUTE:' + route_payload[:end_index]
+    if route_prefix and not report_text.startswith('ROUTE:'):
+        report_text = route_prefix + '\n' + report_text
+
     cur.execute("""UPDATE requests SET
-        engineer_verdict=?, engineer_verdict_at=CURRENT_TIMESTAMP, engineer_comment=?
-        WHERE id=?""", (verdict, new_comment, rid))
+        status='report_submitted', routing_stage='cpu_report',
+        engineer_condition=?, engineer_verdict=?, engineer_verdict_at=CURRENT_TIMESTAMP,
+        engineer_report_at=CURRENT_TIMESTAMP, cpu_report_at=CURRENT_TIMESTAMP,
+        engineer_comment=?,
+        mcc_mel_choice=?, mcc_ata=?, mcc_mel_ref=?, mcc_mel_category=?, mcc_due_date=?,
+        mcc_due_condition=?, mcc_mel_revision=?, mcc_mel_description=?, mcc_mel_restrictions=?,
+        mcc_proc_o=?, mcc_proc_m=?, mcc_proc_o_text=?, mcc_proc_m_text=?,
+        mel_catalog_id=?, mel_assessed_by=?, mel_assessment_comment=?, mel_rectification_interval=?,
+        mel_m_procedure_completed=?, mel_m_procedure_comment=?,
+        mel_deadline_mode=?, mel_deadline_value=?, mel_deadline_start_rule=?,
+        mcc_status=CASE WHEN ?='MEL' THEN 'MEL_PENDING_CPU' ELSE 'INSPECTION' END,
+        cpu_mel_o_completed=CASE WHEN ?=1 THEN cpu_mel_o_completed ELSE 0 END,
+        cpu_mel_m_completed=0,
+        cpu_mel_applicability_confirmed=CASE WHEN ?=1 THEN cpu_mel_applicability_confirmed ELSE 0 END,
+        cpu_mel_checked_at=NULL, cpu_mel_checked_by='', cpu_mel_check_comment='',
+        cpu_mel_o_comment=CASE WHEN ?=1 THEN cpu_mel_o_comment ELSE '' END, cpu_mel_m_comment='',
+        flight_status='DO_NOT_FLY', flight_status_reason=?,
+        aog_since=CASE WHEN ?='AOG' THEN COALESCE(aog_since,CURRENT_TIMESTAMP) ELSE aog_since END
+        WHERE id=?""", (
+        condition, preliminary_verdict, report_text,
+        mel_values['mcc_mel_choice'], mel_values['mcc_ata'], mel_values['mcc_mel_ref'],
+        mel_values['mcc_mel_category'], mel_values['mcc_due_date'], mel_values['mcc_due_condition'],
+        mel_values['mcc_mel_revision'], mel_values['mcc_mel_description'], mel_values['mcc_mel_restrictions'],
+        mel_values['mcc_proc_o'], mel_values['mcc_proc_m'], mel_values['mcc_proc_o_text'], mel_values['mcc_proc_m_text'],
+        mel_values['mel_catalog_id'], mel_values['mel_assessed_by'], mel_values['mel_assessment_comment'],
+        mel_values['mel_rectification_interval'], 1 if mel_m_procedure_completed else 0, mel_m_procedure_comment,
+        mel_values['mel_deadline_mode'], mel_values['mel_deadline_value'],
+        mel_values['mel_deadline_start_rule'], preliminary_verdict,
+        1 if preserve_cpu_mel_o else 0, 1 if preserve_cpu_mel_o else 0,
+        1 if preserve_cpu_mel_o else 0, flight_reason, preliminary_verdict, rid))
+    if row['engineer_id']:
+        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle' WHERE id=?", (row['engineer_id'],))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
+    event_text = 'Техник установил результат «' + preliminary_verdict + '». Отчёт передан в ЦПУ. Состояние: ' + condition
+    if preliminary_verdict == 'MEL':
+        event_text += ' · выбран пункт ' + str(mel_values['mcc_mel_ref']) + ' · Cat ' + str(mel_values['mcc_mel_category'])
+    _log_routing_event(conn, rid, 'cpu_report', 'Инженер', event_text)
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'request_id': rid, 'verdict': verdict})
+    # Инженер освобождён: сразу запускаем автоподбор для ожидающих заявок.
+    try:
+        try_reassign_queued()
+    except Exception as exc:
+        print('[ENGINEER REPORT] queued auto-assign:', exc)
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'cpu_report',
+                    'status': 'report_submitted', 'engineer_verdict': preliminary_verdict,
+        'flight_status': 'DO_NOT_FLY', 'flight_status_reason': flight_reason})
+
+
+@app.route('/api/engineer/verdict', methods=['POST'])
+def engineer_verdict():
+    """Deprecated: only the technician's submitted diagnosis report may set the verdict."""
+    return jsonify({
+        'success': False,
+        'error': 'Технический вердикт устанавливает только техник при отправке отчёта: MEL, AOG или «Устранено».',
+    }), 410
 
 
 @app.route('/api/mcc/finalize', methods=['POST'])
@@ -1599,79 +2121,162 @@ def mcc_finalize():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, engineer_verdict, engineer_id, mcc_status FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT id, engineer_verdict, engineer_id, mcc_status, routing_stage, engineer_condition, engineer_report_at, engineer_comment, status, mcc_mel_choice, mcc_proc_o, mcc_proc_m, cpu_mel_o_completed, cpu_mel_m_completed, cpu_mel_checked_at, mcc_mel_ref, mcc_mel_category, mcc_due_date, mcc_due_condition FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['mcc_status'] != 'INSPECTION':
-        conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не на инспекции'}), 400
-    if not row['engineer_verdict']:
-        conn.close()
-        return jsonify({'success': False, 'error': 'Нет вердикта инженера'}), 400
+    is_mel_workflow = row['mcc_mel_choice'] == 'MEL'
+    if is_mel_workflow:
+        if row['engineer_verdict'] != 'MEL' or row['engineer_condition'] != 'mel_deferred':
+            conn.close()
+            return jsonify({'success': False, 'error': 'Ветка MEL должна начинаться с заключения техника MEL и выбранного пункта утверждённого справочника'}), 409
+        if row['mcc_status'] not in ('MEL_CPU_CHECKED', 'MEL_REVIEW') or row['routing_stage'] != 'mcc_mel_finalize' or not row['cpu_mel_checked_at']:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Проверка применимости и процедур MEL в ЦПУ ещё не завершена'}), 409
+        if action == 'MEL_DEFER':
+            if row['engineer_verdict'] == 'AOG':
+                conn.close()
+                return jsonify({'success': False, 'error': 'Инженер установил AOG. MEL не может заменить AOG-ограничение'}), 409
+            if row['mcc_proc_o'] and not row['cpu_mel_o_completed']:
+                conn.close()
+                return jsonify({'success': False, 'error': 'O-процедура MEL не подтверждена ЦПУ'}), 409
+            if row['mcc_proc_m'] and not row['cpu_mel_m_completed']:
+                conn.close()
+                return jsonify({'success': False, 'error': 'M-процедура MEL не подтверждена после работы инженера и проверки ЦПУ'}), 409
+            if not bool(data.get('mel_combined_checked')):
+                conn.close()
+                return jsonify({'success': False, 'error': 'MCC должно проверить совокупное влияние всех активных MEL/CDL'}), 400
+            if not bool(data.get('mel_restrictions_verified')):
+                conn.close()
+                return jsonify({'success': False, 'error': 'MCC должно подтвердить ограничения и их применимость к конфигурации ВС'}), 400
+            if not bool(data.get('mel_crew_briefed')):
+                conn.close()
+                return jsonify({'success': False, 'error': 'Зафиксируйте доведение MEL-ограничений до экипажа / ответственного канала'}), 400
+            if len(str(data.get('mel_repair_plan') or '').strip()) < 5:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Укажите план и ответственного за устранение дефекта'}), 400
+        elif action == 'CLOSE':
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для MEL выберите MEL_DEFER после выполнения процедур либо AOG_RECOVERY при AOG'}), 409
+    else:
+        if row['mcc_status'] != 'INSPECTION' or row['routing_stage'] != 'mcc_finalize':
+            conn.close()
+            return jsonify({'success': False, 'error': 'Заявка ещё не прошла обратную цепочку диспетчер → ЦПУ → MCC'}), 409
+        if (not row['engineer_report_at'] or not row['engineer_verdict'] or
+                row['engineer_condition'] not in ('aog', 'repaired') or
+                row['status'] != 'report_submitted' or 'ОТЧЁТ О ДИАГНОСТИКЕ' not in (row['engineer_comment'] or '')):
+            conn.close()
+            return jsonify({'success': False, 'error': 'MCC не может финализировать заявку до получения полного отчёта инженера'}), 409
 
-    kupol_ref = 'KP-' + str(int(time.time()))
+    # No Kupol integration is performed. Legacy field is intentionally left empty.
+    kupol_ref = ''
     dce_name = data.get('dce_name') or 'DCE'
+    mcc_reviewer = str(data.get('reviewer') or dce_name).strip()
 
     if action == 'AOG_RECOVERY':
-        if row['engineer_verdict'] != 'AOG':
+        if row['engineer_verdict'] != 'AOG' or row['engineer_condition'] != 'aog':
             conn.close()
-            return jsonify({'success': False, 'error': 'Инженер не подтвердил AOG'}), 400
-        etr = data.get('etr', '')
-        aog_action = data.get('aog_action', '')
+            return jsonify({'success': False, 'error': 'AOG Recovery доступен только если техник установил результат AOG'}), 400
+        etr = (data.get('etr') or '').strip()
+        aog_action = (data.get('aog_action') or '').strip()
         if not etr:
             conn.close()
             return jsonify({'success': False, 'error': 'Укажите ETR'}), 400
         cur.execute("""UPDATE requests SET
             mcc_status='AOG_CONFIRMED', status='aog_waiting',
-            mcc_decision='AOG_RECOVERY',
+            mcc_decision='AOG_RECOVERY', mcc_mel_choice='',
             mcc_comment=COALESCE(mcc_comment,'') || ?,
             etr=?, aog_action=?, mcc_dce_name=?, mcc_kupol_ref=?,
-            aog_since=COALESCE(aog_since,CURRENT_TIMESTAMP)
+            aog_since=COALESCE(aog_since,CURRENT_TIMESTAMP),
+            routing_stage='pilot_notice', flight_status='DO_NOT_FLY',
+            flight_status_reason='AOG: полёт запрещён до устранения дефекта и нового решения MCC',
+            pilot_notice_at=CURRENT_TIMESTAMP
             WHERE id=?""",
             ('\n[MCC] AOG Recovery: ' + comment, etr, aog_action, dce_name, kupol_ref, rid))
-        _log_routing_event(conn, rid, 'aog_recovery', 'MCC', 'ETR=' + etr)
+        _log_routing_event(conn, rid, 'pilot_notice', 'MCC', 'Пилоту передан запрет на вылет. AOG / ETR=' + etr)
 
     elif action == 'MEL_DEFER':
-        cat = data.get('mel_category', '')
-        ref = data.get('mel_ref', '')
-        due = data.get('mel_due_date', '')
-        if not cat or not ref:
+        if is_mel_workflow:
+            # Initial MEL details and time limits were entered from the operator-approved MEL.
+            # CPU has confirmed required O/M procedures; MCC makes the final operational decision.
+            if row['engineer_verdict'] == 'AOG':
+                conn.close()
+                return jsonify({'success': False, 'error': 'AOG от инженера: требуется ветка AOG Recovery, а не MEL'}), 409
+            cur.execute("""UPDATE requests SET
+                mcc_status='MEL_READY', status='deferred', mcc_decision='MEL_DEFER',
+                mcc_comment=COALESCE(mcc_comment,'') || ?,
+                mcc_mel_reviewed_by=?, mcc_mel_reviewed_at=CURRENT_TIMESTAMP, mcc_mel_review_comment=?,
+                mcc_mel_combined_checked=1, mcc_mel_crew_briefed=1, mcc_mel_restrictions_verified=1,
+                mcc_mel_repair_plan=?, mcc_dce_name=?, mcc_kupol_ref='', routing_stage='pilot_notice',
+                flight_status='DO_NOT_FLY',
+                flight_status_reason='Пункт MEL проверен ЦПУ и MCC. Условная эксплуатация ещё не активирована: требуется отдельное решение MCC.',
+                pilot_notice_at=CURRENT_TIMESTAMP
+                WHERE id=?""", ('\n[MCC] MEL принято к оформлению: ' + comment, mcc_reviewer, comment,
+                    str(data.get('mel_repair_plan') or '').strip(), dce_name, rid))
+            _log_routing_event(conn, rid, 'pilot_notice', 'MCC',
+                'Проверка MEL завершена. Ожидается отдельное включение условной эксплуатации по пункту ' + str(row['mcc_mel_ref'] or ''))
+        else:
             conn.close()
-            return jsonify({'success': False, 'error': 'Укажите MEL категорию и ссылку'}), 400
-        cur.execute("""UPDATE requests SET
-            mcc_status='MEL', status='deferred', mcc_decision='DEFER',
-            mcc_comment=COALESCE(mcc_comment,'') || ?,
-            mcc_mel_category=?, mcc_mel_ref=?, mcc_due_date=?,
-            mcc_dce_name=?, mcc_kupol_ref=?
-            WHERE id=?""",
-            ('\n[MCC] MEL: ' + comment, cat, ref, due, dce_name, kupol_ref, rid))
-        cur.execute("UPDATE requests SET routing_stage='pilot_crs' WHERE id=?", (rid,))
-        _log_routing_event(conn, rid, 'pilot_crs', 'MCC', 'MEL ' + cat + ' ' + ref)
-        if row['engineer_id']:
-            cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
-                        (row['engineer_id'],))
+            return jsonify({'success': False, 'error': 'MEL нельзя создать решением MCC. Техник должен установить результат MEL и выбрать пункт из утверждённого справочника.'}), 409
 
-    elif action == 'CLOSE':
+    else:  # CLOSE: только подтверждённое устранение / неподтверждённый дефект
+        if row['engineer_condition'] != 'repaired' or row['engineer_verdict'] != 'REPAIR':
+            conn.close()
+            return jsonify({'success': False, 'error': 'Закрытие доступно только если техник указал результат «Устранено»'}), 400
         cur.execute("""UPDATE requests SET
             mcc_status='REPAIRED', status='completed', mcc_decision='CLOSE',
             mcc_comment=COALESCE(mcc_comment,'') || ?,
-            mcc_dce_name=?, mcc_kupol_ref=?
+            mcc_dce_name=?, mcc_kupol_ref=?, routing_stage='pilot_notice',
+            flight_status='DO_NOT_FLY',
+            flight_status_reason='Работы отмечены как выполненные. Ожидается отдельное оформление допуска MCC',
+            pilot_notice_at=CURRENT_TIMESTAMP
             WHERE id=?""",
-            ('\n[MCC] Закрыто: ' + comment, dce_name, kupol_ref, rid))
-        cur.execute("UPDATE requests SET routing_stage='pilot_crs' WHERE id=?", (rid,))
-        _log_routing_event(conn, rid, 'pilot_crs', 'MCC', 'Закрыто: ' + comment)
-        if row['engineer_id']:
-            cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
-                        (row['engineer_id'],))
+            ('\n[MCC] Заключение о ремонте: ' + comment, dce_name, kupol_ref, rid))
+        _log_routing_event(conn, rid, 'pilot_notice', 'MCC', 'Пилоту передано уведомление: полёт пока запрещён до оформления допуска')
 
+    if row['engineer_id']:
+        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle' WHERE id=?", (row['engineer_id'],))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
     conn.commit()
     conn.close()
     return jsonify({
         'success': True, 'request_id': rid, 'action': action,
-        'mcc_status': {'AOG_RECOVERY': 'AOG_CONFIRMED', 'MEL_DEFER': 'MEL', 'CLOSE': 'REPAIRED'}.get(action, action)
+        'mcc_status': {'AOG_RECOVERY': 'AOG_CONFIRMED', 'MEL_DEFER': 'MEL_READY', 'CLOSE': 'REPAIRED'}.get(action, action),
+        'routing_stage': 'pilot_notice', 'flight_status': 'DO_NOT_FLY'
     })
+
+
+@app.route('/api/mcc/aog_recovered', methods=['POST'])
+def mcc_aog_recovered():
+    """MCC records completion of AOG recovery; this does NOT authorize a flight."""
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    comment = (data.get('comment') or '').strip()
+    authorized_by = (data.get('authorized_by') or '').strip()
+    if not rid or not comment or not authorized_by:
+        return jsonify({'success': False, 'error': 'Укажите заявку, сотрудника MCC и описание выполненного восстановления'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, mcc_status, routing_stage FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['mcc_status'] != 'AOG_CONFIRMED' or row['routing_stage'] != 'pilot_notice':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не находится в активном AOG Recovery'}), 409
+    cur.execute("""UPDATE requests SET mcc_status='REPAIRED', status='completed',
+                   mcc_decision='AOG_RECOVERED', mcc_comment=COALESCE(mcc_comment,'') || ?,
+                   routing_stage='pilot_notice', flight_status='DO_NOT_FLY',
+                   flight_status_reason='AOG Recovery отмечен MCC как завершённый. Полёт запрещён до отдельного оформления допуска MCC',
+                   pilot_notice_at=CURRENT_TIMESTAMP
+                   WHERE id=?""",
+                ('\n[MCC AOG RECOVERED] ' + comment + ' (' + authorized_by + ')', rid))
+    _log_routing_event(conn, rid, 'pilot_notice', 'MCC', 'AOG Recovery завершён; пилоту оставлен запрет на вылет до отдельного допуска. ' + comment)
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'pilot_notice', 'flight_status': 'DO_NOT_FLY', 'mcc_status': 'REPAIRED'})
 
 
 @app.route('/api/mcc/aog_update', methods=['POST'])
@@ -1707,7 +2312,7 @@ def mcc_clear(clear_type):
             cur.execute("DELETE FROM requests WHERE mcc_status='INSPECTION'")
             deleted = cur.rowcount
         elif clear_type == 'deferred':
-            cur.execute("DELETE FROM requests WHERE mcc_status='MEL'")
+            cur.execute("DELETE FROM requests WHERE mcc_status IN ('MEL','MEL_REVIEW','MEL_READY','MEL_ACTIVE','MEL_EXPIRED')")
             deleted = cur.rowcount
         elif clear_type == 'aog':
             cur.execute("DELETE FROM requests WHERE mcc_status='AOG_CONFIRMED'")
@@ -1731,7 +2336,7 @@ def mcc_clear(clear_type):
 def confirm_pilot_request(rid):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE requests SET status='new', mcc_status='PENDING', routing_stage='mcc' WHERE id=?", (rid,))
+    cur.execute("UPDATE requests SET status='new', mcc_status='PENDING', routing_stage='mcc', flight_status='DO_NOT_FLY', flight_status_reason='Заявка о техническом дефекте зарегистрирована; полёт запрещён до решения MCC' WHERE id=?", (rid,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -1739,34 +2344,183 @@ def confirm_pilot_request(rid):
 
 @app.route('/api/pilot/sign_crs/<rid>', methods=['POST'])
 def pilot_sign_crs(rid):
-    data = request.get_json() or {}
-    signature = data.get('signature')
-    signed_by = (data.get('signed_by') or '').strip()
-    if not signature or not signed_by:
-        return jsonify({'success': False, 'error': 'Нужны signature и signed_by'}), 400
-    if not signature.startswith('data:image/'):
-        return jsonify({'success': False, 'error': 'Неверный формат подписи'}), 400
-
+    """Пилот не может самостоятельно снимать технический запрет или выпускать ВС."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, mcc_status FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT id, flight_status FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    if row['flight_status'] != 'RELEASED':
+        return jsonify({'success': False, 'error': 'ПОЛЁТ ЗАПРЕЩЁН. Подтверждение пилота не снимает техническое ограничение. Требуется отдельное решение MCC.'}), 403
+    return jsonify({'success': False, 'error': 'Допуск уже оформляется/оформлен MCC; подпись пилота не является выпуском ВС.'}), 409
+
+
+@app.route('/api/mcc/authorize_release', methods=['POST'])
+def mcc_authorize_release():
+    """Отдельное действие MCC для снятия программного ограничения после проверки документов."""
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    authorized_by = (data.get('authorized_by') or '').strip()
+    comment = (data.get('comment') or '').strip()
+    if not rid or not authorized_by or not comment:
+        return jsonify({'success': False, 'error': 'Укажите заявку, ФИО уполномоченного сотрудника MCC и основание допуска'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    sync_expired_mel(conn)
+    cur.execute("SELECT id, mcc_status, routing_stage, flight_status, mcc_mel_ref, mcc_due_date, mcc_due_condition, mcc_mel_restrictions, mcc_proc_o, mcc_proc_m, cpu_mel_o_completed, cpu_mel_m_completed, mcc_mel_reviewed_by, mcc_mel_reviewed_at, mcc_mel_combined_checked, mcc_mel_crew_briefed, mcc_mel_restrictions_verified, mcc_mel_repair_plan FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
-        return jsonify({'success': False, 'error': 'Не найдена'}), 404
-    if row['mcc_status'] not in ('REPAIRED', 'MEL'):
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'pilot_notice' or row['flight_status'] != 'DO_NOT_FLY' or row['mcc_status'] not in ('REPAIRED', 'MEL_READY', 'MEL'):
         conn.close()
-        return jsonify({'success': False, 'error': 'CRS только после REPAIRED или MEL'}), 400
+        return jsonify({'success': False, 'error': 'Для этой заявки нет основания оформить допуск. AOG или незавершённый MEL остаётся ограничением.'}), 409
 
-    cur.execute("""UPDATE requests SET
-        status='completed', mcc_status='RELEASED', routing_stage='released',
-        crs_signature=?, crs_signed_at=CURRENT_TIMESTAMP, crs_signed_by=?
-        WHERE id=?""", (signature, signed_by, rid))
-    _log_routing_event(conn, rid, 'released', 'Пилот', 'CRS подписан: ' + signed_by)
+    if row['mcc_status'] in ('MEL_READY', 'MEL'):
+        if row['mcc_due_date']:
+            try:
+                if datetime.strptime(str(row['mcc_due_date'])[:10], '%Y-%m-%d').date() < datetime.utcnow().date():
+                    conn.close()
+                    return jsonify({'success': False, 'error': 'Срок MEL истёк. Условный допуск запрещён до устранения дефекта или отдельного допустимого продления.'}), 409
+            except ValueError:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Некорректный срок MEL. Требуется проверка MCC.'}), 409
+        if row['mcc_status'] == 'MEL_READY' and ((row['mcc_proc_o'] and not row['cpu_mel_o_completed']) or (row['mcc_proc_m'] and not row['cpu_mel_m_completed'])):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Не все процедуры MEL подтверждены ЦПУ.'}), 409
+        if row['mcc_status'] == 'MEL_READY':
+            if (not row['mcc_mel_reviewed_by'] or not row['mcc_mel_reviewed_at'] or
+                    not row['mcc_mel_combined_checked'] or not row['mcc_mel_crew_briefed'] or
+                    not row['mcc_mel_restrictions_verified'] or not row['mcc_mel_repair_plan']):
+                conn.close()
+                return jsonify({'success': False, 'error': 'Не завершён контроль MCC: совокупное влияние, ограничения, информирование экипажа и план устранения.'}), 409
+        flight_reason = 'MEL ' + str(row['mcc_mel_ref'] or '') + ' активен. Эксплуатация возможна только при соблюдении утверждённых ограничений: ' + str(row['mcc_mel_restrictions'] or '')
+        cur.execute("""UPDATE requests SET flight_status='MEL_ACTIVE', flight_status_reason=?,
+            mcc_status='MEL_ACTIVE', routing_stage='mel_active', status='deferred'
+            WHERE id=?""", (flight_reason, rid))
+        _log_routing_event(conn, rid, 'mel_active', 'MCC', 'Условная эксплуатация по MEL активирована уполномоченным сотрудником ' + authorized_by + '. ' + comment)
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'request_id': rid, 'flight_status': 'MEL_ACTIVE', 'routing_stage': 'mel_active', 'mcc_status': 'MEL_ACTIVE'})
+
+    cur.execute("""UPDATE requests SET flight_status='RELEASED', flight_status_reason=?,
+                   mcc_status='RELEASED', routing_stage='released', status='completed'
+                   WHERE id=?""", ('Допуск MCC: ' + comment + ' (' + authorized_by + ')', rid))
+    _log_routing_event(conn, rid, 'released', 'MCC', 'Программное ограничение снято. Уполномоченный: ' + authorized_by + '. ' + comment)
     conn.commit()
     conn.close()
-    print(f'[pilot/sign_crs] {rid} подписан {signed_by}')
-    return jsonify({'success': True, 'signed_at': datetime.now(timezone.utc).isoformat()})
+    return jsonify({'success': True, 'request_id': rid, 'flight_status': 'RELEASED', 'routing_stage': 'released'})
+
+@app.route('/api/cpu/mel_queue', methods=['GET'])
+def cpu_mel_queue():
+    conn = get_db()
+    sync_expired_mel(conn)
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, flight_number, fault_type, description, parking_id,
+        mcc_ata, mcc_mel_ref, mcc_mel_category, mcc_due_date, mcc_due_condition,
+        mcc_mel_revision, mcc_mel_description, mcc_mel_restrictions,
+        mcc_proc_o, mcc_proc_m, mcc_proc_o_text, mcc_proc_m_text,
+        mcc_comment, cpu_mel_o_completed, cpu_mel_m_completed,
+        cpu_mel_check_comment, created_at, routing_stage, mcc_status
+        FROM requests WHERE routing_stage='cpu_mel_review' AND mcc_status='MEL_REVIEW'
+          AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
+        ORDER BY created_at ASC""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/cpu/mel_return_to_mcc', methods=['POST'])
+def cpu_mel_return_to_mcc():
+    """Return a MEL item to MCC when CPU cannot confirm applicability/procedures."""
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    reason = str(data.get('reason') or '').strip()
+    reviewer = str(data.get('reviewer') or '').strip() or 'ЦПУ'
+    if not rid or not reason:
+        return jsonify({'success': False, 'error': 'Укажите заявку и причину возврата MEL в MCC'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, mcc_status, routing_stage, mcc_mel_ref FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['mcc_status'] != 'MEL_REVIEW' or row['routing_stage'] != 'cpu_mel_review':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка больше не ожидает первичной проверки MEL в ЦПУ'}), 409
+    cur.execute("""UPDATE requests SET mcc_status='PENDING', mcc_decision='MEL_RETURNED',
+        mcc_mel_choice='', status='open', routing_stage='mcc',
+        mcc_comment=COALESCE(mcc_comment,'') || ?,
+        flight_status='DO_NOT_FLY',
+        flight_status_reason='ЦПУ вернуло MEL в MCC: требуется повторная оценка применимости. Полёт запрещён.'
+        WHERE id=?""", ('\n[ЦПУ→MCC: возврат MEL] ' + reviewer + ': ' + reason, rid))
+    _log_routing_event(conn, rid, 'mcc', reviewer,
+        'MEL ' + str(row['mcc_mel_ref'] or '') + ' возвращён на повторную оценку: ' + reason)
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'mcc', 'mcc_status': 'PENDING'})
+
+
+@app.route('/api/cpu/mel_review', methods=['POST'])
+def cpu_mel_review():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    o_completed = bool(data.get('o_completed'))
+    comment = str(data.get('comment') or '').strip()
+    reviewer = str(data.get('reviewer') or '').strip() or 'ЦПУ'
+    if not rid or not comment:
+        return jsonify({'success': False, 'error': 'Укажите заявку и комментарий проверки ЦПУ'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, mcc_proc_o, mcc_proc_m, routing_stage,
+        mcc_status, mcc_mel_ref FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'cpu_mel_review' or row['mcc_status'] != 'MEL_REVIEW':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не находится в очереди MEL ЦПУ'}), 409
+    if row['mcc_proc_o'] and not o_completed:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Подтвердите выполнение O-процедуры или верните заявку на уточнение MCC'}), 400
+
+    if row['mcc_proc_m']:
+        cur.execute("""UPDATE requests SET cpu_mel_o_completed=?, cpu_mel_engineer_required=1,
+            cpu_mel_check_comment=?, cpu_mel_checked_by=?, cpu_mel_checked_at=CURRENT_TIMESTAMP,
+            status='queued', routing_stage='dispatcher',
+            mcc_comment=COALESCE(mcc_comment,'') || ?
+            WHERE id=?""", (1 if (o_completed or not row['mcc_proc_o']) else 0,
+                comment, reviewer, '\n[ЦПУ MEL] O-процедура проверена. Требуется инженер для M-процедуры: ' + comment, rid))
+        _log_routing_event(conn, rid, 'dispatcher', 'ЦПУ',
+            'MEL ' + str(row['mcc_mel_ref'] or '') + ': O-процедура проверена; направлено диспетчеру для выполнения M-процедуры инженером.')
+        conn.commit()
+        conn.close()
+        try:
+            try_reassign_queued()
+        except Exception as exc:
+            print('[CPU MEL] auto assign:', exc)
+        return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'dispatcher',
+                        'engineer_required': True, 'message': 'Заявка передана диспетчеру для выполнения M-процедуры'})
+
+    cur.execute("""UPDATE requests SET cpu_mel_o_completed=?, cpu_mel_m_completed=1,
+        cpu_mel_engineer_required=0, cpu_mel_check_comment=?, cpu_mel_checked_by=?,
+        cpu_mel_checked_at=CURRENT_TIMESTAMP, routing_stage='mcc_mel_finalize',
+        status='mel_review', mcc_comment=COALESCE(mcc_comment,'') || ?
+        WHERE id=?""", (1 if (o_completed or not row['mcc_proc_o']) else 0,
+            comment, reviewer, '\n[ЦПУ MEL проверено] ' + comment, rid))
+    _log_routing_event(conn, rid, 'mcc_mel_finalize', 'ЦПУ',
+        'Проверка MEL завершена; передано MCC для итогового решения.')
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'mcc_mel_finalize',
+                    'engineer_required': False})
+
+
 @app.route('/api/cpu/queue', methods=['GET'])
 def cpu_queue():
     """Заявки, ожидающие решения ЦПУ."""
@@ -1775,7 +2529,7 @@ def cpu_queue():
     cur.execute("""SELECT id, aircraft, flight_number, fault_type, description,
                    parking_id, terminal, source, pilot_name, pilot_rank,
                    mcc_status, mcc_decision, mcc_comment, routing_history,
-                   created_at, severity, criticality, engineer_comment
+                   created_at, severity, criticality, engineer_comment, flight_status, flight_status_reason
                    FROM requests
                    WHERE routing_stage='cpu'
                      AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
@@ -1792,12 +2546,13 @@ def cpu_queue():
 
 @app.route('/api/cpu/send_to_dispatcher', methods=['POST'])
 def cpu_send_to_dispatcher():
-    """ЦПУ передаёт заявку диспетчеру. Инженер назначается автоматически
-    тем же алгоритмом, что при ручном создании заявки в /api/dispatch."""
+    """ЦПУ передаёт заявку диспетчеру; инженер автоматически подбирается
+    по специализации и минимальному времени прибытия. Заявка сразу появляется
+    в активных заявках диспетчера. Если подходящих свободных инженеров нет,
+    она остаётся там в статусе ожидания и назначается автоматически позже."""
     data = request.get_json() or {}
     rid = data.get('request_id')
     comment = (data.get('comment') or '').strip()
-
     if not rid:
         return jsonify({'success': False, 'error': 'request_id обязателен'}), 400
     if not comment:
@@ -1814,96 +2569,386 @@ def cpu_send_to_dispatcher():
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
     if row['routing_stage'] != 'cpu':
         conn.close()
-        return jsonify({'success': False, 'error': 'Заявка не в очереди ЦПУ'}), 400
+        return jsonify({'success': False, 'error': 'Заявка не находится в очереди ЦПУ'}), 409
 
-    # Логируем переход ЦПУ → Диспетчер.
-    # source='pilot' → 'cpu', чтобы заявка перестала считаться «пилотской»
-    # и отображалась у диспетчера в «Активных заявках».
-    cur.execute("""UPDATE requests SET
-                   routing_stage='dispatcher',
-                   source=CASE WHEN source='pilot' THEN 'cpu' ELSE source END,
-                   mcc_comment=COALESCE(mcc_comment,'') || ?
-                   WHERE id=?""",
-                ('\n[ЦПУ→Диспетчер] ' + comment, rid))
-    _log_routing_event(conn, rid, 'dispatcher', 'ЦПУ', comment)
-
-    # ── АВТОНАЗНАЧЕНИЕ (как в /api/dispatch) ──
-    parking_id = str(row['parking_id'] or '')
-    fault = row['fault_type'] or 'engine_failure'
     aircraft = row['aircraft'] or 'ВС'
+    parking_id = str(row['parking_id'] or '')
+    fault = row['fault_type'] or 'other'
     target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
 
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled')
-          AND engineer_id IS NOT NULL AND id!=?""", (rid,))
-    busy = {r['engineer_id'] for r in cur.fetchall()}
+    # Передаём заявку в диспетчерскую зону, сохраняя исходный source='pilot'.
+    # Это необходимо, чтобы пилот продолжал видеть именно свою заявку.
+    cur.execute("""UPDATE requests SET routing_stage='dispatcher',
+                   mcc_comment=COALESCE(mcc_comment,'') || ?
+                   WHERE id=?""", ('\n[ЦПУ→Диспетчер] ' + comment, rid))
+    _log_routing_event(conn, rid, 'dispatcher', 'ЦПУ', comment)
 
-    eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL,
-                                       target[0], target[1],
-                                       exclude_ids=busy)
+    # Автоподбор инженера по профилю дефекта и кратчайшему ETA.
+    cur.execute("""SELECT DISTINCT engineer_id FROM requests
+                   WHERE routing_stage='technician'
+                     AND status IN ('assigned','arriving','in_progress','working')
+                     AND engineer_id IS NOT NULL AND id!=?""", (rid,))
+    busy = {str(r['engineer_id']) for r in cur.fetchall()}
+    eng, route = get_free_engineer_for(
+        conn, fault, FAULT_SKILL, target[0], target[1], exclude_ids=busy
+    )
 
     if eng:
         cur.execute("""UPDATE requests SET
-                       engineer_id=?, engineer_name=?,
-                       status='assigned', routing_stage='technician',
-                       mcc_status='INSPECTION',
-                       travel_time=?, using_car=?, walk_to_car=?, car_time=?, best_car=?,
+                       engineer_id=?, engineer_name=?, status='assigned',
+                       routing_stage='technician', mcc_status=CASE WHEN mcc_mel_choice='MEL' THEN 'MEL_REVIEW' ELSE 'INSPECTION' END,
+                       travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
+                       engineer_comment='', inspection_assigned_at=NULL,
+                       delay_minutes=0, delay_reason='', delay_started_at=NULL,
                        mcc_comment=COALESCE(mcc_comment,'') || ?
                        WHERE id=?""",
                     (eng['id'], eng['name'],
-                     route['travel_time'],
-                     1 if route['using_car'] else 0,
-                     route['walk_to_car'],
-                     route['best_car_time'],
-                     route['best_car']['device_id'] if route['best_car'] else None,
                      '\n[Автоназначение] ' + eng['name'], rid))
-
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to=? WHERE id=?",
-                        (rid, route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + aircraft, eng['id']))
         _log_routing_event(conn, rid, 'technician', 'Диспетчер (авто)',
-                           f'Назначен {eng["name"]}')
+                           'Автоматически назначен ' + eng['name'])
         conn.commit()
         conn.close()
-
-        try:
-            _recalc_route_for_request_id(rid)
-        except Exception as e:
-            print(f'[CPU] recalc route: {e}')
-
-        print(f'[CPU] auto-assigned {rid} → {eng["name"]} ({route["travel_time"]} min)')
+        # Маршрут-превью сразу доступен диспетчеру; выезд начнётся после принятия.
+        _recalc_route_for_request_id(rid, force=True)
         return jsonify({
-            'success': True,
-            'request_id': rid,
-            'routing_stage': 'technician',
-            'assigned': True,
-            'engineer_id': eng['id'],
-            'engineer_name': eng['name'],
-            'travel_time': route['travel_time']
+            'success': True, 'request_id': rid, 'routing_stage': 'technician',
+            'assigned': True, 'queued': False,
+            'engineer_id': eng['id'], 'engineer_name': eng['name'],
+            'travel_time': 0, 'awaiting_acceptance': True
         })
 
-    # Нет свободных — в очередь, try_reassign_queued подхватит
-    cur.execute("""UPDATE requests SET
-                   status='queued',
-                   delay_started_at=COALESCE(delay_started_at, CURRENT_TIMESTAMP),
-                   delay_reason=CASE WHEN delay_reason='' OR delay_reason IS NULL
-                                     THEN 'Ожидание инженера' ELSE delay_reason END
+    # Нет свободного специалиста нужного профиля: заявка уже в активном списке
+    # диспетчера и будет автоматически подобрана при освобождении инженера.
+    cur.execute("""UPDATE requests SET status='queued',
+                   delay_started_at=COALESCE(delay_started_at,CURRENT_TIMESTAMP),
+                   delay_reason=CASE WHEN delay_reason IS NULL OR delay_reason=''
+                                     THEN 'Автоматический подбор инженера' ELSE delay_reason END
                    WHERE id=?""", (rid,))
     _log_routing_event(conn, rid, 'dispatcher', 'Диспетчер (авто)',
-                       'Нет свободных техников — в очереди')
+                       'Нет свободного инженера подходящей специализации; включён автоподбор')
     conn.commit()
     conn.close()
     _schedule_recheck(rid)
-    print(f'[CPU] queued {rid} (no free engineers)')
     return jsonify({
-        'success': True,
-        'request_id': rid,
-        'routing_stage': 'dispatcher',
-        'assigned': False,
-        'queued': True
+        'success': True, 'request_id': rid, 'routing_stage': 'dispatcher',
+        'assigned': False, 'queued': True,
+        'message': 'Заявка добавлена в активные заявки; инженер будет назначен автоматически'
     })
+
+
+@app.route('/api/dispatcher/report_queue', methods=['GET'])
+def dispatcher_report_queue():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, flight_number, fault_type, description, parking_id,
+                   engineer_id, engineer_name, engineer_condition, engineer_verdict,
+                   engineer_comment, engineer_report_at, created_at, status, criticality,
+                   flight_status, flight_status_reason, routing_history
+                   FROM requests WHERE routing_stage='dispatcher_report'
+                     AND engineer_report_at IS NOT NULL
+                     AND engineer_verdict IN ('AOG','REPAIR')
+                     AND engineer_condition IN ('aog','repaired')
+                     AND status='report_submitted'
+                   ORDER BY engineer_report_at ASC""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    for r in rows:
+        try: r['routing_history'] = json.loads(r.get('routing_history') or '[]')
+        except Exception: r['routing_history'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/dispatcher/forward_report_to_cpu', methods=['POST'])
+def dispatcher_forward_report_to_cpu():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    comment = (data.get('comment') or '').strip()
+    if not rid or not comment:
+        return jsonify({'success': False, 'error': 'request_id и комментарий обязательны'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, routing_stage, engineer_report_at, engineer_verdict, engineer_condition, status FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'dispatcher_report':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Отчёт не ожидает обработки диспетчером'}), 409
+    if (not row['engineer_report_at'] or not row['engineer_verdict'] or
+            row['engineer_condition'] not in ('aog', 'repaired') or
+            row['status'] != 'report_submitted'):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нельзя передать заявку дальше: инженер ещё не отправил полный отчёт'}), 409
+    cur.execute("""UPDATE requests SET routing_stage='cpu_report', dispatcher_report_at=CURRENT_TIMESTAMP,
+                   mcc_comment=COALESCE(mcc_comment,'') || ? WHERE id=?""",
+                ('\n[Диспетчер→ЦПУ] ' + comment, rid))
+    _log_routing_event(conn, rid, 'cpu_report', 'Диспетчер', comment)
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'cpu_report'})
+
+
+@app.route('/api/cpu/report_queue', methods=['GET'])
+def cpu_report_queue():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, flight_number, fault_type, description, parking_id,
+                   engineer_id, engineer_name, engineer_condition, engineer_verdict,
+                   engineer_comment, engineer_report_at, dispatcher_report_at, cpu_report_at, created_at,
+                   status, criticality, flight_status, flight_status_reason, routing_history,
+                   mcc_mel_choice, mcc_ata, mcc_mel_ref, mcc_mel_category, mcc_due_date, mcc_due_condition,
+                   mcc_mel_revision, mcc_mel_description, mcc_mel_restrictions,
+                   mcc_proc_o, mcc_proc_m, mcc_proc_o_text, mcc_proc_m_text,
+                   mel_catalog_id, mel_assessed_by, mel_assessment_comment, mel_rectification_interval,
+                   mel_m_procedure_completed, mel_m_procedure_comment,
+                   mel_initial_engineer_report, mel_initial_engineer_report_at, mel_initial_assessed_by,
+                   mel_deadline_mode, mel_deadline_value, mel_deadline_start_rule,
+                   mcc_proc_m_text, cpu_mel_o_completed, cpu_mel_m_completed,
+                   cpu_mel_engineer_required, cpu_mel_applicability_confirmed,
+                   cpu_mel_o_comment, cpu_mel_m_comment, cpu_mel_checked_by, cpu_mel_checked_at
+                   FROM requests WHERE routing_stage='cpu_report'
+                     AND engineer_report_at IS NOT NULL
+                     AND engineer_verdict IN ('AOG','REPAIR','MEL')
+                     AND engineer_condition IN ('aog','repaired','mel_deferred')
+                     AND status='report_submitted'
+                   ORDER BY COALESCE(cpu_report_at, engineer_report_at) ASC""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    for r in rows:
+        try: r['routing_history'] = json.loads(r.get('routing_history') or '[]')
+        except Exception: r['routing_history'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/cpu/prepare_m_procedure', methods=['POST'])
+def cpu_prepare_m_procedure():
+    """CPU validates a technician-selected MEL item and routes required M-work to an engineer."""
+    data = request.get_json() or {}
+    rid = str(data.get('request_id') or '').strip()
+    comment = str(data.get('comment') or '').strip()
+    reviewer = str(data.get('reviewer') or '').strip() or 'ЦПУ'
+    applicable = bool(data.get('mel_applicability_confirmed'))
+    o_completed = bool(data.get('o_completed'))
+    o_comment = str(data.get('o_comment') or '').strip()
+    if not rid or len(comment) < 5:
+        return jsonify({'success': False, 'error': 'Укажите заявку и комментарий проверки ЦПУ'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, routing_stage, status, engineer_verdict, engineer_condition,
+        mcc_mel_choice, mel_catalog_id, mcc_mel_ref, mcc_proc_o, mcc_proc_m,
+        mel_m_procedure_completed, engineer_comment, engineer_report_at, engineer_name
+        FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'cpu_report' or row['status'] != 'report_submitted' or row['engineer_verdict'] != 'MEL' or row['engineer_condition'] != 'mel_deferred' or row['mcc_mel_choice'] != 'MEL':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не является техническим заключением MEL в очереди ЦПУ'}), 409
+    if not row['mel_catalog_id'] or not row['mcc_mel_ref']:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нет выбранного пункта из утверждённого MEL'}), 409
+    if not row['mcc_proc_m']:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Для этого пункта M-процедура не требуется. Используйте «Передать MCC»'}), 409
+    if row['mel_m_procedure_completed']:
+        conn.close()
+        return jsonify({'success': False, 'error': 'M-процедура уже отмечена техником как выполненная. Передайте отчёт на финальную проверку ЦПУ.'}), 409
+    if not applicable:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Подтвердите применимость MEL к типу и конфигурации борта'}), 400
+    if row['mcc_proc_o'] and (not o_completed or len(o_comment) < 5):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Сначала подтвердите O-процедуру и укажите результат её проверки'}), 400
+    initial_engineer_report = str(row['engineer_comment'] or '')
+    if initial_engineer_report.startswith('ROUTE:'):
+        route_payload = initial_engineer_report[6:]
+        try:
+            _route_data, _route_end = json.JSONDecoder().raw_decode(route_payload)
+            initial_engineer_report = route_payload[_route_end:].lstrip()
+        except Exception:
+            pass
+
+    cur.execute("""UPDATE requests SET status='queued', routing_stage='dispatcher',
+        mcc_status='MEL_MAINTENANCE_REQUIRED', cpu_mel_applicability_confirmed=1,
+        cpu_mel_o_completed=?, cpu_mel_m_completed=0, cpu_mel_engineer_required=1,
+        cpu_mel_checked_by=?, cpu_mel_checked_at=NULL, cpu_mel_check_comment=?,
+        cpu_mel_o_comment=?, cpu_mel_m_comment='',
+        mel_initial_engineer_report=CASE WHEN COALESCE(TRIM(mel_initial_engineer_report),'')='' THEN ? ELSE mel_initial_engineer_report END,
+        mel_initial_engineer_report_at=CASE WHEN mel_initial_engineer_report_at IS NULL THEN ? ELSE mel_initial_engineer_report_at END,
+        mel_initial_assessed_by=CASE WHEN COALESCE(TRIM(mel_initial_assessed_by),'')='' THEN ? ELSE mel_initial_assessed_by END,
+        engineer_id=NULL, engineer_name=NULL, inspection_assigned_at=NULL, rejected_by='',
+        mcc_comment=COALESCE(mcc_comment,'') || ?
+        WHERE id=?""", (
+        1 if (o_completed or not row['mcc_proc_o']) else 0, reviewer, comment, o_comment,
+        initial_engineer_report, row['engineer_report_at'], row['engineer_name'] or '',
+        '\n[ЦПУ→Диспетчер MEL M-процедура] ' + comment +
+        ((' · O-процедура: ' + o_comment) if o_comment else ''), rid))
+    _log_routing_event(conn, rid, 'dispatcher', reviewer,
+        'Применимость MEL проверена; требуется назначить инженера для M-процедуры по пункту ' + str(row['mcc_mel_ref']))
+    conn.commit()
+    conn.close()
+    try:
+        try_reassign_queued()
+    except Exception as exc:
+        print('[CPU MEL M PROCEDURE] auto-assign:', exc)
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'dispatcher',
+                    'mcc_status': 'MEL_MAINTENANCE_REQUIRED', 'engineer_required': True})
+
+
+@app.route('/api/cpu/forward_report_to_mcc', methods=['POST'])
+def cpu_forward_report_to_mcc():
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    comment = (data.get('comment') or '').strip()
+    if not rid or not comment:
+        return jsonify({'success': False, 'error': 'request_id и комментарий обязательны'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, routing_stage, mcc_status, mcc_mel_choice, mcc_proc_o, mcc_proc_m,
+        engineer_report_at, engineer_verdict, engineer_condition, status,
+        mel_catalog_id, mcc_mel_ref, mcc_mel_category,
+        mel_m_procedure_completed, mel_m_procedure_comment
+        FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'cpu_report':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Отчёт не ожидает обработки ЦПУ'}), 409
+    if (not row['engineer_report_at'] or not row['engineer_verdict'] or
+            row['engineer_condition'] not in ('aog','repaired','mel_deferred') or
+            row['status'] != 'report_submitted'):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нельзя передать заявку в MCC: отчёт инженера ещё не отправлен'}), 409
+
+    reviewer = str(data.get('reviewer') or '').strip() or 'ЦПУ'
+    if row['engineer_verdict'] == 'MEL':
+        applicable = bool(data.get('mel_applicability_confirmed'))
+        o_completed = bool(data.get('mel_o_completed'))
+        m_completed = bool(data.get('mel_m_completed'))
+        o_comment = str(data.get('mel_o_comment') or '').strip()
+        m_comment = str(data.get('mel_m_comment') or '').strip()
+        if not row['mcc_mel_ref']:
+            conn.close()
+            return jsonify({'success': False, 'error': 'В отчёте MEL не указан номер пункта'}), 409
+        if row['mcc_proc_m'] and (not row['mel_m_procedure_completed'] or len(str(row['mel_m_procedure_comment'] or '').strip()) < 5):
+            conn.close()
+            return jsonify({'success': False, 'error': 'В отчёте техника нет подтверждения выполнения обязательной M-процедуры'}), 409
+        if not applicable:
+            conn.close()
+            return jsonify({'success': False, 'error': 'ЦПУ должно подтвердить применимость пункта к борту и конфигурации'}), 400
+        if row['mcc_proc_o'] and (not o_completed or not o_comment):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Подтвердите O-процедуру и добавьте комментарий ЦПУ'}), 400
+        if row['mcc_proc_m'] and (not m_completed or not m_comment):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Подтвердите M-процедуру по отчёту инженера и добавьте комментарий ЦПУ'}), 400
+        cur.execute("""UPDATE requests SET routing_stage='mcc_mel_finalize', cpu_report_at=CURRENT_TIMESTAMP,
+            mcc_status='MEL_CPU_CHECKED', cpu_mel_applicability_confirmed=1,
+            cpu_mel_o_completed=?, cpu_mel_m_completed=?, cpu_mel_checked_by=?,
+            cpu_mel_checked_at=CURRENT_TIMESTAMP, cpu_mel_check_comment=?,
+            cpu_mel_o_comment=?, cpu_mel_m_comment=?,
+            mcc_comment=COALESCE(mcc_comment,'') || ?
+            WHERE id=?""", (
+            1 if (o_completed or not row['mcc_proc_o']) else 0,
+            1 if (m_completed or not row['mcc_proc_m']) else 0,
+            reviewer, comment, o_comment, m_comment,
+            '\n[ЦПУ→MCC MEL] ' + comment +
+              ((' · O-процедура: ' + o_comment) if o_comment else '') +
+              ((' · M-процедура: ' + m_comment) if m_comment else ''), rid))
+        _log_routing_event(conn, rid, 'mcc_mel_finalize', 'ЦПУ',
+            'Применимость MEL и необходимые процедуры проверены; передано MCC на контроль и решение.')
+        next_stage = 'mcc_mel_finalize'
+    else:
+        cur.execute("""UPDATE requests SET routing_stage='mcc_finalize', cpu_report_at=CURRENT_TIMESTAMP,
+                       mcc_comment=COALESCE(mcc_comment,'') || ?, mcc_status='INSPECTION'
+                       WHERE id=?""", ('\n[ЦПУ→MCC] ' + comment, rid))
+        _log_routing_event(conn, rid, 'mcc_finalize', 'ЦПУ', comment)
+        next_stage = 'mcc_finalize'
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': next_stage,
+                    'mcc_status': 'MEL_CPU_CHECKED' if next_stage == 'mcc_mel_finalize' else 'INSPECTION'})
+
+
+@app.route('/api/mcc/mel_return_to_engineer', methods=['POST'])
+def mcc_mel_return_to_engineer():
+    data = request.get_json() or {}
+    rid = str(data.get('request_id') or '').strip()
+    reason = str(data.get('reason') or '').strip()
+    if not rid or not reason:
+        return jsonify({'success': False, 'error': 'Укажите заявку и причину возврата инженеру'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, mcc_status, routing_stage, engineer_id FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['mcc_status'] != 'MEL_CPU_CHECKED' or row['routing_stage'] != 'mcc_mel_finalize':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Возврат возможен только после проверки MEL в ЦПУ и до решения MCC'}), 409
+    if row['engineer_id']:
+        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?", (row['engineer_id'],))
+    cur.execute("""UPDATE requests SET mcc_status='MEL_RETURNED', mcc_decision='MEL_RETURNED',
+        mcc_comment=COALESCE(mcc_comment,'') || ?, status='queued', routing_stage='dispatcher',
+        engineer_id=NULL, engineer_name=NULL, inspection_assigned_at=NULL,
+        engineer_verdict='', engineer_verdict_at=NULL, engineer_condition='', engineer_report_at=NULL,
+        mel_catalog_id='', mel_assessed_by='', mel_assessment_comment='',
+        mel_m_procedure_completed=0, mel_m_procedure_comment='',
+        mel_initial_engineer_report='', mel_initial_engineer_report_at=NULL, mel_initial_assessed_by='',
+        mcc_mel_choice='', mcc_ata='', mcc_mel_ref='', mcc_mel_category='', mcc_due_date=NULL,
+        mcc_due_condition='', mcc_mel_revision='', mcc_mel_description='', mcc_mel_restrictions='',
+        mcc_proc_o=0, mcc_proc_m=0, mcc_proc_o_text='', mcc_proc_m_text='',
+        cpu_mel_applicability_confirmed=0, cpu_mel_o_completed=0, cpu_mel_m_completed=0,
+        cpu_mel_checked_at=NULL, cpu_mel_checked_by='', cpu_mel_check_comment='',
+        flight_status='DO_NOT_FLY',
+        flight_status_reason='MEL возвращён инженеру на повторную оценку. Условная эксплуатация не активна.'
+        WHERE id=?""", ('\n[MCC→Инженер: возврат MEL] ' + reason, rid))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
+    _log_routing_event(conn, rid, 'dispatcher', 'MCC', 'MEL возвращён на повторную техническую оценку: ' + reason)
+    conn.commit()
+    conn.close()
+    try:
+        try_reassign_queued()
+    except Exception as exc:
+        print('[MEL RETURN] auto assign:', exc)
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'dispatcher'})
+
+
+@app.route('/api/mcc/mel_mark_expired', methods=['POST'])
+def mcc_mark_mel_expired():
+    data = request.get_json() or {}
+    rid = str(data.get('request_id') or '').strip()
+    reason = str(data.get('reason') or '').strip()
+    actor = str(data.get('actor') or '').strip()
+    if not rid or not reason or not actor:
+        return jsonify({'success': False, 'error': 'Укажите заявку, сотрудника MCC и основание фиксации достижения MEL-лимита'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, mcc_status, mel_deadline_mode, mcc_mel_ref FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['mcc_status'] != 'MEL_ACTIVE' or row['mel_deadline_mode'] == 'CALENDAR_DAYS':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Ручная фиксация доступна только для активных MEL с некалендарным лимитом'}), 409
+    cur.execute("""UPDATE requests SET mcc_status='MEL_EXPIRED', status='mel_expired',
+        routing_stage='pilot_notice', flight_status='DO_NOT_FLY',
+        flight_status_reason=?, pilot_notice_at=CURRENT_TIMESTAMP,
+        mcc_comment=COALESCE(mcc_comment,'') || ? WHERE id=?""",
+        ('Достигнут / превышен лимит MEL ' + str(row['mcc_mel_ref'] or '') + '. Полёт запрещён.',
+         '\n[MCC: MEL limit reached] ' + actor + ': ' + reason, rid))
+    _log_routing_event(conn, rid, 'pilot_notice', actor, 'Достигнут лимит MEL; установлен DO_NOT_FLY. ' + reason)
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'mcc_status': 'MEL_EXPIRED', 'flight_status': 'DO_NOT_FLY'})
 
 
 # ============================================================
@@ -1916,7 +2961,7 @@ def dispatcher_queue():
     cur.execute("""SELECT id, aircraft, flight_number, fault_type, description,
                    parking_id, terminal, source, pilot_name, pilot_rank,
                    mcc_status, mcc_decision, mcc_comment, routing_history,
-                   created_at, severity, criticality
+                   created_at, severity, criticality, flight_status, flight_status_reason
                    FROM requests
                    WHERE routing_stage='dispatcher'
                      AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
@@ -1952,43 +2997,42 @@ def dispatcher_assign():
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не у диспетчера'}), 400
 
-    cur.execute("SELECT id, name, device_id FROM engineers WHERE id=?", (eng_id,))
+    cur.execute("SELECT id, name, device_id, status FROM engineers WHERE id=?", (eng_id,))
     eng = cur.fetchone()
     if not eng:
         conn.close()
         return jsonify({'success': False, 'error': 'Техник не найден'}), 404
+    if (eng['status'] or 'free') != 'free':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер уже занят или недоступен'}), 409
+    cur.execute("SELECT id FROM requests WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled') AND routing_stage='technician'", (eng_id,))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'success': False, 'error': 'У инженера уже есть активная заявка'}), 409
 
     cur.execute("""UPDATE requests SET
-                   engineer_id=?, engineer_name=?,
+                   engineer_id=?, engineer_name=?, travel_time=0, using_car=0,
+                   walk_to_car=0, car_time=0, best_car=NULL, engineer_comment='',
                    status='assigned', routing_stage='technician',
-                   mcc_status='INSPECTION',
+                   mcc_status=CASE WHEN mcc_mel_choice='MEL' THEN 'MEL_REVIEW' ELSE 'INSPECTION' END,
+                   inspection_assigned_at=NULL,
                    mcc_comment=COALESCE(mcc_comment,'') || ?
                    WHERE id=?""",
                 (eng_id, eng['name'],
                  '\n[Диспетчер→Техник] ' + comment + ' — ' + eng['name'], rid))
-    cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+    cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                 ('ВС ' + (req['aircraft'] or ''), eng_id))
     _log_routing_event(conn, rid, 'technician', 'Диспетчер',
                        f'Назначен {eng["name"]}: {comment}')
     conn.commit()
     conn.close()
-
-    try:
-        _recalc_route_for_request_id(rid)
-    except Exception as e:
-        print(f'[DISPATCHER] recalc route: {e}')
-
-    conn2 = get_db()
-    cur2 = conn2.cursor()
-    cur2.execute("SELECT travel_time FROM requests WHERE id=?", (rid,))
-    t = cur2.fetchone()
-    travel_time = t['travel_time'] if t else 0
-    conn2.close()
+    # Маршрут-превью появляется сразу после назначения, до ответа инженера.
+    _recalc_route_for_request_id(rid, force=True)
 
     return jsonify({
         'success': True, 'request_id': rid,
         'engineer_id': eng_id, 'engineer_name': eng['name'],
-        'travel_time': travel_time,
+        'travel_time': 0, 'awaiting_acceptance': True,
     })
 
 
@@ -1998,7 +3042,7 @@ def dispatcher_assigned():
     cur = conn.cursor()
     cur.execute("""SELECT r.id, r.aircraft, r.fault_type, r.parking_id,
                    r.status, r.engineer_id, r.engineer_name, r.travel_time,
-                   r.created_at, e.device_id, e.specialization
+                   r.inspection_assigned_at, r.created_at, e.device_id, e.specialization
                    FROM requests r
                    LEFT JOIN engineers e ON e.id = r.engineer_id
                    WHERE r.routing_stage='technician'
@@ -2012,12 +3056,71 @@ def dispatcher_assigned():
 # ============================================================
 # Engineers
 # ============================================================
+@app.route('/api/dispatcher/requests/<rid>/route', methods=['GET'])
+def dispatcher_request_route(rid):
+    """Return the route preview immediately after assignment. It is visible
+    while the engineer decides; actual travel starts only after acceptance.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment,
+                          r.status, r.routing_stage, e.task_step AS engineer_task_step
+                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.id=?""", (rid,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'technician':
+        return jsonify({'success': False, 'error': 'Заявка уже вышла из этапа инженера'}), 409
+    if row['engineer_task_step'] not in ('pending', 'idle', '', None,
+                                          'accepted', 'in_car', 'arrived', 'diagnosing'):
+        return jsonify({'success': False, 'error': 'Назначение больше не активно',
+                        'awaiting_acceptance': False}), 409
+
+    # Rebuild on demand if route data is missing or malformed.
+    comment = row['engineer_comment'] or ''
+    if not comment.startswith('ROUTE:'):
+        _recalc_route_for_request_id(rid, force=True)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT engineer_comment, travel_time FROM requests WHERE id=?", (rid,))
+        fresh = cur.fetchone()
+        conn.close()
+        comment = (fresh['engineer_comment'] or '') if fresh else ''
+
+    if not comment.startswith('ROUTE:'):
+        return jsonify({'success': False, 'error': 'Не удалось рассчитать маршрут'}), 422
+    raw = comment[6:]
+    depth = 0
+    end = -1
+    for i, ch in enumerate(raw):
+        if ch == '{': depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        return jsonify({'success': False, 'error': 'Данные маршрута повреждены'}), 422
+    try:
+        route = json.loads(raw[:end])
+    except Exception:
+        return jsonify({'success': False, 'error': 'Не удалось прочитать данные маршрута'}), 422
+    return jsonify({'success': True, 'request_id': rid, 'engineer_id': row['engineer_id'],
+                    'route': route})
+
+
 @app.route('/api/engineers', methods=['GET'])
 def get_engineers():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
-                   status,task,phone,task_step,task_started_at FROM engineers""")
+    cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
+                   COALESCE(p.lat,e.coords_lat) AS coords_lat,
+                   COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   e.status,e.task,e.phone,e.task_step,e.task_started_at
+                   FROM engineers e LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id""")
     rows = cur.fetchall()
     conn.close()
     res = []
@@ -2046,8 +3149,13 @@ def get_my_engineer():
 def get_engineer(eng_id):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id,name,device_id,specialization,coords_lat,coords_lng,
-                   status,task,phone,task_step,task_started_at FROM engineers WHERE id=?""", (eng_id,))
+    cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
+                   COALESCE(p.lat,e.coords_lat) AS coords_lat,
+                   COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   e.status,e.task,e.phone,e.task_step,e.task_started_at
+                   FROM engineers e LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   WHERE e.id=?""", (eng_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
@@ -2113,6 +3221,91 @@ def update_engineer(eng_id):
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/requests/<rid>/accept', methods=['POST'])
+def accept_request_assignment(rid):
+    """Подтверждение назначения инженером. Только после него запускается маршрут и ETA."""
+    data = request.get_json() or {}
+    engineer_id = str(data.get('engineer_id') or '').strip()
+    if not engineer_id:
+        return jsonify({'success': False, 'error': 'Не указан инженер'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, engineer_id, engineer_name, aircraft, parking_id,
+                          routing_stage, status
+                   FROM requests WHERE id=?""", (rid,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if str(req['engineer_id'] or '') != engineer_id:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка назначена другому инженеру'}), 403
+    if req['routing_stage'] != 'technician':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка больше не находится у инженера'}), 409
+
+    cur.execute("SELECT id, status, task, task_step FROM engineers WHERE id=?", (engineer_id,))
+    engineer = cur.fetchone()
+    if not engineer:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+
+    if req['status'] in ('arriving', 'in_progress', 'working') and engineer['task_step'] in ('accepted', 'in_car', 'arrived', 'diagnosing'):
+        conn.close()
+        return jsonify({'success': True, 'already_accepted': True, 'request_id': rid})
+    if req['status'] != 'assigned' or engineer['task_step'] not in ('pending', 'idle', '', None):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Назначение уже обработано или недоступно'}), 409
+
+    cur.execute("""UPDATE engineers SET status='busy', task_step='accepted',
+                   task_started_at=CURRENT_TIMESTAMP, task=COALESCE(task, ?)
+                   WHERE id=?""", ('ВС ' + (req['aircraft'] or ''), engineer_id))
+    cur.execute("""UPDATE requests SET status='arriving', inspection_assigned_at=CURRENT_TIMESTAMP,
+                   travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL
+                   WHERE id=?""", (rid,))
+    _log_routing_event(conn, rid, 'technician', req['engineer_name'] or engineer_id,
+                       'Инженер принял назначение; маршрут запущен')
+    conn.commit()
+    conn.close()
+
+    # On acceptance, refresh the preview as the active travel route.
+    _recalc_route_for_request_id(rid, force=True)
+
+    # Reserve the chosen special vehicle after the route is calculated. In a race,
+    # recalculate once more so the route does not point to an already occupied car.
+    for attempt in range(2):
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT best_car FROM requests WHERE id=?", (rid,))
+        found = cur.fetchone()
+        best_car = found['best_car'] if found else None
+        if not best_car:
+            conn.close()
+            break
+        cur.execute("UPDATE transport SET assigned_to=? WHERE device_id=? AND assigned_to IS NULL",
+                    (rid, best_car))
+        reserved = cur.rowcount > 0
+        conn.commit()
+        conn.close()
+        if reserved:
+            break
+        _recalc_route_for_request_id(rid, force=True)
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT travel_time, using_car, walk_to_car, car_time, best_car, engineer_comment, inspection_assigned_at FROM requests WHERE id=?", (rid,))
+    result = cur.fetchone()
+    conn.close()
+    return jsonify({
+        'success': True, 'request_id': rid, 'route_started': True,
+        'travel_time': result['travel_time'] if result else 0,
+        'using_car': bool(result['using_car']) if result else False,
+        'best_car': result['best_car'] if result else None,
+        'inspection_assigned_at': result['inspection_assigned_at'] if result else None,
+    })
+
+
 @app.route('/api/engineers/<eng_id>/step', methods=['PUT'])
 def update_engineer_step(eng_id):
     """Инженер сообщает свой текущий шаг: idle/pending/accepted/in_car/arrived/diagnosing/completed.
@@ -2122,20 +3315,22 @@ def update_engineer_step(eng_id):
     valid = ('idle', 'pending', 'accepted', 'in_car', 'arrived', 'diagnosing', 'completed')
     if step not in valid:
         return jsonify({'success': False, 'error': 'Неверный step'}), 400
+    if step == 'accepted':
+        return jsonify({'success': False, 'error': 'Примите заявку через кнопку «Принять» в карточке задания'}), 409
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id FROM engineers WHERE id=?", (eng_id,))
-    if not cur.fetchone():
+    cur.execute("SELECT id, task_step FROM engineers WHERE id=?", (eng_id,))
+    engineer = cur.fetchone()
+    if not engineer:
         conn.close()
         return jsonify({'success': False, 'error': 'Не найден'}), 404
+    # Нельзя перескочить кнопки «Принять / Отклонить» прямым вызовом шага.
+    if step in ('in_car', 'arrived', 'diagnosing') and engineer['task_step'] in ('pending', 'idle', None, ''):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Сначала примите назначение кнопкой «Принять»'}), 409
 
-    if step == 'accepted':
-        cur.execute(
-            "UPDATE engineers SET task_step=?, "
-            "task_started_at=COALESCE(task_started_at, CURRENT_TIMESTAMP) WHERE id=?",
-            (step, eng_id))
-    elif step in ('idle', 'completed'):
+    if step in ('idle', 'completed'):
         cur.execute(
             "UPDATE engineers SET task_step=?, task_started_at=NULL WHERE id=?",
             (step, eng_id))
@@ -2165,14 +3360,29 @@ def update_engineer_coords(eng_id):
     lng = data.get('lng')
     if lat is None or lng is None:
         return jsonify({'error': 'lat/lng обязательны'}), 400
+    try:
+        lat, lng = float(lat), float(lng)
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise ValueError('Координаты вне допустимого диапазона')
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Некорректные координаты'}), 400
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
                 (lat, lng, eng_id))
+    if cur.rowcount == 0:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+    cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                   VALUES ('engineer',?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(object_type,object_id) DO UPDATE SET
+                     lat=excluded.lat,lng=excluded.lng,updated_at=CURRENT_TIMESTAMP""",
+                (str(eng_id), lat, lng))
     conn.commit()
     conn.close()
-    _recalc_routes_for_engineer(eng_id)
-    return jsonify({'success': True})
+    _recalc_routes_for_engineer(eng_id, force=True)
+    return jsonify({'success': True, 'object_type': 'engineer', 'id': str(eng_id),
+                    'lat': lat, 'lng': lng})
 
 
 # ============================================================
@@ -2251,7 +3461,11 @@ def delete_pilot(pid):
 def get_transport():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,device_id,lat,lng,speed,assigned_to FROM transport ORDER BY id")
+    cur.execute("""SELECT t.id,t.device_id,COALESCE(p.lat,t.lat) AS lat,
+                   COALESCE(p.lng,t.lng) AS lng,t.speed,t.assigned_to
+                   FROM transport t LEFT JOIN map_object_positions p
+                     ON p.object_type='transport' AND p.object_id=CAST(t.id AS TEXT)
+                   ORDER BY t.id""")
     res = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(res)
@@ -2305,6 +3519,12 @@ def update_transport_coords(tid):
     lng = data.get('lng')
     if lat is None or lng is None:
         return jsonify({'error': 'lat/lng обязательны'}), 400
+    try:
+        lat, lng = float(lat), float(lng)
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise ValueError('Координаты вне допустимого диапазона')
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Некорректные координаты'}), 400
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, assigned_to FROM transport WHERE id=?", (tid,))
@@ -2317,12 +3537,18 @@ def update_transport_coords(tid):
                     (lat, lng, data['speed'], tid))
     else:
         cur.execute("UPDATE transport SET lat=?, lng=? WHERE id=?", (lat, lng, tid))
+    cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                   VALUES ('transport',?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(object_type,object_id) DO UPDATE SET
+                     lat=excluded.lat,lng=excluded.lng,updated_at=CURRENT_TIMESTAMP""",
+                (str(tid), lat, lng))
     conn.commit()
     assigned_to = row['assigned_to']
     conn.close()
     if assigned_to:
-        _recalc_route_for_request_id(assigned_to)
-    return jsonify({'success': True})
+        _recalc_route_for_request_id(assigned_to, force=True)
+    return jsonify({'success': True, 'object_type': 'transport', 'id': str(tid),
+                    'lat': lat, 'lng': lng})
 
 
 @app.route('/api/transport/<int:tid>', methods=['DELETE'])
@@ -2336,29 +3562,156 @@ def delete_transport(tid):
 
 
 # ============================================================
+# Excel export for operational / BI reporting
+# ============================================================
+@app.route('/api/reports/export.xlsx', methods=['GET'])
+def export_operational_reports_xlsx():
+    try:
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return jsonify({'success': False, 'error': 'Для экспорта Excel установите пакет openpyxl'}), 503
+
+    conn = get_db()
+    sync_expired_mel(conn)
+    cur = conn.cursor()
+    cur.execute("""SELECT r.*, ar.aircraft_type, ar.configuration AS aircraft_configuration
+        FROM requests r LEFT JOIN aircraft_registry ar ON ar.registration=UPPER(r.aircraft)
+        WHERE r.status NOT IN ('draft','cancelled') ORDER BY r.created_at DESC""")
+    rows = [dict(x) for x in cur.fetchall()]
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Заявки'
+    columns = [
+        ('ID', 'id'), ('Борт', 'aircraft'), ('Тип ВС', 'aircraft_type'),
+        ('Конфигурация', 'aircraft_configuration'), ('Рейс', 'flight_number'),
+        ('Неисправность', 'fault_type'), ('Описание', 'description'), ('Статус', 'mcc_status'),
+        ('Этап', 'routing_stage'), ('Статус полёта', 'flight_status'),
+        ('Инженер', 'engineer_name'), ('Вердикт инженера', 'engineer_verdict'),
+        ('Состояние ВС', 'engineer_condition'), ('Отчёт инженера', 'engineer_comment'),
+        ('Дата отчёта инженера', 'engineer_report_at'), ('Пункт MEL', 'mcc_mel_ref'),
+        ('ATA', 'mcc_ata'), ('Категория MEL', 'mcc_mel_category'),
+        ('Интервал MEL', 'mel_rectification_interval'), ('Первичный отчёт техника', 'mel_initial_engineer_report'),
+        ('Первичный отчёт — дата', 'mel_initial_engineer_report_at'), ('Первичную оценку выполнил', 'mel_initial_assessed_by'),
+        ('M-процедура выполнена техником', 'mel_m_procedure_completed'),
+        ('Отчёт техника по M-процедуре', 'mel_m_procedure_comment'), ('Тип контроля срока', 'mel_deadline_mode'),
+        ('Значение лимита', 'mel_deadline_value'), ('Срок до', 'mcc_due_date'),
+        ('Условие срока', 'mcc_due_condition'), ('Ограничения', 'mcc_mel_restrictions'),
+        ('O-процедура нужна', 'mcc_proc_o'), ('O-процедура проверена', 'cpu_mel_o_completed'),
+        ('M-процедура нужна', 'mcc_proc_m'), ('M-процедура проверена', 'cpu_mel_m_completed'),
+        ('Применимость ЦПУ', 'cpu_mel_applicability_confirmed'),
+        ('Проверил ЦПУ', 'cpu_mel_checked_by'), ('Комментарий ЦПУ', 'cpu_mel_check_comment'),
+        ('Проверил MCC', 'mcc_mel_reviewed_by'), ('Дата проверки MCC', 'mcc_mel_reviewed_at'),
+        ('Комментарий MCC', 'mcc_mel_review_comment'), ('Совокупное влияние проверено', 'mcc_mel_combined_checked'),
+        ('Экипаж проинформирован', 'mcc_mel_crew_briefed'), ('Ограничения проверены', 'mcc_mel_restrictions_verified'),
+        ('План устранения', 'mcc_mel_repair_plan'), ('Причина статуса полёта', 'flight_status_reason'),
+        ('Создано', 'created_at')]
+    ws.append([c[0] for c in columns])
+    for r in rows:
+        ws.append([r.get(c[1]) if r.get(c[1]) is not None else '' for c in columns])
+
+    mel_ws = wb.create_sheet('MEL')
+    mel_cols = [
+        ('Заявка', 'id'), ('Борт', 'aircraft'), ('Тип ВС', 'aircraft_type'),
+        ('Конфигурация', 'aircraft_configuration'), ('Дефект', 'fault_type'),
+        ('Пункт', 'mcc_mel_ref'), ('ATA', 'mcc_ata'), ('Категория', 'mcc_mel_category'),
+        ('Редакция', 'mcc_mel_revision'), ('Описание пункта', 'mcc_mel_description'),
+        ('Интервал устранения', 'mel_rectification_interval'), ('Тип лимита', 'mel_deadline_mode'),
+        ('Значение', 'mel_deadline_value'), ('Правило начала отсчёта', 'mel_deadline_start_rule'),
+        ('Дата устранения', 'mcc_due_date'), ('Условие', 'mcc_due_condition'),
+        ('Ограничения', 'mcc_mel_restrictions'), ('O procedure', 'mcc_proc_o_text'),
+        ('M procedure', 'mcc_proc_m_text'), ('Инженер', 'mel_assessed_by'),
+        ('Обоснование инженера', 'mel_assessment_comment'), ('M-процедура выполнена техником', 'mel_m_procedure_completed'),
+        ('Отчёт техника по M-процедуре', 'mel_m_procedure_comment'), ('Подтверждение ЦПУ', 'cpu_mel_applicability_confirmed'),
+        ('O проверена', 'cpu_mel_o_completed'), ('M проверена', 'cpu_mel_m_completed'),
+        ('Проверка MCC', 'mcc_mel_reviewed_by'), ('Проверено совокупное влияние', 'mcc_mel_combined_checked'),
+        ('Экипаж проинформирован', 'mcc_mel_crew_briefed'), ('План устранения', 'mcc_mel_repair_plan'), ('Статус MEL', 'mcc_status'),
+        ('Статус ВС', 'flight_status')]
+    mel_ws.append([c[0] for c in mel_cols])
+    for r in rows:
+        if r.get('mcc_mel_choice') == 'MEL' or r.get('engineer_verdict') == 'MEL':
+            mel_ws.append([r.get(c[1]) if r.get(c[1]) is not None else '' for c in mel_cols])
+
+    log_ws = wb.create_sheet('Журнал действий')
+    log_ws.append(['Заявка', 'Борт', 'Время', 'Этап', 'Исполнитель', 'Действие'])
+    for r in rows:
+        try:
+            history = json.loads(r.get('routing_history') or '[]')
+        except Exception:
+            history = []
+        for event in history:
+            if isinstance(event, dict):
+                log_ws.append([r.get('id',''), r.get('aircraft',''), event.get('timestamp') or event.get('at') or '',
+                               event.get('stage') or '', event.get('actor') or '', event.get('note') or event.get('action') or ''])
+
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = 'A2'
+        sheet.auto_filter.ref = sheet.dimensions
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='17365D')
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+        sheet.row_dimensions[1].height = 28
+        for col_idx in range(1, sheet.max_column + 1):
+            max_len = 12
+            for row_idx in range(1, min(sheet.max_row, 250) + 1):
+                val = sheet.cell(row=row_idx, column=col_idx).value
+                if val is not None:
+                    max_len = max(max_len, min(len(str(val)), 55))
+            sheet.column_dimensions[get_column_letter(col_idx)].width = max(12, min(max_len + 2, 45))
+        for row_cells in sheet.iter_rows(min_row=2):
+            for cell in row_cells:
+                cell.alignment = Alignment(vertical='top', wrap_text=True)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = 'InTrAvia_operational_report_' + datetime.utcnow().strftime('%Y%m%d_%H%M%S') + '.xlsx'
+    return Response(output.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename="' + filename + '"'})
+
+
+# ============================================================
 # Requests
 # ============================================================
 @app.route('/api/requests', methods=['GET'])
 def get_requests():
     conn = get_db()
+    sync_expired_mel(conn)
     cur = conn.cursor()
     source = request.args.get('source')
     pilot_name = request.args.get('pilot_name')
 
-    sql = """SELECT id, aircraft, flight_number, fault_type, severity, terminal, parking_id,
-        description, source, engineer_id, engineer_name,
-        travel_time, using_car, walk_to_car, car_time, best_car,
-        status, criticality, engineer_comment, created_at,
-        pilot_name, pilot_rank, pilot_audio_text, rejected_by,
-        cancel_reason, cancelled_by_name, cancelled_at,
-        replaces_request_id, delay_minutes, delay_reason, delay_started_at,
-        delay_approved_by, flight_cancelled, flight_cancel_reason,
-        flight_cancelled_at, all_rejected, mcc_status, mcc_decision, mcc_comment,
-        engineer_verdict, engineer_verdict_at, aog_action, inspection_assigned_at,
-        mcc_mel_ref, mcc_mel_category, mcc_due_date,
-        crs_signature, crs_signed_at, crs_signed_by,
-        routing_stage, routing_history
-        FROM requests WHERE status != 'draft'"""
+    sql = """SELECT r.id, r.aircraft, r.flight_number, r.fault_type, r.severity, r.terminal, r.parking_id,
+        r.description, r.source, r.engineer_id, r.engineer_name, e.task_step AS engineer_task_step,
+        ar.aircraft_type, ar.configuration AS aircraft_configuration,
+        r.travel_time, r.using_car, r.walk_to_car, r.car_time, r.best_car,
+        r.status, r.criticality, r.engineer_comment, r.created_at,
+        r.pilot_name, r.pilot_rank, r.pilot_audio_text, r.rejected_by,
+        r.cancel_reason, r.cancelled_by_name, r.cancelled_at,
+        r.replaces_request_id, r.delay_minutes, r.delay_reason, r.delay_started_at,
+        r.delay_approved_by, r.flight_cancelled, r.flight_cancel_reason,
+        r.flight_cancelled_at, r.all_rejected, r.mcc_status, r.mcc_decision, r.mcc_comment,
+        r.engineer_verdict, r.engineer_verdict_at, r.aog_action, r.inspection_assigned_at,
+        r.mcc_mel_choice, r.mcc_proc_o, r.mcc_proc_m, r.mcc_proc_o_text, r.mcc_proc_m_text,
+        r.mcc_mel_ref, r.mcc_mel_category, r.mcc_due_date, r.mcc_due_condition,
+        r.mcc_mel_revision, r.mcc_mel_description, r.mcc_mel_restrictions,
+        r.mel_catalog_id, r.mel_assessed_by, r.mel_assessment_comment, r.mel_rectification_interval,
+        r.mel_m_procedure_completed, r.mel_m_procedure_comment,
+        r.mel_initial_engineer_report, r.mel_initial_engineer_report_at, r.mel_initial_assessed_by,
+        r.mel_deadline_mode, r.mel_deadline_value, r.mel_deadline_start_rule,
+        r.cpu_mel_applicability_confirmed, r.cpu_mel_checked_by, r.cpu_mel_checked_at,
+        r.mcc_mel_reviewed_by, r.mcc_mel_reviewed_at, r.mcc_mel_review_comment,
+        r.crs_signature, r.crs_signed_at, r.crs_signed_by,
+        r.routing_stage, r.routing_history, r.flight_status, r.flight_status_reason,
+        r.engineer_condition, r.engineer_report_at, r.dispatcher_report_at, r.cpu_report_at, r.pilot_notice_at
+        FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+        LEFT JOIN aircraft_registry ar ON ar.registration=UPPER(r.aircraft)
+        WHERE r.status != 'draft'"""
     params = []
     if source:
         sql += " AND source=?"
@@ -2366,7 +3719,7 @@ def get_requests():
     if pilot_name:
         sql += " AND pilot_name=?"
         params.append(pilot_name)
-    sql += " ORDER BY created_at DESC"
+    sql += " ORDER BY r.created_at DESC"
 
     cur.execute(sql, params)
     res = [dict(r) for r in cur.fetchall()]
@@ -2389,28 +3742,54 @@ def update_request(rid):
         conn.close()
         return jsonify({'error': 'Не найдена'}), 404
 
+    cur.execute("SELECT routing_stage FROM requests WHERE id=?", (rid,))
+    current = cur.fetchone()
+    if data.get('status') == 'completed' and current and current['routing_stage'] in ('technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize'):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Нельзя закрыть техническую задачу вручную. Инженер отправляет отчёт, затем он проходит диспетчера, ЦПУ и MCC.'}), 409
+
+    def _optional_float(key):
+        if key not in data or data.get(key) is None or data.get(key) == '':
+            return None
+        try:
+            value = float(data.get(key))
+            return value if value >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    travel_time = _optional_float('travel_time')
+    walk_to_car = _optional_float('walk_to_car')
+    car_time = _optional_float('car_time')
+    using_car = None
+    if 'using_car' in data:
+        using_car = 1 if bool(data.get('using_car')) else 0
+
     cur.execute("""UPDATE requests
         SET status=COALESCE(?,status), criticality=COALESCE(?,criticality),
             engineer_comment=COALESCE(?,engineer_comment),
             aircraft=COALESCE(?,aircraft), fault_type=COALESCE(?,fault_type),
             terminal=COALESCE(?,terminal), parking_id=COALESCE(?,parking_id),
-            severity=COALESCE(?,severity), flight_number=COALESCE(?,flight_number)
+            severity=COALESCE(?,severity), flight_number=COALESCE(?,flight_number),
+            travel_time=COALESCE(?,travel_time), using_car=COALESCE(?,using_car),
+            walk_to_car=COALESCE(?,walk_to_car), car_time=COALESCE(?,car_time),
+            best_car=CASE WHEN ?=1 THEN ? ELSE best_car END
         WHERE id=?""",
                 (data.get('status'), data.get('criticality'),
                  data.get('engineer_comment'), data.get('aircraft'),
                  data.get('fault_type'), data.get('terminal'),
                  data.get('parking_id'), data.get('severity'),
-                 data.get('flight_number'), rid))
+                 data.get('flight_number'), travel_time, using_car,
+                 walk_to_car, car_time, 1 if 'best_car' in data else 0,
+                 data.get('best_car') or None, rid))
 
     new_status = data.get('status')
     if new_status == 'completed':
-        cur.execute("UPDATE requests SET routing_stage='mcc_finalize' WHERE id=? AND routing_stage='technician'", (rid,))
         cur.execute("SELECT engineer_id FROM requests WHERE id=?", (rid,))
         r = cur.fetchone()
         if r and r['engineer_id']:
             other = engineer_has_active_requests(conn, r['engineer_id'], rid)
             if other == 0:
-                cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?",
                             (r['engineer_id'],))
         cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
     elif new_status == 'cancelled':
@@ -2420,7 +3799,7 @@ def update_request(rid):
         if r and r['engineer_id']:
             other = engineer_has_active_requests(conn, r['engineer_id'], rid)
             if other == 0:
-                cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?",
+                cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?",
                             (r['engineer_id'],))
         cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
@@ -2537,29 +3916,20 @@ def dispatch():
                     (rid, aircraft, flight_number, fault, severity, parking_id, description,
                      source, severity,
                      eng['id'], eng['name'],
-                     route['travel_time'],
-                     1 if route['using_car'] else 0,
-                     route['walk_to_car'],
-                     route['best_car_time'],
-                     route['best_car']['device_id'] if route['best_car'] else None,
-                     pilot_name, pilot_rank))
-
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to=? WHERE id=?",
-                        (rid, route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+                     0, 0, 0, 0, None, pilot_name, pilot_rank))
+        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + aircraft, eng['id']))
         conn.commit()
         conn.close()
-
-        _recalc_route_for_request_id(rid)
-
-        conn2 = get_db()
-        cur2 = conn2.cursor()
-        cur2.execute("SELECT travel_time FROM requests WHERE id=?", (rid,))
-        t = cur2.fetchone()
-        final_time = t['travel_time'] if t else route['travel_time']
-        conn2.close()
+        # Маршрут-превью должен появиться сразу после назначения инженера.
+        # Не ждём ни подтверждения диспетчера, ни ответа самого инженера.
+        _recalc_route_for_request_id(rid, force=True)
+        route_conn = get_db()
+        route_cur = route_conn.cursor()
+        route_cur.execute("SELECT travel_time, using_car, walk_to_car, car_time, best_car FROM requests WHERE id=?", (rid,))
+        saved_route = route_cur.fetchone()
+        route_conn.close()
+        final_time = float(saved_route['travel_time'] or 0) if saved_route else 0
 
         return jsonify({
             'success': True, 'request_id': rid,
@@ -2680,7 +4050,7 @@ def cancel_request(rid):
             who_name = e['name']
     old_eng = row['engineer_id']
     if old_eng:
-        cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (old_eng,))
+        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?", (old_eng,))
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
     rej_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
@@ -2714,18 +4084,14 @@ def cancel_request(rid):
             VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,?,?,0,'APPROVED','technician')""",
                     (new_rid, aircraft, fault, row['severity'], row['terminal'], parking,
                      row['description'], new_eng['id'], new_eng['name'],
-                     route['travel_time'], 1 if route['using_car'] else 0,
-                     route['walk_to_car'], route['best_car_time'],
-                     route['best_car']['device_id'] if route['best_car'] else None,
-                     row['severity'], rej_str, rid))
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to=? WHERE id=?",
-                        (new_rid, route['best_car']['id']))
-        cur.execute("UPDATE engineers SET status='busy', task=? WHERE id=?",
+                     0, 0, 0, 0, None, row['severity'], rej_str, rid))
+        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + aircraft, new_eng['id']))
         conn.commit()
         conn.close()
-        _recalc_route_for_request_id(new_rid)
+        # При переназначении после отказа/отмены новый маршрут также
+        # сохраняется немедленно, пока новый инженер ещё не ответил.
+        _recalc_route_for_request_id(new_rid, force=True)
         return jsonify({
             'success': True, 'request_id': rid,
             'cancelled_by_name': who_name, 'reason': reason,
@@ -2740,12 +4106,9 @@ def cancel_request(rid):
                     'coords_lat': new_eng['coords_lat'],
                     'coords_lng': new_eng['coords_lng']
                 },
-                'travel_time': route['travel_time'],
-                'using_car': route['using_car'],
-                'walk_to_car': route['walk_to_car'],
-                'car_time': route['best_car_time'],
-                'best_car': route['best_car']['device_id'] if route['using_car'] else None,
-                'path': route.get('path_coords')
+                'travel_time': 0,
+                'using_car': False,
+                'awaiting_acceptance': True
             }
         })
 
@@ -2772,7 +4135,7 @@ def reject_request(rid):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT id,aircraft,fault_type,severity,terminal,parking_id,
-        description,engineer_id,rejected_by,status FROM requests WHERE id=?""", (rid,))
+        description,engineer_id,rejected_by,status,routing_stage FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
@@ -2780,8 +4143,23 @@ def reject_request(rid):
     if row['status'] == 'completed':
         conn.close()
         return jsonify({'success': False, 'error': 'Уже выполнена'}), 400
+    if row['status'] != 'assigned' or row['routing_stage'] != 'technician':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Отклонить можно только новое назначение до принятия'}), 409
+    if not reason:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Укажите причину отказа'}), 400
     if not rejected_by:
         rejected_by = str(row['engineer_id'] or '')
+    if row['engineer_id'] and rejected_by != str(row['engineer_id']):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Назначение принадлежит другому инженеру'}), 403
+    if row['engineer_id']:
+        cur.execute("SELECT task_step FROM engineers WHERE id=?", (row['engineer_id'],))
+        current_engineer = cur.fetchone()
+        if current_engineer and current_engineer['task_step'] not in ('pending', 'idle', '', None):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Назначение уже принято; отклонить его нельзя'}), 409
 
     fault = row['fault_type'] or 'engine_failure'
     parking = str(row['parking_id'] or '')
@@ -2806,21 +4184,15 @@ def reject_request(rid):
                                            exclude_ids=rej_prev | busy)
     if new_eng:
         cur.execute("""UPDATE requests SET engineer_id=?, engineer_name=?,
-            travel_time=?, using_car=?, walk_to_car=?, car_time=?, best_car=?,
-            status='assigned', routing_stage='technician',
-            rejected_by=?, all_rejected=0 WHERE id=?""",
-                    (new_eng['id'], new_eng['name'], route['travel_time'],
-                     1 if route['using_car'] else 0, route['walk_to_car'],
-                     route['best_car_time'],
-                     route['best_car']['device_id'] if route['best_car'] else None,
-                     rej_str, rid))
-        if route['using_car'] and route['best_car']:
-            cur.execute("UPDATE transport SET assigned_to=? WHERE id=?",
-                        (rid, route['best_car']['id']))
+            travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
+            engineer_comment='', status='assigned', routing_stage='technician',
+            inspection_assigned_at=NULL, rejected_by=?, all_rejected=0 WHERE id=?""",
+                    (new_eng['id'], new_eng['name'], rej_str, rid))
         set_engineer_busy(conn, new_eng['id'], 'ВС ' + aircraft)
         conn.commit()
         conn.close()
-        _recalc_route_for_request_id(rid)
+        # После отказа назначаем следующего инженера и сразу строим его маршрут.
+        _recalc_route_for_request_id(rid, force=True)
         _recalc_all_active_routes()
         return jsonify({
             'success': True, 'reassigned': True,
@@ -2834,9 +4206,9 @@ def reject_request(rid):
                     'coords_lat': new_eng['coords_lat'],
                     'coords_lng': new_eng['coords_lng']
                 },
-                'travel_time': route['travel_time'],
-                'using_car': route['using_car'],
-                'path': route.get('path_coords')
+                'travel_time': 0,
+                'using_car': False,
+                'awaiting_acceptance': True
             }
         })
 
@@ -2920,7 +4292,7 @@ def cancel_flight(rid):
     if eng:
         other = engineer_has_active_requests(conn, eng, rid)
         if other == 0:
-            cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (eng,))
+            cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?", (eng,))
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
     cur.execute("DELETE FROM requests WHERE id=?", (rid,))
     conn.commit()
@@ -2945,7 +4317,7 @@ def complete_engineer(eng_id):
         return jsonify({'success': False, 'reason': 'has_active_requests'})
     cur.execute("""UPDATE transport SET assigned_to=NULL
         WHERE assigned_to IN (SELECT id FROM requests WHERE engineer_id=?)""", (eng_id,))
-    cur.execute("UPDATE engineers SET status='free', task=NULL WHERE id=?", (eng_id,))
+    cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?", (eng_id,))
     conn.commit()
     conn.close()
     try_reassign_queued()
@@ -2959,7 +4331,7 @@ def clear_all_requests():
     try:
         cur.execute("DELETE FROM requests WHERE status != 'draft'")
         deleted = cur.rowcount
-        cur.execute("UPDATE engineers SET status='free', task=NULL")
+        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL")
         cur.execute("UPDATE transport SET assigned_to=NULL")
         conn.commit()
         return jsonify({'success': True, 'deleted': deleted})

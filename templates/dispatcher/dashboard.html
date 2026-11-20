@@ -1018,6 +1018,7 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     </div>
@@ -1474,7 +1475,7 @@ var state = {
     cancelledRequests: [], delays: [], flights: [],
     recognizingPilotId: null,
     loadInterval: null, coordsInterval: null, map: null,
-    routeData: {}, transportLoaded: false, isUpdating: false,
+    routeData: {}, routeFetchPending: {}, transportLoaded: false, isUpdating: false,
     dataLoaded: false, mapMarkers: {},
     roadsLayer: null, aircraftLayer: null, parkingLayer: null,
     currentTab: 'dispatch',
@@ -1486,6 +1487,7 @@ var DELETED_REPORTS_KEY = 'dispatcherDeletedReports_v1';
 var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
 
 var pilotTableSignature = '';
+var workflowQueueInterval = null;
 var pilotAudioState = {};
 
 var transcriptionQueue = [];
@@ -1557,10 +1559,12 @@ function parseRouteFromComment(comment) {
         return {
             from: { lat: parsed.flat, lng: parsed.flng },
             to: { lat: parsed.tlat, lng: parsed.tlng },
-            totalTime: parsed.tt || 0,
-            usingCar: parsed.uc === true,
-            walkToCar: parsed.wc || 0,
-            bestCarTime: parsed.ct || 0,
+            totalTime: Number(parsed.tt) || 0,
+            usingCar: parsed.uc === true || parsed.uc === 1,
+            walkToCar: Number(parsed.wc) || 0,
+            bestCarTime: Number(parsed.ct) || 0,
+            walkToCarExact: parsed.wc_exact != null ? Number(parsed.wc_exact) : null,
+            bestCarTimeExact: parsed.ct_exact != null ? Number(parsed.ct_exact) : null,
             bestCarLat: parsed.bclat,
             bestCarLng: parsed.bclng,
             bestCar: parsed.bc ? { deviceId: parsed.bc, lat: parsed.bclat, lng: parsed.bclng } : null,
@@ -1722,10 +1726,12 @@ function saveStateToLocalStorage() {
             if (state.routeData.hasOwnProperty(key)) {
                 var r = state.routeData[key];
                 data.routeData[key] = {
-                    from: r.from, to: r.to, empId: r.empId,
+                    from: r.from, to: r.to, empId: r.empId, requestId: r.requestId,
+                    parkingId: r.parkingId || '',
                     totalTime: r.totalTime, walkTime: r.walkTime,
                     bestCar: r.bestCar ? { id: r.bestCar.id, deviceId: r.bestCar.deviceId, lat: r.bestCar.lat, lng: r.bestCar.lng, speed: r.bestCar.speed } : null,
                     bestCarTime: r.bestCarTime, walkToCar: r.walkToCar,
+                    bestCarTimeExact: r.bestCarTimeExact, walkToCarExact: r.walkToCarExact,
                     usingCar: r.usingCar, path: r.path || null
                 };
             }
@@ -1790,6 +1796,8 @@ function persistRouteToServer(requestId, routeData, opts) {
         uc: routeData.usingCar,
         wc: routeData.walkToCar,
         ct: routeData.bestCarTime,
+        wc_exact: routeData.walkToCarExact != null ? routeData.walkToCarExact : routeData.walkToCar,
+        ct_exact: routeData.bestCarTimeExact != null ? routeData.bestCarTimeExact : routeData.bestCarTime,
         bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
         bclat: routeData.bestCar ? routeData.bestCar.lat : null,
         bclng: routeData.bestCar ? routeData.bestCar.lng : null,
@@ -1812,7 +1820,12 @@ function persistRouteToServer(requestId, routeData, opts) {
         : '';
 
     var payload = {
-        engineer_comment: 'ROUTE:' + routeJSON + (reportPart ? '\n' + reportPart : '')
+        engineer_comment: 'ROUTE:' + routeJSON + (reportPart ? '\n' + reportPart : ''),
+        travel_time: Number(routeData.totalTime) || 0,
+        using_car: routeData.usingCar ? 1 : 0,
+        walk_to_car: Number(routeData.walkToCar) || 0,
+        car_time: Number(routeData.bestCarTime) || 0,
+        best_car: routeData.bestCar ? routeData.bestCar.deviceId : null
     };
     if (opts.status) payload.status = opts.status;
     if (opts.criticality) payload.criticality = opts.criticality;
@@ -1834,47 +1847,40 @@ function loadStateFromLocalStorage() {
             for (var key in data.routeData) {
                 if (data.routeData.hasOwnProperty(key)) {
                     var r = data.routeData[key];
+                    // Server ROUTE payload is authoritative. Do not replace it
+                    // with an older local cache that may have no requestId/ETA.
+                    if (state.routeData[key] && state.routeData[key].requestId) continue;
                     var bestCar = null;
                     if (r.bestCar) {
-                        for (var i = 0; i < state.transport.length; i++) if (state.transport[i].id === r.bestCar.id) { bestCar = state.transport[i]; break; }
+                        for (var i = 0; i < state.transport.length; i++) {
+                            if ((r.bestCar.id != null && state.transport[i].id === r.bestCar.id) ||
+                                (r.bestCar.deviceId && state.transport[i].deviceId === r.bestCar.deviceId)) {
+                                bestCar = state.transport[i]; break;
+                            }
+                        }
+                        if (!bestCar) bestCar = r.bestCar;
+                    }
+                    var matchingActive = null;
+                    for (var ia = 0; ia < state.activeRequests.length; ia++) {
+                        if (state.activeRequests[ia].engineerId === r.empId) { matchingActive = state.activeRequests[ia]; break; }
                     }
                     state.routeData[key] = {
                         from: r.from, to: r.to, empId: r.empId,
-                        totalTime: r.totalTime, walkTime: r.walkTime,
+                        requestId: r.requestId || (matchingActive ? matchingActive.id : null),
+                        parkingId: r.parkingId || (matchingActive ? matchingActive.parking : ''),
+                        totalTime: Number(r.totalTime) || (matchingActive ? Number(matchingActive.time) : 0) || 0,
+                        walkTime: r.walkTime,
                         bestCar: bestCar, bestCarTime: r.bestCarTime,
-                        walkToCar: r.walkToCar, usingCar: r.usingCar,
-                        path: r.path || null
+                        walkToCar: r.walkToCar,
+                        bestCarTimeExact: r.bestCarTimeExact, walkToCarExact: r.walkToCarExact,
+                        usingCar: r.usingCar, path: r.path || null
                     };
                 }
             }
         }
-        if (data.employees) {
-            for (var i2 = 0; i2 < state.employees.length; i2++) {
-                for (var j2 = 0; j2 < data.employees.length; j2++) {
-                    if (state.employees[i2].realId === data.employees[j2].realId) {
-                        state.employees[i2].lat = data.employees[j2].lat;
-                        state.employees[i2].lng = data.employees[j2].lng;
-                        state.employees[i2].busy = data.employees[j2].busy;
-                        state.employees[i2].status = data.employees[j2].status;
-                        state.employees[i2].task = data.employees[j2].task;
-                        break;
-                    }
-                }
-            }
-        }
-        if (data.transport) {
-            for (var i3 = 0; i3 < state.transport.length; i3++) {
-                for (var j3 = 0; j3 < data.transport.length; j3++) {
-                    if (state.transport[i3].id === data.transport[j3].id) {
-                        state.transport[i3].lat = data.transport[j3].lat;
-                        state.transport[i3].lng = data.transport[j3].lng;
-                        state.transport[i3].speed = data.transport[j3].speed;
-                        state.transport[i3].assignedTo = data.transport[j3].assignedTo || null;
-                        break;
-                    }
-                }
-            }
-        }
+        // Coordinates/status of engineers and vehicles are loaded from SQLite API.
+        // Do not restore old localStorage coordinates here: that caused moved markers
+        // to jump back to stale positions on refresh.
         return true;
     } catch(e) { return false; }
 }
@@ -1928,6 +1934,9 @@ function init() {
     initMap();
     updateParkingList();
     loadDataOnce();
+    relayDispatcherReportsToCpu();
+    if (workflowQueueInterval) clearInterval(workflowQueueInterval);
+    workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
 
     if (state.loadInterval) clearInterval(state.loadInterval);
     state.loadInterval = setInterval(function() {
@@ -2016,7 +2025,7 @@ function processRequestsData(data) {
         // в «Активных заявках» диспетчера.
         var isPilotSource = (t.source === 'pilot' || t.pilot_audio);
         var stage = t.routing_stage || 'mcc';
-        var isRoutedFurther = (stage === 'technician' || stage === 'dispatcher' || stage === 'done');
+        var isRoutedFurther = ['technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage) !== -1;
 
         if (isPilotSource && !isRoutedFurther) {
             pilotReqs.push({
@@ -2064,6 +2073,9 @@ function processRequestsData(data) {
             continue;
         }
 
+        // Этапы маршрутизации обрабатываются в отдельных очередях ниже,
+        // чтобы не смешивать заявки у диспетчера и возвратные отчёты с активным выездом.
+        if (['dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage) !== -1) continue;
         if (t.status === 'completed') continue;
 
         var fd = CONFIG.FAULT_TYPES[t.fault_type];
@@ -2079,17 +2091,24 @@ function processRequestsData(data) {
             comment: t.engineer_comment || '',
             isReplacement: !!t.replaces_request_id,
             replacesId: t.replaces_request_id || null,
+            assignedAt: t.inspection_assigned_at || null,
+            engineerTaskStep: t.engineer_task_step || 'idle',
             createdAt: t.created_at || null
         });
     }
 
     // ── Сразу восстанавливаем маршруты диспетчера из ROUTE: ──
-    // Как только заявка пришла, у неё уже есть engineer_comment с ROUTE:
-    // (бэкенд пишет его при назначении). Рисуем сразу, без ожидания
+    // После назначения у заявки уже есть engineer_comment с ROUTE:
+    // (бэкенд пишет маршрут-превью сразу). Рисуем сразу, без ожидания
     // refreshCoordsOnly / updateRouteForEngineer.
     for (var ir = 0; ir < state.activeRequests.length; ir++) {
         var ar = state.activeRequests[ir];
-        if (!ar.engineerId || !ar.parking || ar.parking === '—') continue;
+        if (!ar.engineerId) continue;
+        if (['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(ar.engineerTaskStep) === -1) {
+            clearRouteForEngineer(ar.engineerId);
+            continue;
+        }
+        if (!ar.parking || ar.parking === '—') continue;
         if (ar.status === 'queued') continue;
         var ticket = null;
         for (var it = 0; it < data.length; it++) {
@@ -2099,16 +2118,20 @@ function processRequestsData(data) {
         var parsedRoute = parseRouteFromComment(ticket.engineer_comment || '');
         if (!parsedRoute) continue;
         var routeKey = 'route_' + ar.engineerId;
-        // не перезаписываем, если уже есть актуальный маршрут с тем же requestId
-        if (state.routeData[routeKey] && state.routeData[routeKey].requestId === ar.id) continue;
+        // Не перезаписываем только полностью совпадающий маршрут. ETA из БД
+        // должен обновить карточку и карту даже при том же requestId.
+        if (state.routeData[routeKey] &&
+            state.routeData[routeKey].requestId === ar.id &&
+            Number(state.routeData[routeKey].totalTime) === Number(parsedRoute.totalTime) &&
+            JSON.stringify(state.routeData[routeKey].path || null) === JSON.stringify(parsedRoute.path || null)) continue;
         state.routeData[routeKey] = {
             from: parsedRoute.from,
             to: parsedRoute.to,
             empId: ar.engineerId,
             requestId: ar.id,
             parkingId: parsedRoute.parkingId || ar.parking,
-            totalTime: parsedRoute.time,
-            walkTime: parsedRoute.time,
+            totalTime: Number(parsedRoute.totalTime) || Number(ar.time) || 0,
+            walkTime: Number(parsedRoute.totalTime) || Number(ar.time) || 0,
             bestCar: parsedRoute.bestCar,
             bestCarTime: parsedRoute.bestCarTime,
             walkToCar: parsedRoute.walkToCar,
@@ -2117,6 +2140,7 @@ function processRequestsData(data) {
             usingCar: parsedRoute.usingCar,
             path: parsedRoute.path
         };
+        ar.time = Number(parsedRoute.totalTime) || Number(ar.time) || 0;
     }
 
     for (var i2 = 0; i2 < data.length; i2++) {
@@ -2151,7 +2175,7 @@ function processRequestsData(data) {
         // Прошедшие (technician/dispatcher/done) — показываем как обычные рейсы.
         var isPilotSource3 = (t3.source === 'pilot' || t3.pilot_audio);
         var stage3 = t3.routing_stage || 'mcc';
-        var isRoutedFurther3 = (stage3 === 'technician' || stage3 === 'dispatcher' || stage3 === 'done');
+        var isRoutedFurther3 = ['technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage3) !== -1;
         if (isPilotSource3 && !isRoutedFurther3) continue;
         if (t3.flight_cancelled) continue;
         var fd3 = CONFIG.FAULT_TYPES[t3.fault_type];
@@ -2214,7 +2238,8 @@ function syncRoutesWithActiveRequests() {
     var activeByEngineer = {};
     for (var i = 0; i < state.activeRequests.length; i++) {
         var a = state.activeRequests[i];
-        if (a.engineerId && a.parking && a.parking !== '—') {
+        if (a.engineerId && a.parking && a.parking !== '—' &&
+            ['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(a.engineerTaskStep) !== -1) {
             activeByEngineer[a.engineerId] = a;
         }
     }
@@ -2543,6 +2568,11 @@ function initMap() {
             // Кэшируем список стоянок для выпадающего списка
             _allParkingsCache = list;
             updateParkingList();
+            // Parking coordinates may arrive after the requests/engineers API.
+            // Retry active accepted engineers now that MAP_POINTS is complete.
+            for (var ri = 0; ri < state.employees.length; ri++) {
+                if (!state.employees[ri].isFree()) updateRouteForEngineer(state.employees[ri].realId);
+            }
             console.log('[MAP] Стоянок отрисовано:', list.length);
         })
         .catch(function(err) { console.error('[MAP] parking load', err); });
@@ -2596,20 +2626,21 @@ function renderMapMarkers() {
             className: 'employee-marker status-' + statusClass,
             html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18]
         });
-        var marker = L.marker([lat, lng], {icon: icon, draggable: true, autoPan: true})
-        .on('dragstart', function() { state.isDragging = true; })
-        .on('dragend', function(e) {
-            state.isDragging = false;
-            var pos = e.target.getLatLng();
-             emp.lat = pos.lat; emp.lng = pos.lng;
-            persistEngineerCoords(emp);
-            // Диспетчер переместил инженера вручную → пересчитываем маршрут
-            if (!emp.isFree()) updateRouteForEngineer(emp.realId, true);
-            saveStateToLocalStorage();
-            showToast(emp.name + ' перемещён', 'success');
-        })
-        .addTo(map).bindPopup(createEmployeePopup(emp));
-        state.mapMarkers['emp_' + emp.realId] = marker;
+        (function(employee) {
+            var marker = L.marker([lat, lng], {icon: icon, draggable: true, autoPan: true})
+            .on('dragstart', function() { state.isDragging = true; })
+            .on('dragend', function(e) {
+                state.isDragging = false;
+                var pos = e.target.getLatLng();
+                employee.lat = pos.lat; employee.lng = pos.lng;
+                persistEngineerCoords(employee);
+                if (!employee.isFree()) updateRouteForEngineer(employee.realId, true);
+                saveStateToLocalStorage();
+                showToast(employee.name + ' перемещён и сохранён', 'success');
+            })
+            .addTo(map).bindPopup(createEmployeePopup(employee));
+            state.mapMarkers['emp_' + employee.realId] = marker;
+        })(emp);
     }
 
     for (var iC = 0; iC < state.transport.length; iC++) {
@@ -2635,21 +2666,23 @@ function renderMapMarkers() {
         var iconHtmlC = '<span class="car-icon"><i class="fas fa-car"></i></span><span class="car-id">' + car.deviceId +
                         '</span><span class="car-speed">' + car.speed + ' км/ч</span>';
         var iconC = L.divIcon({ className: 'car-marker', html: iconHtmlC, iconSize: [44, 44], iconAnchor: [22, 22] });
-        var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true})
-        .on('dragstart', function() { state.isDragging = true; })
-        .on('dragend', function(e) {
-            state.isDragging = false;
-            var pos = e.target.getLatLng();
-            car.lat = pos.lat; car.lng = pos.lng;
-            persistTransportCoords(car);
-            for (var k = 0; k < state.employees.length; k++) {
-                if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
-            }
-            saveStateToLocalStorage();
-            showToast(car.deviceId + ' перемещён', 'success');
-        })
-        .addTo(map).bindPopup(createCarPopup(car));
-        state.mapMarkers['car_' + car.id] = markerC;
+        (function(vehicle) {
+            var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true})
+            .on('dragstart', function() { state.isDragging = true; })
+            .on('dragend', function(e) {
+                state.isDragging = false;
+                var pos = e.target.getLatLng();
+                vehicle.lat = pos.lat; vehicle.lng = pos.lng;
+                persistTransportCoords(vehicle);
+                for (var k = 0; k < state.employees.length; k++) {
+                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId, true);
+                }
+                saveStateToLocalStorage();
+                showToast(vehicle.deviceId + ' перемещён и сохранён', 'success');
+            })
+            .addTo(map).bindPopup(createCarPopup(vehicle));
+            state.mapMarkers['car_' + vehicle.id] = markerC;
+        })(car);
     }
 
     for (var routeKey in state.routeData) {
@@ -2745,50 +2778,100 @@ function fetchExactPath(routeData) {
 
 function updateRouteForEngineer(engineerId, force) {
     var emp = null;
-    for (var i = 0; i < state.employees.length; i++) if (state.employees[i].realId === engineerId) { emp = state.employees[i]; break; }
+    for (var i = 0; i < state.employees.length; i++) if (String(state.employees[i].realId) === String(engineerId)) { emp = state.employees[i]; break; }
     if (!emp) return;
 
     var activeRequest = null;
     for (var i2 = 0; i2 < state.activeRequests.length; i2++) {
-        if (state.activeRequests[i2].engineerId === engineerId) { activeRequest = state.activeRequests[i2]; break; }
+        if (String(state.activeRequests[i2].engineerId) === String(engineerId)) { activeRequest = state.activeRequests[i2]; break; }
     }
 
     var routeKey = 'route_' + engineerId;
     if (!activeRequest) { clearRouteForEngineer(engineerId); return; }
+    if (['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(activeRequest.engineerTaskStep) === -1) {
+        clearRouteForEngineer(engineerId);
+        return;
+    }
 
     // Если маршрут уже зафиксирован и НЕ пришло указание пересчитать (force)
     // — берём ROUTE: из engineer_comment и только рисуем.
     if (!force) {
         var ticket = null;
         for (var it = 0; it < state.tickets.length; it++) {
-            if (state.tickets[it].id === activeRequest.id) { ticket = state.tickets[it]; break; }
+            if (String(state.tickets[it].id) === String(activeRequest.id)) { ticket = state.tickets[it]; break; }
         }
         if (ticket) {
             var serverRoute = parseRouteFromComment(ticket.engineer_comment || '');
-            if (serverRoute && serverRoute.path && serverRoute.path.length > 1) {
+            if (serverRoute && serverRoute.from && serverRoute.to && serverRoute.totalTime >= 0) {
                 if (!state.routeData[routeKey] ||
-                    state.routeData[routeKey].requestId !== activeRequest.id) {
+                    state.routeData[routeKey].requestId !== activeRequest.id ||
+                    Number(state.routeData[routeKey].totalTime) !== Number(serverRoute.totalTime)) {
                     state.routeData[routeKey] = {
                         from: serverRoute.from,
                         to: serverRoute.to,
                         empId: engineerId,
                         requestId: activeRequest.id,
                         parkingId: serverRoute.parkingId || activeRequest.parking,
-                        totalTime: serverRoute.time,
-                        walkTime: serverRoute.time,
+                        totalTime: Number(serverRoute.totalTime) || Number(activeRequest.time) || 0,
+                        walkTime: Number(serverRoute.totalTime) || Number(activeRequest.time) || 0,
                         bestCar: serverRoute.bestCar,
                         bestCarTime: serverRoute.bestCarTime,
                         walkToCar: serverRoute.walkToCar,
                         bestCarTimeExact: serverRoute.bestCarTimeExact,
                         walkToCarExact: serverRoute.walkToCarExact,
                         usingCar: serverRoute.usingCar,
-                        path: serverRoute.path
+                        path: serverRoute.path || null
                     };
-                    drawRoute(state.routeData[routeKey]);
+                    activeRequest.time = Number(serverRoute.totalTime) || Number(activeRequest.time) || 0;
+                    saveStateToLocalStorage();
                 }
+                // routeData may already be cached while its Leaflet layer was recreated.
+                // Draw unconditionally so the dispatcher always sees the route.
+                drawRoute(state.routeData[routeKey]);
                 return;
             }
         }
+    }
+
+    // Если ROUTE: ещё не попал в общий polling-ответ, запрашиваем маршрут
+    // напрямую у backend. Это закрывает гонку между принятием задания и
+    // обновлением диспетчерской карты. Повторный запрос не запускается,
+    // пока предыдущий не завершён.
+    if (!state.routeFetchPending[activeRequest.id]) {
+        state.routeFetchPending[activeRequest.id] = true;
+        fetch(API_URL + '/dispatcher/requests/' + encodeURIComponent(activeRequest.id) + '/route')
+            .then(function(res) { return res.json().then(function(data) { return {ok: res.ok, data: data}; }); })
+            .then(function(result) {
+                var payload = result.data || {};
+                if (!result.ok || !payload.success || !payload.route) return;
+                var r = payload.route;
+                var serverData = {
+                    from: {lat: Number(r.flat), lng: Number(r.flng)},
+                    to: {lat: Number(r.tlat), lng: Number(r.tlng)},
+                    empId: engineerId,
+                    requestId: activeRequest.id,
+                    parkingId: r.pid || activeRequest.parking,
+                    totalTime: Number(r.tt) || 0,
+                    walkTime: Number(r.tt) || 0,
+                    bestCar: r.bc ? {deviceId: r.bc, lat: r.bclat, lng: r.bclng} : null,
+                    bestCarTime: Number(r.ct) || 0,
+                    walkToCar: Number(r.wc) || 0,
+                    bestCarTimeExact: r.ct_exact != null ? Number(r.ct_exact) : null,
+                    walkToCarExact: r.wc_exact != null ? Number(r.wc_exact) : null,
+                    usingCar: r.uc === true || r.uc === 1,
+                    path: Array.isArray(r.path) ? r.path : null
+                };
+                if (isFinite(serverData.from.lat) && isFinite(serverData.from.lng) &&
+                    isFinite(serverData.to.lat) && isFinite(serverData.to.lng)) {
+                    state.routeData[routeKey] = serverData;
+                    drawRoute(serverData);
+                    saveStateToLocalStorage();
+                    activeRequest.time = serverData.totalTime;
+                    updateActiveRequests();
+                }
+            })
+            .catch(function(err) { console.warn('[ROUTE] Не удалось получить маршрут с сервера:', err); })
+            .then(function() { delete state.routeFetchPending[activeRequest.id]; });
     }
 
     // Пересчитываем (force=true или маршрута ещё нет)
@@ -3030,21 +3113,15 @@ function _fillParkingSelect(list) {
     }
 }
 
-function showNotification(engineer, route, flightNumber) {
+function showNotification(engineer, flightNumber) {
     var container = document.getElementById('notificationContainer');
-    var routeInfo = '';
-    if (route && route.usingCar && route.bestCar) {
-        routeInfo = route.walkToCar + ' мин пешком до ' + route.bestCar.deviceId + ' + ' + route.bestCarTime + ' мин на машине';
-    } else {
-        routeInfo = 'Пешком: ' + (route ? route.totalTime : 0) + ' мин';
-    }
     container.innerHTML = '<div class="notification">' +
         '<div class="notif-icon"><i class="fas fa-circle-check"></i></div>' +
         '<div class="notif-content">' +
         '<div class="notif-title">Инженер назначен</div>' +
-        '<div class="notif-text">' + engineer.name + ' → рейс ' + flightNumber + ' • ' + routeInfo + '</div>' +
+        '<div class="notif-text">' + engineer.name + ' → рейс ' + flightNumber + ' • ожидает принятия инженером</div>' +
         '</div>' +
-        '<div class="notif-time">' + (route ? route.totalTime : 0) + ' мин</div>' +
+        '<div class="notif-time">Ожидание</div>' +
         '</div>';
     setTimeout(function() { container.innerHTML = ''; }, 8000);
 }
@@ -3087,60 +3164,18 @@ function createRequest(e) {
 
         var engineer = result.selected.engineer;
         var engineerId = engineer.id;
-        var requestId = result.request_id || result.requestId || result.id || null;
-
         for (var i = 0; i < state.employees.length; i++) {
             if (state.employees[i].realId === engineerId) {
                 state.employees[i].busy = true;
                 state.employees[i].status = 'busy';
                 state.employees[i].task = 'ВС ' + flightNumber;
+                state.employees[i].taskStep = 'pending';
                 break;
             }
         }
-        var routeData = {
-            from: { lat: engineer.coords_lat || 55.975, lng: engineer.coords_lng || 37.410 },
-            to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
-            empId: engineerId,
-            requestId: requestId,
-            parkingId: parking,
-            totalTime: result.selected.travel_time || 0,
-            walkTime: result.selected.walk_time || 0,
-            bestCar: result.selected.best_car_obj || null,
-            bestCarTime: result.selected.car_time || 0,
-            walkToCar: result.selected.walk_to_car || 0,
-            usingCar: result.selected.using_car || false,
-            path: result.selected.path || null
-        };
-
-        state.routeData['route_' + engineerId] = routeData;
-        drawRoute(routeData);
-        showNotification(engineer, routeData, flightNumber);
-
-        var criticality = severity === 'high' ? 'high' : (severity === 'low' ? 'low' : 'medium');
-
-        function saveAndSync() {
-            if (requestId) {
-                persistRouteToServer(requestId, routeData, {
-                    status: 'assigned',
-                    criticality: criticality
-                });
-            }
-            loadRequestsOnly();
-        }
-
-        if (routeData.path) {
-            saveAndSync();
-        } else {
-            fetchExactPath(routeData).then(function(path) {
-                if (path && path.length > 0) {
-                    routeData.path = path;
-                    state.routeData['route_' + engineerId] = routeData;
-                    drawRoute(routeData);
-                }
-                saveAndSync();
-            });
-        }
-
+        clearRouteForEngineer(engineerId);
+        showNotification(engineer, flightNumber);
+        loadRequestsOnly();
         setTimeout(function() { renderAll(); updateStats(); saveStateToLocalStorage(); }, 500);
         document.getElementById('flightNumber').value = '';
     })
@@ -3235,10 +3270,48 @@ function deleteDispatcherRequest(id) {
         });
 }
 window.deleteDispatcherRequest = deleteDispatcherRequest;
+var dispatcherReportRelayBusy = false;
+
+// Отчёт сначала фиксируется на этапе диспетчера, затем автоматически
+// подтверждается и передаётся в ЦПУ. Отдельная ручная очередь не нужна.
+function relayDispatcherReportsToCpu() {
+    if (dispatcherReportRelayBusy) return;
+    dispatcherReportRelayBusy = true;
+    fetch(API_URL + '/dispatcher/report_queue')
+        .then(function(r) { if (!r.ok) throw new Error('Не удалось получить отчёты'); return r.json(); })
+        .then(function(reports) {
+            reports = Array.isArray(reports) ? reports : [];
+            if (!reports.length) return false;
+            return reports.reduce(function(chain, report) {
+                return chain.then(function() {
+                    return fetch(API_URL + '/dispatcher/forward_report_to_cpu', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({
+                            request_id: report.id,
+                            comment: 'Отчёт инженера получен диспетчером и автоматически передан в ЦПУ.'
+                        })
+                    }).then(function(r) {
+                        return r.json().then(function(data) {
+                            if (!r.ok || !data.success) throw new Error(data.error || 'Передача отчёта не выполнена');
+                            return true;
+                        });
+                    });
+                });
+            }, Promise.resolve(false));
+        })
+        .then(function(forwarded) {
+            if (forwarded) loadRequestsOnly();
+        })
+        .catch(function(err) { console.warn('[Dispatcher report relay]', err); })
+        .finally(function() { dispatcherReportRelayBusy = false; });
+}
+
 function updateActiveRequests() {
     var list = document.getElementById('activeRequests');
     var badge = document.getElementById('activeBadge');
 
+    if (!list || !badge) return;
     if (state.activeRequests.length === 0) {
         list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Нет активных заявок</p></div>';
         badge.textContent = '0';
@@ -3251,51 +3324,20 @@ function updateActiveRequests() {
         var critIcon = req.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
                        req.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
                        '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
-        var statusText = req.status === 'assigned' ? 'Назначен' :
-                         req.status === 'arriving' ? 'В пути' :
-                         req.status === 'in_progress' ? 'В работе' :
-                         req.status === 'working' ? 'Диагностика' :
-                         req.status === 'queued' ? 'В очереди' : 'Назначен';
-        var statusClass = req.status === 'assigned' ? 'free' : 'busy';
-
-        var routeInfo = '';
         var routeKey = 'route_' + req.engineerId;
-        // Ищем инженера, чтобы взять task_started_at и task_step
+        var route = state.routeData[routeKey] || null;
         var empForReq = null;
         for (var ie0 = 0; ie0 < state.employees.length; ie0++) {
             if (state.employees[ie0].realId === req.engineerId) { empForReq = state.employees[ie0]; break; }
         }
-        if (state.routeData[routeKey]) {
-            var route = state.routeData[routeKey];
-            var totalMin = route.totalTime || 0;
-            var elapsedMin = 0;
-            if (empForReq && empForReq.taskStartedAt) {
-                elapsedMin = Math.max(0, (Date.now() - new Date(empForReq.taskStartedAt).getTime()) / 60000);
-            }
-            var remainMin = Math.max(0, totalMin - elapsedMin);
-            var stepNow = empForReq ? empForReq.taskStep : null;
-            if (stepNow === 'accepted' || stepNow === 'in_car') {
-                if (remainMin > 0) {
-                    routeInfo = 'осталось ' + Math.ceil(remainMin) + ' мин';
-                } else {
-                    routeInfo = 'прибывает';
-                }
-            } else if (stepNow === 'arrived') {
-                routeInfo = 'на месте';
-            } else if (stepNow === 'diagnosing') {
-                routeInfo = 'диагностика';
-            } else if (route.usingCar && route.bestCar) {
-                var wE = (route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar;
-                var cE = (route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime;
-                var sumE = round1(wE + cE);
-                routeInfo = round1(wE) + ' + ' + round1(cE) + ' = ' + sumE + ' мин';
-            } else {
-                routeInfo = totalMin + ' мин';
-            }
-        }
 
+        // В активной карточке показываем только факт назначения.
+        // Длительность маршрута отображается на карте рядом с линией маршрута.
+        var statusText = req.engineerId ? 'Назначен' : 'Автоподбор инженера';
+        var statusColor = req.engineerId ? 'var(--aero-blue)' : 'var(--aero-orange)';
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
         var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
+        var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : req.engineer);
 
         html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
             '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
@@ -3303,9 +3345,8 @@ function updateActiveRequests() {
             '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
-            '<div style="font-weight:600;font-size:13px;">' + req.engineer + '</div>' +
-            '<div class="req-status" style="color:' + (statusClass === 'free' ? 'var(--aero-green)' : 'var(--aero-orange)') + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
-            '<div style="font-size:10px;color:var(--aero-gray);margin-top:2px;">' + routeInfo + '</div>' +
+            '<div style="font-weight:600;font-size:13px;">' + assignedEngineerText + '</div>' +
+            '<div class="req-status" style="color:' + statusColor + ';">' + statusText + '</div>' +
             '</div>' +
             '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
             '</div></div>';
@@ -3380,7 +3421,6 @@ function openRequestModal(ticketId) {
         '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
         '<option value="arriving" ' + (ticket.status === 'arriving' ? 'selected' : '') + '>В пути</option>' +
         '<option value="in_progress" ' + (ticket.status === 'in_progress' ? 'selected' : '') + '>В работе</option>' +
-        '<option value="completed" ' + (ticket.status === 'completed' ? 'selected' : '') + '>Завершён</option>' +
         '</select></div>' +
         '<div class="form-group"><label>Критичность</label><select id="criticalitySelect">' +
         '<option value="low" ' + (ticket.criticality === 'low' ? 'selected' : '') + '>Низкая</option>' +
@@ -4296,6 +4336,7 @@ function clearAllCancelled() {
 function logout() {
     if (state.loadInterval) clearInterval(state.loadInterval);
     if (state.coordsInterval) clearInterval(state.coordsInterval);
+    if (workflowQueueInterval) clearInterval(workflowQueueInterval);
     saveStateToLocalStorage();
     sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
