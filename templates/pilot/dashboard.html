@@ -398,8 +398,8 @@
                             <th style="width:110px;">Дата / борт</th>
                             <th>Дефект</th>
                             <th style="width:90px;">MEL</th>
-                            <th style="width:200px;">Положение заявки</th>
-                            <th style="width:160px;">Подпись CRS</th>
+                            <th style="width:200px;">Статус</th>
+                            <th style="width:120px;">Подпись</th>
                             <th style="width:110px;"></th>
                         </tr>
                     </thead>
@@ -511,27 +511,27 @@ var STORAGE_KEY='pilotRecords_v4';
 var MIC_STORAGE_KEY='pilotSelectedMic';
 
 var ATLB_STATUSES = {
-    'open':      { label:'Передан в MCC · ПОЛЁТ ЗАПРЕЩЁН', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fef2f2', hint:'Не выполнять полёт до итогового решения MCC', pilotAction:false },
-    'no_go':     { label:'ПОЛЁТ ЗАПРЕЩЁН · DO NOT FLY', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Технический запрет действует. Ожидается решение / допуск MCC', pilotAction:false },
-    'assigned':  { label:'Инженер назначен · ПОЛЁТ ЗАПРЕЩЁН', icon:'fa-user-check', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер выполняет диагностику; вылет не разрешён', pilotAction:false },
-    'in_work':   { label:'AOG Recovery · ПОЛЁТ ЗАПРЕЩЁН', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Восстановление ВС; вылет не разрешён', pilotAction:false },
-    'aog':       { label:'AOG — ПОЛЁТ ЗАПРЕЩЁН · DO NOT FLY', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер установил AOG. Ограничение действует до отдельного решения и допуска MCC.', pilotAction:false },
-    'repaired':  { label:'Работы отмечены выполненными · ждёт допуска MCC', icon:'fa-check', color:'#b45309', bg:'#fef3c7', hint:'Само по себе завершение ремонта не означает допуск к полёту', pilotAction:false },
-    'mel_review': { label:'MEL проверяется · DO NOT FLY', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'ЦПУ / MCC проверяют применимость MEL и предусмотренные процедуры; до отдельной активации полёт запрещён', pilotAction:false },
-    'deferred':  { label:'MEL проверен · ожидает активации · DO NOT FLY', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'До отдельной активации MEL уполномоченным сотрудником MCC эксплуатация не разрешена', pilotAction:false },
+    'open':      { label:'Передан в MCC', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fef2f2', hint:'Ожидается итоговое решение MCC', pilotAction:false },
+    'no_go':     { label:'Технический запрет', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Ожидается решение / допуск MCC', pilotAction:false },
+    'assigned':  { label:'Инженер назначен', icon:'fa-user-check', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер выполняет диагностику', pilotAction:false },
+    'in_work':   { label:'AOG Recovery', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Восстановление ВС', pilotAction:false },
+    'aog':       { label:'AOG', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер установил AOG. Ожидается отдельное решение и допуск MCC.', pilotAction:false },
+    'repaired':  { label:'Ремонт выполнен', icon:'fa-check', color:'#b45309', bg:'#fef3c7', hint:'Само по себе завершение ремонта не означает допуск к полёту', pilotAction:false },
+    'mel_review': { label:'MEL проверяется', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'ЦПУ / MCC проверяют применимость MEL и предусмотренные процедуры', pilotAction:false },
+    'deferred':  { label:'MEL проверен · ожидает активации', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'До отдельной активации MEL уполномоченным сотрудником MCC эксплуатация не разрешена', pilotAction:false },
     'mel_active': { label:'MEL АКТИВЕН · УСЛОВНАЯ ЭКСПЛУАТАЦИЯ', icon:'fa-clipboard-check', color:'#166534', bg:'#dcfce7', hint:'Эксплуатация только в пределах условий и ограничений утверждённого MEL', pilotAction:false },
-    'mel_expired': { label:'MEL — СРОК ИСТЁК · DO NOT FLY', icon:'fa-triangle-exclamation', color:'#b91c1c', bg:'#fee2e2', hint:'Срок пункта MEL истёк. Полёт запрещён до устранения неисправности или допустимого оформления продления', pilotAction:false },
+    'mel_expired': { label:'MEL — срок истёк', icon:'fa-triangle-exclamation', color:'#b91c1c', bg:'#fee2e2', hint:'Срок пункта MEL истёк; требуется решение MCC', pilotAction:false },
     'released':  { label:'Допуск оформлен MCC', icon:'fa-check-double', color:'#15803d', bg:'#dcfce7', hint:'Система получила отдельное решение MCC о снятии ограничения', pilotAction:false },
     'mcc':'', 'cpu':'', 'dispatcher':'', 'technician':'', 'dispatcher_report':'', 'cpu_report':'', 'mcc_finalize':'', 'pilot_notice':''
 };
 ATLB_STATUSES.mcc = { label:'MCC', icon:'fa-headset', color:'#003366', bg:'#e8f0fe', hint:'Обработка в MCC', pilotAction:false };
 ATLB_STATUSES.cpu = { label:'ЦПУ', icon:'fa-tower-broadcast', color:'#003366', bg:'#e8f0fe', hint:'Передано в ЦПУ', pilotAction:false };
 ATLB_STATUSES.dispatcher = { label:'Диспетчер назначает инженера', icon:'fa-users', color:'#003366', bg:'#e8f0fe', hint:'Заявка у диспетчера', pilotAction:false };
-ATLB_STATUSES.technician = { label:'Инженер на задании', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Диагностика / ремонт; полёт запрещён', pilotAction:false };
+ATLB_STATUSES.technician = { label:'Инженер на задании', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Диагностика / ремонт', pilotAction:false };
 ATLB_STATUSES.dispatcher_report = { label:'Отчёт у диспетчера', icon:'fa-clipboard-check', color:'#b45309', bg:'#fef3c7', hint:'Отчёт инженера проверяется диспетчером', pilotAction:false };
 ATLB_STATUSES.cpu_report = { label:'Отчёт у ЦПУ', icon:'fa-tower-broadcast', color:'#b45309', bg:'#fef3c7', hint:'Отчёт передан в ЦПУ', pilotAction:false };
 ATLB_STATUSES.mcc_finalize = { label:'Отчёт вернулся в MCC', icon:'fa-clipboard-check', color:'#b45309', bg:'#fef3c7', hint:'MCC рассматривает результаты диагностики', pilotAction:false };
-ATLB_STATUSES.pilot_notice = { label:'ПОЛЁТ ЗАПРЕЩЁН · уведомление MCC', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Ограничение передано экипажу', pilotAction:false };
+ATLB_STATUSES.pilot_notice = { label:'Уведомление MCC', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Информация передана экипажу', pilotAction:false };
 
 var FAULT_LABELS = {
     'engine_failure':'Отказ двигателя','engine_oil':'Утечка масла',
@@ -777,8 +777,12 @@ function mapServerToLocal(r) {
         engineerName: r.engineer_name || '',
         status: localStatus,
         routingStage: r.routing_stage || 'mcc',
+        mccStatus: r.mcc_status || '',
+        engineerVerdict: r.engineer_verdict || '',
+        engineerReportAt: r.engineer_report_at || null,
+        mccDecision: r.mcc_decision || '',
         flightStatus: flightStatus,
-        flightStatusReason: r.flight_status_reason || 'Ожидается решение MCC. Полёт запрещён.',
+        flightStatusReason: r.flight_status_reason || 'Ожидается решение MCC.',
         engineerCondition: r.engineer_condition || '',
         crs: {
             signed: !!r.crs_signed_at,
@@ -824,7 +828,7 @@ function renderATLB() {
     if (!tbody) return;
     var inProgress=0, readyCount=0, releasedCount=0, lastAircraft='—';
     atlbEntries.forEach(function(e) {
-        if (e.status === 'repaired') readyCount++;
+        if (isPilotVerdictReady(e)) readyCount++;
         else if (e.status !== 'released') inProgress++;
         if (e.status === 'released') releasedCount++;
         if (lastAircraft === '—' && e.aircraft && e.aircraft !== '—') lastAircraft = e.aircraft;
@@ -843,30 +847,44 @@ function renderATLB() {
 }
 
 // Изменено: убрана цветная точка серьёзности
+
+function renderPilotEngineerReport(raw) {
+    var text=String(raw||'');
+    if (text.indexOf('ROUTE:')===0) {
+        var payload=text.substring(6), depth=0, end=-1, inString=false, escaped=false;
+        for(var i=0;i<payload.length;i++){var ch=payload[i];if(inString){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')inString=false;continue;}if(ch==='"')inString=true;else if(ch==='{')depth++;else if(ch==='}'){depth--;if(depth===0){end=i+1;break;}}}
+        if(end>0) text=payload.substring(end).replace(/^\s+/, '');
+    }
+    var labels=['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий','ПУНКТ MEL','ATA','КАТЕГОРИЯ MEL','РЕДАКЦИЯ MEL','ИНТЕРВАЛ / ЛИМИТ'];
+    var vals={}; labels.forEach(function(label){var escapedLabel=label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');var others=labels.filter(function(x){return x!==label;}).map(function(x){return x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}).join('|');var re=new RegExp('(?:^|\\n)'+escapedLabel+':\\s*([\\s\\S]*?)(?=\\n(?:'+others+'):|\\n─{3,}|$)','i');var m=text.match(re);vals[label]=m?m[1].trim():'';});
+    if(text.indexOf('ОТЧЁТ О ДИАГНОСТИКЕ')===-1) return '<div class="atlb-work-block"><div class="work-label">Информация инженера</div>'+escapeHtml(text)+'</div>';
+    var items=[['Состояние ВС',vals['Состояние ВС']],['Категория',vals['Категория']],['Обнаружено',vals['Обнаружено']],['Выполненные работы',vals['Выполненные работы']],['Время диагностики',vals['Время диагностики']],['Материалы',vals['Материалы']],['Нужны детали',vals['Нужны детали']],['Комментарий',vals['Комментарий']],['Пункт MEL',vals['ПУНКТ MEL']],['ATA',vals['ATA']],['Категория MEL',vals['КАТЕГОРИЯ MEL']],['Редакция MEL',vals['РЕДАКЦИЯ MEL']],['Интервал / лимит',vals['ИНТЕРВАЛ / ЛИМИТ']]];
+    var html='<div style="margin-top:14px;padding:15px;background:linear-gradient(145deg,#f8fbff,#fff);border:1px solid #dce6f1;border-radius:13px;"><div style="font-size:14px;font-weight:850;color:#1e3a5f;margin-bottom:11px;"><i class="fas fa-clipboard-list" style="margin-right:7px;color:#3b82f6;"></i>Отчёт о диагностике</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;">';
+    items.forEach(function(it){if(!it[1])return;html+='<div style="padding:9px 10px;background:#fff;border:1px solid #e8edf3;border-radius:9px;"><div style="font-size:9px;color:#8493a7;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">'+it[0]+'</div><div style="font-size:12px;color:#26384d;font-weight:650;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;">'+escapeHtml(it[1])+'</div></div>';});
+    html+='</div></div>';return html;
+}
+
+function isPilotVerdictReady(e) {
+    // Пилот может подписать любой переданный ему итоговый вердикт:
+    // ремонт, MEL или AOG. Не ограничиваемся отдельными значениями mccStatus.
+    return !!e && e.routingStage === 'pilot_notice' &&
+        !!(e.engineerVerdict || e.engineerCondition || e.engineerReportAt || e.mccDecision);
+}
+
 function renderATLBRow(e) {
     var created = new Date(e.createdAt);
     var dateStr = created.toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    var meta = ATLB_STATUSES[e.routingStage] || ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
-    var isReady = e.status === 'repaired' || e.status === 'deferred';
+    var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
+    var isReady = isPilotVerdictReady(e);
     var melHtml = e.melRef ? '<span style="font-family:Consolas;font-size:11px;color:#0055aa;font-weight:600;">'+escapeHtml(e.melRef)+'</span>' : '<span style="color:#8a9bb5;">—</span>';
     var statusHtml = '<span class="status-badge" style="background:'+meta.bg+';color:'+meta.color+';"><i class="fas '+meta.icon+'"></i> '+meta.label+'</span>';
     if (isReady) statusHtml += '<span class="attention-tag">подпись</span>';
     var crsHtml;
-    if (e.crs && e.crs.signed) {
-        crsHtml = '<div style="font-size:11px;color:#15803d;font-weight:800;"><i class="fas fa-check-circle"></i> CRS подписан</div>' +
-            '<div style="font-size:10px;color:#64748b;max-width:180px;">' + escapeHtml(e.crs.signedBy || 'Подпись сохранена') + '</div>' +
-            (e.crs.signedAt ? '<div style="font-size:10px;color:#8a9bb5;">' + new Date(e.crs.signedAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>' : '');
-    } else if (isReady) {
-        crsHtml = '<div style="font-size:11px;color:#b45309;font-weight:800;"><i class="fas fa-signature"></i> Ожидает подписи</div>' +
-            '<div style="font-size:10px;color:#8a9bb5;">Откройте заявку для подписания</div>';
-    } else {
-        crsHtml = '<div style="font-size:11px;color:#64748b;font-weight:700;">Пока недоступна</div>' +
-            '<div style="font-size:10px;color:#8a9bb5;">После завершения работ</div>';
-    }
+    crsHtml = '<div style="font-size:11px;margin-top:4px;font-weight:800;color:' + (e.crs.signed ? '#15803d' : '#64748b') + ';">' + (e.crs.signed ? 'Подпись поставлена' : (isReady ? 'Ожидает подписи пилота' : 'Ожидает вердикта MCC')) + '</div>';
     var defectCell = '<div style="font-weight:600;font-size:13px;">'+escapeHtml(e.defect)+'</div>' +
         '<div style="font-size:11px;color:#8a9bb5;margin-top:4px;">' +
         escapeHtml(e.parking ? 'Стоянка '+e.parking : '') + (e.flightNumber ? ' • '+escapeHtml(e.flightNumber) : '') + '</div>';
-    var openBtn = isReady
+    var openBtn = (isReady && !e.crs.signed)
         ? '<button class="atlb-open-btn ready" onclick="event.stopPropagation(); openATLBDetail(\''+e.id+'\')">Подписать</button>'
         : '<button class="atlb-open-btn" onclick="event.stopPropagation(); openATLBDetail(\''+e.id+'\')">Открыть</button>';
     return '<tr class="atlb-row'+(isReady?' ready':'')+'" onclick="openATLBDetail(\''+e.id+'\')">' +
@@ -884,33 +902,22 @@ function openATLBDetail(id) {
     var e = findATLB(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
     currentDetailId = id;
-    var meta = ATLB_STATUSES[e.routingStage] || ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
-    var isReady = e.status === 'repaired' || e.status === 'deferred';
+    var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
+    var isReady = isPilotVerdictReady(e);
     document.getElementById('atlbDetailTitle').textContent = e.faultType || (e.defect||'').split('.')[0] || 'Дефект';
     document.getElementById('atlbDetailSub').textContent = e.aircraft + (e.parking?' · Стоянка '+e.parking:'') + (e.flightNumber?' · Рейс '+e.flightNumber:'');
 
     var html = '';
     html += '<div class="atlb-status-line" style="color:'+meta.color+';background:'+meta.bg+';">' +
-        '<i class="fas '+meta.icon+'"></i><div><strong>'+meta.label+'</strong>' +
-        '<div style="font-size:12px;color:#4a5a6a;margin-top:2px;">'+meta.hint+'</div></div></div>';
-
-    if (e.flightStatus === 'MEL_ACTIVE') {
-        html += '<div style="padding:16px 18px;margin:14px 0;background:#ecfdf5;border:2px solid #86efac;border-radius:10px;color:#166534;">' +
-            '<div style="font-size:17px;font-weight:900;letter-spacing:.2px;"><i class="fas fa-clipboard-check"></i> MEL АКТИВЕН · УСЛОВНАЯ ЭКСПЛУАТАЦИЯ</div>' +
-            '<div style="font-size:12px;font-weight:600;margin-top:7px;">Эксплуатация разрешена только в пределах условий утверждённого MEL и перечисленных ограничений.</div>' +
-            '<div style="font-size:12px;margin-top:8px;"><strong>Пункт:</strong> ' + escapeHtml(e.melRef || '—') + ' · <strong>Cat:</strong> ' + escapeHtml(e.melCategory || '—') + '</div>' +
-            '<div style="font-size:12px;margin-top:4px;"><strong>Срок:</strong> ' + escapeHtml(e.melDueDate || e.melDueCondition || 'По условию пункта') + '</div>' +
-            (e.melRestrictions ? '<div style="font-size:12px;margin-top:6px;white-space:pre-wrap;"><strong>Ограничения:</strong> ' + escapeHtml(e.melRestrictions) + '</div>' : '') +
-            '</div>';
-    } else if (e.flightStatus !== 'RELEASED') {
-        html += '<div style="padding:16px 18px;margin:14px 0;background:#fee2e2;border:2px solid #dc2626;border-radius:10px;color:#991b1b;">' +
-            '<div style="font-size:18px;font-weight:900;letter-spacing:.3px;"><i class="fas fa-ban"></i> ПОЛЁТ ЗАПРЕЩЁН · DO NOT FLY</div>' +
-            '<div style="font-size:12px;font-weight:600;margin-top:6px;">' + escapeHtml(e.flightStatusReason || 'Не выполнять полёт до отдельного решения MCC') + '</div>' +
-            '<div style="font-size:11px;margin-top:6px;">Этап заявки: ' + escapeHtml(ATLB_STATUSES[e.routingStage] ? ATLB_STATUSES[e.routingStage].label : e.routingStage) + '</div>' +
-            '</div>';
-    } else {
-        html += '<div style="padding:14px 16px;margin:14px 0;background:#dcfce7;border:1px solid #86efac;border-radius:10px;color:#166534;"><strong>Допуск оформлен MCC.</strong><div style="font-size:12px;margin-top:4px;">' + escapeHtml(e.flightStatusReason || '') + '</div></div>';
+        '<i class="fas '+meta.icon+'"></i><div><strong>'+meta.label+'</strong></div></div>';
+    if (e.engineerVerdict || e.engineerCondition) {
+        var verdictText = String(e.engineerVerdict || e.engineerCondition);
+        var verdictLabels = { 'REPAIR':'Устранено', 'REPAIRED':'Устранено', 'MEL':'MEL — эксплуатация по условиям', 'AOG':'AOG — требуется восстановление' };
+        verdictText = verdictLabels[verdictText.toUpperCase()] || verdictText;
+        html += '<div style="margin:12px 0;padding:13px 15px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px;"><div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Технический вердикт</div><div style="font-size:15px;font-weight:850;color:#1e40af;">'+escapeHtml(verdictText)+'</div></div>';
     }
+
+    // В пилотской карточке показываем вердикт и возможность подтвердить ознакомление подписью.
 
     html += '<div class="atlb-info-list">' +
         '<div class="row"><span class="label">Дата регистрации</span><span class="val">' +
@@ -926,30 +933,28 @@ function openATLBDetail(id) {
         '</div>';
 
     if (e.rectification) {
-        html += '<div class="atlb-work-block"><div class="work-label">Работы инженера</div>'+escapeHtml(e.rectification)+'</div>';
+        html += renderPilotEngineerReport(e.rectification);
     }
 
     if (isReady && !e.crs.signed) {
         var pilotName = getPilotName();
         html += '<div class="sign-block"><div class="sign-label">' +
-            'Поставьте подпись в поле ниже. Вы подтверждаете, что инженер выполнил работы' +
-            (e.melRef ? ' и MEL '+escapeHtml(e.melRef)+' согласован' : '') +
-            ', и подписываете CRS.<br><strong>Подписант:</strong> '+escapeHtml(pilotName) +
+            'Поставьте подпись, подтверждающую, что вы ознакомились с техническим вердиктом и результатами проверки. Эта подпись не заменяет решение MCC о допуске ВС.<br><strong>Подписант:</strong> '+escapeHtml(pilotName) +
             '</div><canvas id="signatureCanvas" class="sign-canvas"></canvas>' +
             '<div class="sign-actions">' +
             '<button class="btn-clear-sign" id="sigClearBtn" onclick="clearSignature()" disabled><i class="fas fa-eraser"></i> Очистить</button>' +
-            '<button class="btn-sign-crs" id="crsSignBtn" onclick="pilotSignCRS(\''+e.id+'\')" disabled><i class="fas fa-signature"></i> Подписать CRS</button>' +
+            '<button class="btn-sign-crs" id="crsSignBtn" onclick="pilotSignCRS(\''+e.id+'\')" disabled><i class="fas fa-signature"></i> Подписать вердикт</button>' +
             '</div></div>';
     } else if (e.crs.signed) {
         html += '<div class="crs-signed"><div class="crs-head"><i class="fas fa-check-circle"></i><div>' +
-            '<div class="txt">CRS подписан</div>' +
+            '<div class="txt">Подтверждение вердикта подписано</div>' +
             '<div class="meta">'+escapeHtml(e.crs.signedBy||'')+' · '+new Date(e.crs.signedAt).toLocaleString('ru-RU')+'</div>' +
             '</div></div>';
         if (e.crs.signature) html += '<img src="'+e.crs.signature+'" alt="Подпись КВС">';
         html += '</div>';
     } else {
         html += '<div style="padding:12px 14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#4a5a6a;text-align:center;">' +
-            'Подпись CRS станет доступна после завершения работ и оформления соответствующего этапа заявки.</div>'; 
+            'Действий пока не требуется — ждём завершения работ инженером.</div>';
     }
 
     html += '<div style="margin-top:20px;"><div class="hist-title">История</div>';
@@ -1066,26 +1071,24 @@ function getPilotName() {
 function pilotSignCRS(id) {
     var e = findATLB(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
-    if (e.status !== 'repaired' && e.status !== 'deferred') { showToast('CRS — только после завершения работ', 'warning'); return; }
-    if (e.crs.signed) { showToast('CRS уже подписан', 'warning'); return; }
+    if (!isPilotVerdictReady(e)) { showToast('Подпись доступна после получения решения MCC', 'warning'); return; }
+    if (e.crs.signed) { showToast('Подтверждение уже подписано', 'warning'); return; }
     var signatureData = getSignatureDataUrl();
     if (!signatureData) { showToast('Поставьте подпись', 'error'); return; }
     var pilotName = getPilotName();
-    var msg = 'Подписать CRS (Certificate of Release to Service)?\n\n' +
-        'Борт: ' + (e.aircraft||'—') + '\nДефект: ' + (e.defect||'—') + '\n' +
-        (e.rectification ? 'Работы: ' + e.rectification + '\n' : '') +
-        (e.melRef ? 'MEL: ' + e.melRef + '\n' : '') + '\nПодписант: ' + pilotName;
-    if (!confirm(msg)) return;
-
-    fetch(API_URL + '/pilot/sign_crs/' + id, {
+    fetch(API_URL + '/requests/' + id + '/pilot-signature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signature: signatureData, signed_by: pilotName })
     })
-    .then(function(r) { return r.json(); })
+    .then(async function(r) {
+        var payload = await r.json().catch(function(){ return {}; });
+        if (!r.ok && !payload.error) payload.error = 'HTTP ' + r.status;
+        return payload;
+    })
     .then(function(res) {
         if (res.success) {
-            showToast('Подпись CRS сохранена в заявке.', 'success');
+            showToast(res.already_signed ? 'Подпись уже сохранена.' : 'Подпись сохранена в системе.', 'success');
             closeATLBDetail();
             loadATLB();
         } else {
@@ -1098,14 +1101,7 @@ window.pilotSignCRS = pilotSignCRS;
 
 /* ============ EXPORT ============ */
 function exportATLB() {
-    if (!atlbEntries.length) { showToast('ATLB пуст', 'info'); return; }
-    var blob = new Blob([JSON.stringify(atlbEntries, null, 2)], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = 'ATLB_' + new Date().toISOString().slice(0,10) + '.json';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('ATLB экспортирован', 'success');
+    window.location.href = '/api/reports/export.xlsx?role=pilot';
 }
 window.exportATLB = exportATLB;
 

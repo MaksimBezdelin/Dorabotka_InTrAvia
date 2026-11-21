@@ -92,6 +92,47 @@ PARKING_COORDS = {}
 PARKING_META = {}
 MAP_OBJECTS = []
 
+# Динамические зоны безопасности самолётов на рулении (без изменения схемы БД).
+# Координаты обновляются диспетчерской картой и используются для блокировки
+# перемещения инженеров и спецтранспорта через занятый самолётом коридор.
+AIRCRAFT_TAXI_RESERVATIONS = {}
+AIRCRAFT_TAXI_LOCK = threading.RLock()
+AIRCRAFT_TAXI_SAFETY_METERS = 45.0
+
+
+def _distance_meters(lat1, lng1, lat2, lng2):
+    radius = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+
+
+def _point_segment_distance_m(lat, lng, a, b):
+    # Локальная плоская проекция достаточна для коротких рулёжных сегментов.
+    scale_x = 111320.0 * math.cos(math.radians(lat))
+    scale_y = 110540.0
+    px, py = (lng - lng) * scale_x, 0.0
+    ax, ay = (float(a[1]) - lng) * scale_x, (float(a[0]) - lat) * scale_y
+    bx, by = (float(b[1]) - lng) * scale_x, (float(b[0]) - lat) * scale_y
+    dx, dy = bx - ax, by - ay
+    denom = dx * dx + dy * dy
+    t = 0.0 if denom == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / denom))
+    return math.hypot(ax + t * dx, ay + t * dy)
+
+
+def _aircraft_taxi_conflict(lat, lng):
+    with AIRCRAFT_TAXI_LOCK:
+        for reservation in AIRCRAFT_TAXI_RESERVATIONS.values():
+            route = reservation.get('route') or []
+            if len(route) == 1 and _distance_meters(lat, lng, route[0][0], route[0][1]) < AIRCRAFT_TAXI_SAFETY_METERS:
+                return reservation.get('aircraft') or 'самолёт'
+            for idx in range(len(route) - 1):
+                if _point_segment_distance_m(lat, lng, route[idx], route[idx + 1]) < AIRCRAFT_TAXI_SAFETY_METERS:
+                    return reservation.get('aircraft') or 'самолёт'
+    return None
+
 _PARKING_FALLBACK = {
     '101': (55.9807, 37.4171), '102': (55.9806, 37.4171),
     '103': (55.9801, 37.4173), '104': (55.9800, 37.4174),
@@ -511,308 +552,40 @@ def get_shortest_path(graph, start_lat, start_lng, end_lat, end_lng):
 # DB
 # ============================================================
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    # mode=rw: SQLite must open an existing database; never create an empty file.
+    if not os.path.isfile(DB_PATH):
+        raise RuntimeError(f'[DB] База данных не найдена: {DB_PATH}. Сервер не создаёт БД автоматически.')
+    uri = 'file:' + DB_PATH.replace('\\', '/') + '?mode=rw'
+    conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-    except sqlite3.OperationalError as e:
-        print(f'[DB] PRAGMA: {e}')
+    conn.execute('PRAGMA busy_timeout=30000')
     return conn
 
 
-def ensure_schema(conn):
-    cur = conn.cursor()
-
-    # Operator-controlled reference data. These tables are populated through the REST import API.
-    cur.execute("""CREATE TABLE IF NOT EXISTS aircraft_registry (
-        registration TEXT PRIMARY KEY,
-        aircraft_type TEXT NOT NULL,
-        configuration TEXT DEFAULT '',
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS mel_catalog (
-        id TEXT PRIMARY KEY,
-        aircraft_type TEXT NOT NULL,
-        configuration TEXT DEFAULT '',
-        ata TEXT NOT NULL,
-        item_ref TEXT NOT NULL,
-        revision TEXT NOT NULL,
-        category TEXT NOT NULL,
-        description TEXT NOT NULL,
-        rectification_interval TEXT NOT NULL,
-        deadline_mode TEXT NOT NULL DEFAULT 'CONDITION',
-        deadline_value TEXT DEFAULT '',
-        deadline_start_rule TEXT DEFAULT '',
-        deadline_condition TEXT DEFAULT '',
-        restrictions TEXT NOT NULL,
-        o_required INTEGER DEFAULT 0,
-        o_procedure TEXT DEFAULT '',
-        m_required INTEGER DEFAULT 0,
-        m_procedure TEXT DEFAULT '',
-        applicability_codes TEXT DEFAULT '',
-        source_document TEXT DEFAULT '',
-        active INTEGER DEFAULT 1,
-        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(aircraft_type, configuration, ata, item_ref, revision)
-    )""")
-
-    cur.execute("""CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
-        name TEXT NOT NULL, role TEXT NOT NULL, avatar TEXT, phone TEXT,
-        shift TEXT, status TEXT DEFAULT 'offline')""")
-
-    cur.execute("""CREATE TABLE IF NOT EXISTS engineers (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, device_id TEXT,
-        specialization TEXT DEFAULT 'general', coords_lat REAL DEFAULT 55.975,
-        coords_lng REAL DEFAULT 37.410, status TEXT DEFAULT 'free',
-        task TEXT, phone TEXT,
-        task_step TEXT DEFAULT 'idle',
-        task_started_at TIMESTAMP)""")
-
-    cur.execute("""CREATE TABLE IF NOT EXISTS pilots (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE,
-        phone TEXT, aircraft TEXT, rank TEXT DEFAULT 'pilot',
-        status TEXT DEFAULT 'active')""")
-
-    cur.execute("""CREATE TABLE IF NOT EXISTS transport (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT UNIQUE NOT NULL,
-        lat REAL NOT NULL, lng REAL NOT NULL, speed INTEGER DEFAULT 50,
-        assigned_to TEXT)""")
-
-    # Canonical persistent positions for movable map objects. Existing engineer/transport
-    # coordinate columns are kept in sync for backward compatibility.
-    cur.execute("""CREATE TABLE IF NOT EXISTS map_object_positions (
-        object_type TEXT NOT NULL,
-        object_id TEXT NOT NULL,
-        lat REAL NOT NULL,
-        lng REAL NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (object_type, object_id)
-    )""")
-
-    cur.execute("""CREATE TABLE IF NOT EXISTS requests (
-        id TEXT PRIMARY KEY, aircraft TEXT, fault_type TEXT,
-        severity TEXT DEFAULT 'medium', terminal TEXT, parking_id TEXT,
-        description TEXT, source TEXT DEFAULT 'dispatcher',
-        engineer_id TEXT, engineer_name TEXT, travel_time REAL DEFAULT 0,
-        using_car INTEGER DEFAULT 0, walk_to_car REAL DEFAULT 0,
-        car_time REAL DEFAULT 0, best_car TEXT,
-        status TEXT DEFAULT 'assigned', criticality TEXT DEFAULT 'medium',
-        engineer_comment TEXT, pilot_name TEXT, pilot_rank TEXT,
-        pilot_audio TEXT, pilot_audio_mime TEXT,
-        pilot_audio_duration REAL DEFAULT 0, pilot_audio_text TEXT,
-        rejected_by TEXT DEFAULT '', cancel_reason TEXT DEFAULT '',
-        cancelled_by_name TEXT DEFAULT '', cancelled_at TIMESTAMP,
-        replaces_request_id TEXT DEFAULT '', delay_minutes INTEGER DEFAULT 0,
-        delay_reason TEXT DEFAULT '', delay_started_at TIMESTAMP,
-        delay_approved_by TEXT DEFAULT '', flight_cancelled INTEGER DEFAULT 0,
-        flight_cancel_reason TEXT DEFAULT '', flight_cancelled_at TIMESTAMP,
-        all_rejected INTEGER DEFAULT 0,
-        mcc_status TEXT DEFAULT 'PENDING', mcc_decision TEXT DEFAULT '',
-        mcc_comment TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-
-    conn.commit()
-
-    # ── Миграция requests ──
-    cur.execute("PRAGMA table_info(requests)")
-    existing = {r['name'] for r in cur.fetchall()}
-    needed = {
-        'pilot_name': "TEXT", 'pilot_rank': "TEXT", 'pilot_audio': "TEXT",
-        'pilot_audio_mime': "TEXT", 'pilot_audio_duration': "REAL DEFAULT 0",
-        'pilot_audio_text': "TEXT", 'rejected_by': "TEXT DEFAULT ''",
-        'cancel_reason': "TEXT DEFAULT ''", 'cancelled_by_name': "TEXT DEFAULT ''",
-        'cancelled_at': "TIMESTAMP", 'replaces_request_id': "TEXT DEFAULT ''",
-        'delay_minutes': "INTEGER DEFAULT 0", 'delay_reason': "TEXT DEFAULT ''",
-        'delay_started_at': "TIMESTAMP", 'delay_approved_by': "TEXT DEFAULT ''",
-        'flight_cancelled': "INTEGER DEFAULT 0",
-        'flight_cancel_reason': "TEXT DEFAULT ''", 'flight_cancelled_at': "TIMESTAMP",
-        'all_rejected': "INTEGER DEFAULT 0",
-        'mcc_status': "TEXT DEFAULT 'PENDING'", 'mcc_decision': "TEXT DEFAULT ''",
-        'mcc_comment': "TEXT DEFAULT ''", 'mcc_ata': "TEXT DEFAULT ''",
-        'mcc_mel_choice': "TEXT DEFAULT ''", 'mcc_mel_ref': "TEXT DEFAULT ''",
-        'mcc_amm_verdict': "TEXT DEFAULT ''", 'mcc_proc_o': "INTEGER DEFAULT 0",
-        'mcc_proc_m': "INTEGER DEFAULT 0", 'mcc_proc_mh': "INTEGER DEFAULT 0",
-        'mcc_mel_category': "TEXT DEFAULT ''", 'mcc_due_date': "TEXT DEFAULT ''",
-        'mcc_combined_check': "TEXT DEFAULT ''",
-        'mcc_recurring_action': "TEXT DEFAULT ''",
-        'mcc_escalation': "TEXT DEFAULT ''", 'mcc_dce_name': "TEXT DEFAULT ''",
-        'mcc_kupol_ref': "TEXT DEFAULT ''", 'aog_since': "TIMESTAMP",
-        'mcc_mel_revision': "TEXT DEFAULT ''", 'mcc_mel_description': "TEXT DEFAULT ''",
-        'mcc_mel_restrictions': "TEXT DEFAULT ''", 'mcc_due_condition': "TEXT DEFAULT ''",
-        'mcc_proc_o_text': "TEXT DEFAULT ''", 'mcc_proc_m_text': "TEXT DEFAULT ''",
-        'cpu_mel_o_completed': "INTEGER DEFAULT 0", 'cpu_mel_m_completed': "INTEGER DEFAULT 0",
-        'cpu_mel_check_comment': "TEXT DEFAULT ''", 'cpu_mel_checked_at': "TIMESTAMP",
-        'cpu_mel_checked_by': "TEXT DEFAULT ''", 'cpu_mel_engineer_required': "INTEGER DEFAULT 0",
-        'cpu_mel_m_comment': "TEXT DEFAULT ''",
-        'mel_catalog_id': "TEXT DEFAULT ''", 'mel_assessed_by': "TEXT DEFAULT ''",
-        'mel_assessment_comment': "TEXT DEFAULT ''", 'mel_rectification_interval': "TEXT DEFAULT ''",
-        'mel_m_procedure_completed': "INTEGER DEFAULT 0", 'mel_m_procedure_comment': "TEXT DEFAULT ''",
-        'mel_initial_engineer_report': "TEXT DEFAULT ''", 'mel_initial_engineer_report_at': "TIMESTAMP",
-        'mel_initial_assessed_by': "TEXT DEFAULT ''",
-        'mel_deadline_mode': "TEXT DEFAULT ''", 'mel_deadline_value': "TEXT DEFAULT ''",
-        'mel_deadline_start_rule': "TEXT DEFAULT ''", 'cpu_mel_applicability_confirmed': "INTEGER DEFAULT 0",
-        'cpu_mel_o_comment': "TEXT DEFAULT ''", 'mcc_mel_reviewed_by': "TEXT DEFAULT ''",
-        'mcc_mel_reviewed_at': "TIMESTAMP", 'mcc_mel_review_comment': "TEXT DEFAULT ''",
-        'mcc_mel_combined_checked': "INTEGER DEFAULT 0", 'mcc_mel_crew_briefed': "INTEGER DEFAULT 0",
-        'mcc_mel_restrictions_verified': "INTEGER DEFAULT 0", 'mcc_mel_repair_plan': "TEXT DEFAULT ''",
-        'etr': "TEXT DEFAULT ''", 'reported_by': "TEXT DEFAULT ''",
-        'engineer_verdict': "TEXT DEFAULT ''",
-        'engineer_verdict_at': "TIMESTAMP",
-        'aog_action': "TEXT DEFAULT ''",
-        'inspection_assigned_at': "TIMESTAMP",
-        'flight_number': "TEXT DEFAULT ''",
-        'crs_signature': "TEXT",
-        'crs_signed_at': "TIMESTAMP",
-        'crs_signed_by': "TEXT",
-        'routing_stage': "TEXT DEFAULT 'mcc'",
-        'routing_history': "TEXT DEFAULT '[]'",
-        'flight_status': "TEXT DEFAULT 'DO_NOT_FLY'",
-        'flight_status_reason': "TEXT DEFAULT 'Ожидает решения MCC'",
-        'engineer_condition': "TEXT DEFAULT ''",
-        'engineer_report_at': "TIMESTAMP",
-        'dispatcher_report_at': "TIMESTAMP",
-        'cpu_report_at': "TIMESTAMP",
-        'pilot_notice_at': "TIMESTAMP",
-    }
-    for col, typ in needed.items():
-        if col not in existing:
-            try:
-                cur.execute(f"ALTER TABLE requests ADD COLUMN {col} {typ}")
-                print(f"[MIGRATION] + requests.{col}")
-            except sqlite3.OperationalError as e:
-                print(f"[MIGRATION] skip {col}: {e}")
-
-    # ── Миграция engineers ──
-    cur.execute("PRAGMA table_info(engineers)")
-    eng_cols = {r['name'] for r in cur.fetchall()}
-    if 'task_step' not in eng_cols:
-        try:
-            cur.execute("ALTER TABLE engineers ADD COLUMN task_step TEXT DEFAULT 'idle'")
-            print("[MIGRATION] + engineers.task_step")
-        except sqlite3.OperationalError as e:
-            print(f"[MIGRATION] skip engineers.task_step: {e}")
-    if 'task_started_at' not in eng_cols:
-        try:
-            cur.execute("ALTER TABLE engineers ADD COLUMN task_started_at TIMESTAMP")
-            print("[MIGRATION] + engineers.task_started_at")
-        except sqlite3.OperationalError as e:
-            print(f"[MIGRATION] skip engineers.task_started_at: {e}")
-
-    # Новая заявка по умолчанию блокирует вылет до решения MCC.
-    # Уже выпущенные записи сохраняют свой исторический статус.
-    cur.execute("UPDATE requests SET flight_status='RELEASED' WHERE mcc_status='RELEASED' AND (flight_status IS NULL OR flight_status='DO_NOT_FLY')")
-    cur.execute("UPDATE requests SET flight_status='DO_NOT_FLY' WHERE flight_status IS NULL OR flight_status=''")
-
-    # A request must not appear as returned to MCC unless an engineer report
-    # was actually submitted. Repair stale stage values left by older builds.
-    cur.execute("""UPDATE requests
-        SET routing_stage=CASE
-            WHEN engineer_id IS NOT NULL AND engineer_id!='' THEN 'technician'
-            ELSE 'dispatcher'
-        END
-        WHERE routing_stage='mcc_finalize'
-          AND (engineer_report_at IS NULL OR TRIM(COALESCE(engineer_verdict,''))='')""")
-    conn.commit()
-
-
-def seed_initial_data(conn):
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role='admin'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) "
-                    "VALUES ('admin_1','admin@aeroflot.ru','admin123','Администратор','admin','👨‍💼','online')")
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role='dispatcher'")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
-                           VALUES (?,?,?,?,'dispatcher','👨‍✈️',?,?,'online')""", [
-            ('disp_1', 'dispatcher@aeroflot.ru', 'disp123', 'Петров П.П.', '+7 (999) 200-10-01', 'day'),
-            ('disp_2', 'dispatcher2@aeroflot.ru', 'disp123', 'Козлов К.К.', '+7 (999) 200-10-02', 'night'),
-        ])
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role='mcc'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) "
-                    "VALUES ('mcc_1','mcc@aeroflot.ru','mcc123','Смирнов А.В.','mcc','👨‍💻','online')")
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE role='cpu'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (id,email,password,name,role,avatar,status) "
-                    "VALUES ('cpu_1','cpu@aeroflot.ru','cpu123','Диспетчер ЦПУ','cpu','🎧','online')")
-
-    cur.execute("SELECT COUNT(*) FROM engineers")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""INSERT INTO engineers (id,name,device_id,specialization,coords_lat,coords_lng,status,phone)
-                           VALUES (?,?,?,?,?,?,'free',?)""", [
-            ('eng_1', 'Иванов И.И.', 'EN-001', 'engine', 55.975, 37.410, '+7 (999) 300-10-01'),
-            ('eng_5', 'Морозов М.М.', 'EN-005', 'engine', 55.974, 37.412, '+7 (999) 300-10-05'),
-            ('eng_7', 'Волков В.В.', 'EN-007', 'engine', 55.973, 37.408, '+7 (999) 300-10-07'),
-            ('eng_2', 'Сидоров С.С.', 'EN-002', 'avionics', 55.977, 37.412, '+7 (999) 300-10-02'),
-            ('eng_8', 'Зайцев З.З.', 'EN-008', 'avionics', 55.978, 37.410, '+7 (999) 300-10-08'),
-            ('eng_13', 'Гусев Г.Г.', 'EN-013', 'avionics', 55.976, 37.418, '+7 (999) 300-10-13'),
-            ('eng_3', 'Кузнецов К.К.', 'EN-003', 'hydraulics', 55.973, 37.415, '+7 (999) 300-10-03'),
-            ('eng_10', 'Орлов О.О.', 'EN-010', 'hydraulics', 55.977, 37.416, '+7 (999) 300-10-10'),
-            ('eng_4', 'Смирнов С.С.', 'EN-004', 'electrical', 55.976, 37.408, '+7 (999) 300-10-04'),
-            ('eng_9', 'Лебедев Л.Л.', 'EN-009', 'electrical', 55.974, 37.418, '+7 (999) 300-10-09'),
-            ('eng_14', 'Соколов С.С.', 'EN-014', 'electrical', 55.972, 37.410, '+7 (999) 300-10-14'),
-            ('eng_6', 'Новиков Н.Н.', 'EN-006', 'mechanical', 55.976, 37.415, '+7 (999) 300-10-06'),
-            ('eng_11', 'Титов Т.Т.', 'EN-011', 'mechanical', 55.972, 37.413, '+7 (999) 300-10-11'),
-            ('eng_15', 'Фомин Ф.Ф.', 'EN-015', 'mechanical', 55.979, 37.412, '+7 (999) 300-10-15'),
-            ('eng_12', 'Белов Б.Б.', 'EN-012', 'general', 55.979, 37.414, '+7 (999) 300-10-12'),
-            ('eng_16', 'Егоров Е.Е.', 'EN-016', 'general', 55.971, 37.415, '+7 (999) 300-10-16'),
-        ])
-        cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'eng123',?,'engineer','🔧','offline')""", [
-            ('eng_1', 'ivanov@aeroflot.ru', 'Иванов И.И.'),
-            ('eng_2', 'sidorov@aeroflot.ru', 'Сидоров С.С.'),
-            ('eng_3', 'kuznetsov@aeroflot.ru', 'Кузнецов К.К.'),
-            ('eng_4', 'smirnov@aeroflot.ru', 'Смирнов С.С.'),
-            ('eng_5', 'morozov@aeroflot.ru', 'Морозов М.М.'),
-            ('eng_6', 'novikov@aeroflot.ru', 'Новиков Н.Н.'),
-            ('eng_7', 'volkov@aeroflot.ru', 'Волков В.В.'),
-            ('eng_8', 'zaytsev@aeroflot.ru', 'Зайцев З.З.'),
-            ('eng_9', 'lebedev@aeroflot.ru', 'Лебедев Л.Л.'),
-            ('eng_10', 'orlov@aeroflot.ru', 'Орлов О.О.'),
-            ('eng_11', 'titov@aeroflot.ru', 'Титов Т.Т.'),
-            ('eng_12', 'belov@aeroflot.ru', 'Белов Б.Б.'),
-            ('eng_13', 'gusev@aeroflot.ru', 'Гусев Г.Г.'),
-            ('eng_14', 'sokolov@aeroflot.ru', 'Соколов С.С.'),
-            ('eng_15', 'fomin@aeroflot.ru', 'Фомин Ф.Ф.'),
-            ('eng_16', 'egorov@aeroflot.ru', 'Егоров Е.Е.'),
-        ])
-
-    cur.execute("SELECT COUNT(*) FROM pilots")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""INSERT INTO pilots (id,name,email,phone,aircraft,rank,status)
-                           VALUES (?,?,?,?,?,?,'active')""", [
-            ('pilot_1', 'Иванов И.И.', 'ivanov@aeroflot.ru', '+7 (999) 100-10-01', 'RA-73701', 'КВС'),
-            ('pilot_2', 'Петров П.П.', 'petrov@aeroflot.ru', '+7 (999) 100-10-02', 'RA-73702', 'Пилот'),
-            ('pilot_3', 'Сидоров С.С.', 'sidorov@aeroflot.ru', '+7 (999) 100-10-03', 'RA-73703', 'Второй пилот'),
-            ('pilot_4', 'Кузнецов К.К.', 'kuznetsov@aeroflot.ru', '+7 (999) 100-10-04', 'RA-73704', 'КВС'),
-            ('pilot_5', 'Смирнов С.С.', 'smirnov@aeroflot.ru', '+7 (999) 100-10-05', 'RA-73705', 'Пилот'),
-        ])
-        cur.executemany("""INSERT OR IGNORE INTO users (id,email,password,name,role,avatar,status)
-                           VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""", [
-            ('pilot_1', 'pilot1@aeroflot.ru', 'Иванов И.И.'),
-            ('pilot_2', 'pilot2@aeroflot.ru', 'Петров П.П.'),
-            ('pilot_3', 'pilot3@aeroflot.ru', 'Сидоров С.С.'),
-            ('pilot_4', 'pilot4@aeroflot.ru', 'Кузнецов К.К.'),
-            ('pilot_5', 'pilot5@aeroflot.ru', 'Смирнов С.С.'),
-        ])
-
-    cur.execute("SELECT COUNT(*) FROM transport")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("""INSERT INTO transport (device_id,lat,lng,speed)
-                           VALUES (?,?,?,?)""", [
-            ('CAR-001', 55.9780, 37.4150, 40),
-            ('CAR-002', 55.9790, 37.4130, 60),
-            ('CAR-003', 55.9760, 37.4090, 50),
-            ('CAR-004', 55.9740, 37.4160, 30),
-            ('CAR-005', 55.9770, 37.4180, 70),
-        ])
-    conn.commit()
+def init_db():
+    """Validate the existing database only. Never create, migrate, seed or alter schema/data."""
+    print(f'[DB] Подключение к существующей базе: {DB_PATH}')
+    if not os.path.isfile(DB_PATH):
+        raise RuntimeError(f'[DB] Файл database.db не найден: {DB_PATH}. Создание отключено.')
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing = {row['name'] for row in cur.fetchall()}
+        required = {
+            'users', 'engineers', 'pilots', 'transport', 'requests',
+            'aircraft_registry', 'mel_catalog', 'map_object_positions'
+        }
+        missing = sorted(required - existing)
+        if missing:
+            raise RuntimeError(
+                '[DB] В существующей базе отсутствуют необходимые таблицы: '
+                + ', '.join(missing)
+                + '. Сервер не будет создавать или изменять таблицы.'
+            )
+        print(f'[DB] Проверка завершена. Таблиц найдено: {len(existing)}. Схема не изменялась.')
+    finally:
+        conn.close()
 
 
 DEVICE_ID_RE = re.compile(r'^EN-(\d{3})$')
@@ -847,67 +620,6 @@ def normalize_device_id(device_id, number):
     return device_id or 'EN-000'
 
 
-def migrate_engineer_numbers():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, device_id, name FROM engineers")
-    rows = cur.fetchall()
-    if not rows:
-        conn.close()
-        return
-
-    def sort_key(r):
-        m = re.search(r'(\d+)\s*$', str(r['id'] or ''))
-        return (int(m.group(1)) if m else 10 ** 9, str(r['name'] or ''))
-
-    ordered = sorted(rows, key=sort_key)
-    needs = any(get_engineer_number_from_device(r['device_id']) != idx
-                for idx, r in enumerate(ordered, start=1))
-    if not needs:
-        conn.close()
-        return
-    print(f'[MIGRATION] Перенумерация {len(ordered)} инженеров')
-    mapping = []
-    for idx, r in enumerate(ordered, start=1):
-        old_id = r['id']
-        tmp_id = f'__tmp_{int(time.time() * 1000000)}_{idx}'
-        tmp_dev = f'__TMP_{idx}'
-        mapping.append((tmp_id, f'eng_{idx}', f'EN-{idx:03d}', old_id))
-        try:
-            cur.execute("UPDATE engineers SET id=?, device_id=? WHERE id=?",
-                        (tmp_id, tmp_dev, old_id))
-            cur.execute("UPDATE users SET id=? WHERE id=?", (tmp_id, old_id))
-            cur.execute("UPDATE requests SET engineer_id=? WHERE engineer_id=?",
-                        (tmp_id, old_id))
-        except sqlite3.IntegrityError as e:
-            print(f'[MIGRATION] tmp {old_id}: {e}')
-    conn.commit()
-    for tmp_id, new_id, new_dev, old_id in mapping:
-        try:
-            cur.execute("UPDATE engineers SET id=?, device_id=? WHERE id=?",
-                        (new_id, new_dev, tmp_id))
-            cur.execute("UPDATE users SET id=? WHERE id=?", (new_id, tmp_id))
-            cur.execute("UPDATE requests SET engineer_id=? WHERE engineer_id=?",
-                        (new_id, tmp_id))
-        except sqlite3.IntegrityError as e:
-            print(f'[MIGRATION] set {new_id}: {e}')
-    conn.commit()
-    conn.close()
-
-
-def init_db():
-    print(f'[DB] {DB_PATH}')
-    conn = get_db()
-    ensure_schema(conn)
-    cur = conn.cursor()
-    cur.execute("UPDATE requests SET routing_stage='mcc' WHERE routing_stage IS NULL OR routing_stage=''")
-    conn.commit()
-    seed_initial_data(conn)
-    conn.close()
-    migrate_engineer_numbers()
-    print('[DB] Инициализация завершена')
-
-
 # ============================================================
 # Утилиты
 # ============================================================
@@ -939,13 +651,31 @@ def engineer_has_active_requests(conn, engineer_id, exclude_request_id=None):
     cur = conn.cursor()
     if exclude_request_id:
         cur.execute("""SELECT COUNT(*) FROM requests
-            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled')
+            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','report_submitted','deleted')
               AND id!=?""", (engineer_id, exclude_request_id))
     else:
         cur.execute("""SELECT COUNT(*) FROM requests
-            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled')""",
+            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','report_submitted','deleted')""",
                     (engineer_id,))
     return cur.fetchone()[0]
+
+
+def release_engineers_without_active_requests(conn, engineer_ids):
+    """Освобождает исполнителей после удаления заявок, если других активных задач нет."""
+    released = []
+    for engineer_id in {str(x) for x in engineer_ids if x not in (None, '')}:
+        if engineer_has_active_requests(conn, engineer_id) == 0:
+            if set_engineer_free(conn, engineer_id):
+                released.append(engineer_id)
+    return released
+
+
+def sync_engineer_availability(conn):
+    """Сверяет занятость с активными заявками и освобождает инженеров без задач."""
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM engineers WHERE status='busy'")
+    busy_ids = [row['id'] for row in cur.fetchall()]
+    return release_engineers_without_active_requests(conn, busy_ids)
 
 
 FAULT_SKILL = {
@@ -1144,7 +874,9 @@ def _recompute_route_for_request(request_row):
     if not eng_id or not parking:
         return None
 
-    target = PARKING_COORDS.get(parking, (55.975, 37.410))
+    target = PARKING_COORDS.get(parking)
+    if target is None:
+        return None
 
     conn = get_db()
     cur = conn.cursor()
@@ -1154,8 +886,13 @@ def _recompute_route_for_request(request_row):
         conn.close()
         return None
 
-    e_lat = eng['coords_lat'] or 55.975
-    e_lng = eng['coords_lng'] or 37.410
+    # Маршрут нельзя строить от условной точки: обе координаты должны
+    # существовать в БД и соответствовать реальной метке инженера.
+    if eng['coords_lat'] is None or eng['coords_lng'] is None:
+        conn.close()
+        return None
+    e_lat = float(eng['coords_lat'])
+    e_lng = float(eng['coords_lng'])
 
     walk_path, walk_dist = get_shortest_path(
         road_graph_vehicle, e_lat, e_lng, target[0], target[1]
@@ -1163,6 +900,18 @@ def _recompute_route_for_request(request_row):
     if walk_path is None:
         walk_path = [[e_lat, e_lng], [target[0], target[1]]]
         walk_dist = distance_km(e_lat, e_lng, target[0], target[1])
+    else:
+        # Гарантируем, что линия начинается ровно в координате метки инженера,
+        # а не в ближайшей вершине дорожного графа.
+        walk_path = list(walk_path)
+        if not walk_path:
+            walk_path = [[e_lat, e_lng], [target[0], target[1]]]
+        else:
+            walk_path[0] = [e_lat, e_lng]
+            if len(walk_path) == 1:
+                walk_path.append([target[0], target[1]])
+            else:
+                walk_path[-1] = [target[0], target[1]]
     walk_time = walk_dist / WALK_SPEED_KMH * 60
 
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to=?",
@@ -1185,6 +934,13 @@ def _recompute_route_for_request(request_row):
         if car_path is None:
             car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
             car_dist = distance_km(assigned_car['lat'], assigned_car['lng'], target[0], target[1])
+        else:
+            car_path = list(car_path)
+            if len(car_path) < 2:
+                car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
+            else:
+                car_path[0] = [assigned_car['lat'], assigned_car['lng']]
+                car_path[-1] = [target[0], target[1]]
         sp = assigned_car['speed'] or 30
         dt = car_dist / sp * 60
         best_time = wtc + dt
@@ -1203,6 +959,13 @@ def _recompute_route_for_request(request_row):
             if car_path is None:
                 car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
                 car_dist = distance_km(car['lat'], car['lng'], target[0], target[1])
+            else:
+                car_path = list(car_path)
+                if len(car_path) < 2:
+                    car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
+                else:
+                    car_path[0] = [car['lat'], car['lng']]
+                    car_path[-1] = [target[0], target[1]]
             sp = car['speed'] or 30
             dt = car_dist / sp * 60
             total = wtc + dt
@@ -1242,24 +1005,94 @@ def _recompute_route_for_request(request_row):
     return json.dumps(route_json, ensure_ascii=False), fields
 
 
+def _strip_route_payload(comment):
+    """Удаляет только служебный ROUTE JSON, сохраняя текст отчёта инженера."""
+    comment = comment or ''
+    if not comment.startswith('ROUTE:'):
+        return comment
+    rest = comment[6:]
+    depth = 0
+    end = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(rest):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        return rest.strip()
+    return rest[end:].strip()
+
+
+def _clear_route_for_request(cur, request_id, comment):
+    """Стирает маршрут у заявки, которая больше не находится в активной работе."""
+    cleaned = _strip_route_payload(comment)
+    cur.execute("""UPDATE requests SET engineer_comment=?, using_car=0,
+                   walk_to_car=0, car_time=0, best_car=NULL WHERE id=?""",
+                (cleaned, request_id))
+
+
+def _cleanup_inactive_route_payloads(cur):
+    """Удаляет ROUTE JSON у всех заявок, которые не принадлежат работающим инженерам."""
+    cur.execute("""SELECT r.id, r.engineer_comment FROM requests r
+                   LEFT JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.engineer_comment LIKE 'ROUTE:%'
+                     AND NOT (
+                       r.routing_stage='technician'
+                       AND r.status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
+                       AND e.status='busy'
+                       AND e.task_step IN ('pending','accepted','in_car','arrived','diagnosing')
+                       AND e.coords_lat IS NOT NULL AND e.coords_lng IS NOT NULL
+                       AND r.parking_id IS NOT NULL AND r.parking_id != ''
+                     )""")
+    stale = cur.fetchall()
+    for row in stale:
+        _clear_route_for_request(cur, row['id'], row['engineer_comment'])
+    return len(stale)
+
+
 def _recalc_route_for_request_id(request_id, force=False):
     if not request_id:
         return
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment, r.status,
-                          e.task_step AS engineer_task_step
+                          r.routing_stage, e.task_step AS engineer_task_step, e.status AS engineer_status,
+                          e.coords_lat AS engineer_lat, e.coords_lng AS engineer_lng
                    FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
-                   WHERE r.id=? AND r.status NOT IN
-                   ('completed','cancelled','flight_cancelled','draft')""", (request_id,))
+                   WHERE r.id=?""", (request_id,))
     req = cur.fetchone()
     if not req:
         conn.close()
         return
-    # Маршрут-превью строится сразу после назначения, ещё до ответа инженера.
-    # Фактический выезд/отсчёт ETA запускается только после принятия.
-    if req['engineer_task_step'] not in ('pending', 'idle', '', None,
-                                         'accepted', 'in_car', 'arrived', 'diagnosing'):
+    # Маршрут-превью создаётся сразу после назначения (pending).
+    # До принятия он только отображается и не запускает движение/таймер.
+    # После принятия тот же маршрут становится активным маршрутом поездки.
+    route_terminal_statuses = ('completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted')
+    route_work_steps = ('pending', 'accepted', 'in_car', 'arrived', 'diagnosing')
+    is_working = (req['status'] not in route_terminal_statuses and
+                  req['routing_stage'] == 'technician' and
+                  req['engineer_id'] is not None and req['engineer_status'] == 'busy' and
+                  req['engineer_task_step'] in route_work_steps and
+                  req['engineer_lat'] is not None and req['engineer_lng'] is not None and
+                  str(req['parking_id'] or '') in PARKING_COORDS)
+    if not is_working:
+        _clear_route_for_request(cur, request_id, req['engineer_comment'])
+        conn.commit()
         conn.close()
         return
     old_comment = req['engineer_comment'] or ''
@@ -1269,6 +1102,8 @@ def _recalc_route_for_request_id(request_id, force=False):
 
     result = _recompute_route_for_request(req)
     if not result:
+        _clear_route_for_request(cur, request_id, req['engineer_comment'])
+        conn.commit()
         conn.close()
         return
     new_route, fields = result
@@ -1311,32 +1146,56 @@ def _recalc_routes_for_engineer(eng_id, force=False):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT id FROM requests
-                   WHERE engineer_id=? AND status NOT IN
-                   ('completed','cancelled','flight_cancelled','draft')""", (eng_id,))
+                   WHERE engineer_id=? AND routing_stage='technician' AND status NOT IN
+                   ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')""", (eng_id,))
     ids = [r['id'] for r in cur.fetchall()]
     conn.close()
     for rid in ids:
         _recalc_route_for_request_id(rid, force=force)
         
 def _recalc_all_active_routes():
-    """Пересчитывает ROUTE для всех активных назначенных заявок.
-    Вызывается после отказа инженера — освободился транспорт/инженер,
-    маршруты остальных заявок могли измениться."""
+    """Пересчитывает маршруты только инженеров с принятым активным заданием.
+    У остальных заявок удаляет сохранённый ROUTE JSON, не затрагивая отчёт."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT r.id FROM requests r
                    JOIN engineers e ON e.id=r.engineer_id
-                   WHERE r.status NOT IN ('completed','cancelled','flight_cancelled','draft','queued')
-                     AND e.task_step IN ('accepted','in_car','arrived','diagnosing')
+                   WHERE r.status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
+                     AND r.routing_stage='technician'
+                     AND e.task_step IN ('pending','accepted','in_car','arrived','diagnosing')
+                     AND e.status='busy'
+                     AND e.coords_lat IS NOT NULL AND e.coords_lng IS NOT NULL
                      AND r.engineer_id IS NOT NULL
                      AND r.parking_id IS NOT NULL AND r.parking_id != ''""")
-    ids = [r['id'] for r in cur.fetchall()]
+    active_ids = [r['id'] for r in cur.fetchall()]
+    _cleanup_inactive_route_payloads(cur)
+    conn.commit()
     conn.close()
-    for rid in ids:
+    for rid in active_ids:
         try:
-            _recalc_route_for_request_id(rid)
+            _recalc_route_for_request_id(rid, force=True)
         except Exception as e:
             print(f'[RECALC] {rid}: {e}')
+
+
+def _archive_requests_before_delete(cur, where_sql, params=(), reason='Удалена'):
+    """Сохраняет отметку об удалении в routing_history существующей строки requests.
+    Физически запись не удаляется: это и есть долговременный архив без новых таблиц.
+    """
+    cur.execute('SELECT id, routing_history FROM requests WHERE ' + where_sql, params)
+    rows = cur.fetchall()
+    now = datetime.now(timezone.utc).isoformat()
+    for row in rows:
+        try:
+            history = json.loads(row['routing_history'] or '[]')
+            if not isinstance(history, list):
+                history = []
+        except Exception:
+            history = []
+        history.append({'at': now, 'stage': 'deleted', 'actor': 'Система', 'note': reason})
+        cur.execute("UPDATE requests SET routing_history=?, status='deleted', routing_stage='done' WHERE id=?",
+                    (json.dumps(history, ensure_ascii=False), row['id']))
+    return len(rows)
 
 
 def _log_routing_event(conn, rid, stage, actor, note=''):
@@ -1417,6 +1276,40 @@ def api_parking():
 @app.route('/api/map-objects', methods=['GET'])
 def api_map_objects():
     return jsonify(MAP_OBJECTS)
+
+
+@app.route('/api/aircraft/taxi-reservations', methods=['POST'])
+def api_aircraft_taxi_reservations():
+    """Обновляет временные зоны занятости рулёжных маршрутов самолётами."""
+    data = request.get_json(silent=True) or {}
+    items = data.get('aircraft') or []
+    if not isinstance(items, list) or len(items) > 100:
+        return jsonify({'success': False, 'error': 'Некорректный список самолётов'}), 400
+    now = time.time()
+    updated = {}
+    for item in items:
+        if not isinstance(item, dict) or not item.get('id'):
+            continue
+        route = item.get('route') or []
+        clean_route = []
+        if isinstance(route, list):
+            for point in route[:5000]:
+                try:
+                    lat, lng = float(point[0]), float(point[1])
+                    if -90 <= lat <= 90 and -180 <= lng <= 180:
+                        clean_route.append([lat, lng])
+                except (TypeError, ValueError, IndexError):
+                    continue
+        if clean_route:
+            updated[str(item['id'])] = {
+                'aircraft': str(item.get('aircraft') or 'самолёт')[:80],
+                'route': clean_route,
+                'updated_at': now,
+            }
+    with AIRCRAFT_TAXI_LOCK:
+        AIRCRAFT_TAXI_RESERVATIONS.clear()
+        AIRCRAFT_TAXI_RESERVATIONS.update(updated)
+    return jsonify({'success': True, 'active': len(updated)})
 
 
 @app.route('/api/map/object-positions', methods=['GET'])
@@ -1746,7 +1639,7 @@ def _compute_recurring_map(conn):
     cur.execute("""SELECT aircraft, fault_type, COUNT(*) AS cnt, MAX(created_at) AS last_seen
                    FROM requests
                    WHERE aircraft IS NOT NULL AND aircraft!='' AND fault_type IS NOT NULL
-                     AND status NOT IN ('completed','cancelled','flight_cancelled','draft')
+                     AND status NOT IN ('completed','cancelled','flight_cancelled','draft','deleted')
                      AND created_at >= datetime('now','-30 days')
                    GROUP BY aircraft, fault_type""")
     out = {}
@@ -1825,7 +1718,7 @@ def get_mcc_defects():
         mcc_proc_mh, mcc_mel_category, mcc_due_date, mcc_combined_check,
         mcc_mel_revision, mcc_mel_description, mcc_mel_restrictions, mcc_due_condition,
         mcc_proc_o_text, mcc_proc_m_text, cpu_mel_o_completed, cpu_mel_m_completed,
-        mel_catalog_id, mel_assessed_by, mel_assessment_comment, mel_rectification_interval,
+        mel_catalog_id, mel_assessed_by, mel_assessment_comment, mel_rectification_interval, mcc_mel_return_comment,
         mel_m_procedure_completed, mel_m_procedure_comment,
         mel_initial_engineer_report, mel_initial_engineer_report_at, mel_initial_assessed_by,
         mel_deadline_mode, mel_deadline_value, mel_deadline_start_rule,
@@ -1841,7 +1734,7 @@ def get_mcc_defects():
         crs_signature, crs_signed_at, crs_signed_by,
         routing_stage, routing_history, flight_status, flight_status_reason,
         engineer_condition, engineer_report_at, dispatcher_report_at, cpu_report_at, pilot_notice_at
-        FROM requests WHERE status NOT IN ('cancelled','flight_cancelled','draft')
+        FROM requests WHERE status NOT IN ('cancelled','flight_cancelled','draft','deleted')
         ORDER BY created_at DESC""")
     rows = cur.fetchall()
     rec_map = _compute_recurring_map(conn)
@@ -1931,6 +1824,28 @@ def mcc_assign_inspection_legacy():
     return mcc_send_to_cpu()
 
 
+@app.route('/api/engineer/reports', methods=['GET'])
+def engineer_past_reports():
+    """История отчётов конкретного инженера; удалённые заявки в неё не попадают."""
+    engineer_id = str(request.args.get('engineer_id') or '').strip()
+    if not engineer_id:
+        return jsonify({'success': False, 'error': 'Не указан engineer_id'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, flight_number, fault_type, parking_id, severity,
+                   engineer_verdict, engineer_condition, engineer_comment,
+                   engineer_report_at, created_at, status, mcc_status, mcc_decision,
+                   routing_stage, mcc_mel_ref, mcc_ata, mcc_mel_category,
+                   mcc_mel_revision, mel_rectification_interval
+                   FROM requests
+                   WHERE engineer_id=? AND engineer_report_at IS NOT NULL
+                     AND TRIM(COALESCE(engineer_comment,'')) != ''
+                   ORDER BY engineer_report_at DESC, created_at DESC""", (engineer_id,))
+    reports = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'reports': reports})
+
+
 @app.route('/api/engineer/submit_report', methods=['POST'])
 def engineer_submit_report():
     """Инженер завершает диагностику и сразу передаёт отчёт в ЦПУ, не выпуская ВС."""
@@ -1945,6 +1860,7 @@ def engineer_submit_report():
     mel_ata = str(data.get('mel_ata') or '').strip()[:20]
     mel_category = str(data.get('mel_category') or '').strip()[:20]
     mel_revision = str(data.get('mel_revision') or '').strip()[:80]
+    mel_interval_limit = str(data.get('mel_interval_limit') or '').strip()[:500]
     mel_catalog_id = ''
     mel_assessment_comment = ''
     mel_m_procedure_completed = bool(data.get('mel_m_procedure_completed'))
@@ -1957,8 +1873,8 @@ def engineer_submit_report():
         return jsonify({'success': False, 'error': 'Выберите один из трёх результатов диагностики: AOG, MEL или «Устранено»'}), 400
     if condition == 'mel_deferred' and not mel_item_ref:
         return jsonify({'success': False, 'error': 'Укажите номер пункта MEL, например 27-2-1'}), 400
-    if condition == 'mel_deferred' and not (mel_ata and mel_category and mel_revision):
-        return jsonify({'success': False, 'error': 'Заполните ATA, категорию и редакцию MEL'}), 400
+    if condition == 'mel_deferred' and not (mel_ata and mel_category and mel_revision and mel_interval_limit):
+        return jsonify({'success': False, 'error': 'Заполните ATA, категорию, редакцию MEL и интервал / лимит'}), 400
     if not findings or not report_text:
         return jsonify({'success': False, 'error': 'Отчёт и описание обнаруженного обязательны'}), 400
     if duration < 1 or duration > 480:
@@ -1968,12 +1884,12 @@ def engineer_submit_report():
     cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, created_at, engineer_id, engineer_name, routing_stage, status, engineer_comment,
         mcc_mel_choice, mel_catalog_id, mcc_proc_m, mcc_proc_o, mcc_proc_m_text, mcc_proc_o_text, cpu_mel_applicability_confirmed,
-        cpu_mel_o_completed, cpu_mel_o_comment FROM requests WHERE id=?""", (rid,))
+        cpu_mel_o_completed, cpu_mel_o_comment, mel_rectification_interval FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
-    if row['routing_stage'] != 'technician' or row['status'] in ('completed','cancelled','flight_cancelled'):
+    if row['routing_stage'] != 'technician' or row['status'] in ('completed','cancelled','flight_cancelled','deleted'):
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка уже не находится у инженера'}), 409
     if engineer_id and str(row['engineer_id'] or '') != engineer_id:
@@ -2007,6 +1923,7 @@ def engineer_submit_report():
             'mcc_mel_choice': 'MEL', 'mcc_mel_ref': mel_item_ref,
             'mcc_ata': mel_ata, 'mcc_mel_category': mel_category,
             'mcc_mel_revision': mel_revision,
+            'mel_rectification_interval': (str(row['mel_rectification_interval'] or '').strip()[:500] if mel_m_maintenance_task else mel_interval_limit),
             'mcc_proc_m': 1 if mel_m_maintenance_task else 0,
             'mcc_proc_m_text': str(row['mcc_proc_m_text'] or '') if mel_m_maintenance_task else '',
             'mcc_proc_o': int(row['mcc_proc_o'] or 0) if mel_m_maintenance_task else 0,
@@ -2028,27 +1945,7 @@ def engineer_submit_report():
          '. Условная эксплуатация не активна; ожидаются проверка ЦПУ и решение MCC.' if preliminary_verdict == 'MEL' else
          'Инженер завершил диагностику. Отчёт передан в ЦПУ; полёт запрещён до решения MCC и отдельного допуска.')
     )
-    # ROUTE:{...} is kept together with the report so the dispatcher can
-    # rebuild the ETA and map after refresh. Do not depend on browser localStorage.
-    previous_comment = row['engineer_comment'] or ''
-    route_prefix = ''
-    if previous_comment.startswith('ROUTE:'):
-        route_payload = previous_comment[6:]
-        depth = 0
-        end_index = -1
-        for idx, char in enumerate(route_payload):
-            if char == '{':
-                depth += 1
-            elif char == '}':
-                depth -= 1
-                if depth == 0:
-                    end_index = idx + 1
-                    break
-        if end_index > 0:
-            route_prefix = 'ROUTE:' + route_payload[:end_index]
-    if route_prefix and not report_text.startswith('ROUTE:'):
-        report_text = route_prefix + '\n' + report_text
-
+    # При передаче отчёта в ЦПУ маршрут инженера удаляется; в комментарии остаётся только отчёт.
     cur.execute("""UPDATE requests SET
         status='report_submitted', routing_stage='cpu_report',
         engineer_condition=?, engineer_verdict=?, engineer_verdict_at=CURRENT_TIMESTAMP,
@@ -2081,7 +1978,7 @@ def engineer_submit_report():
         1 if preserve_cpu_mel_o else 0, 1 if preserve_cpu_mel_o else 0,
         1 if preserve_cpu_mel_o else 0, flight_reason, preliminary_verdict, rid))
     if row['engineer_id']:
-        cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle' WHERE id=?", (row['engineer_id'],))
+        release_engineers_without_active_requests(conn, [row['engineer_id']])
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
     event_text = 'Техник установил результат «' + preliminary_verdict + '». Отчёт передан в ЦПУ. Состояние: ' + condition
     if preliminary_verdict == 'MEL':
@@ -2089,6 +1986,7 @@ def engineer_submit_report():
     _log_routing_event(conn, rid, 'cpu_report', 'Инженер', event_text)
     conn.commit()
     conn.close()
+    _recalc_route_for_request_id(rid, force=True)
     # Инженер освобождён: сразу запускаем автоподбор для ожидающих заявок.
     try:
         try_reassign_queued()
@@ -2114,10 +2012,12 @@ def mcc_finalize():
     rid = data.get('request_id')
     action = data.get('action')
     comment = (data.get('comment') or '').strip()
-    if not rid or action not in ('AOG_RECOVERY', 'MEL_DEFER', 'CLOSE'):
+    if not rid or action not in ('CONFIRM_VERDICT', 'AOG_RECOVERY', 'MEL_DEFER', 'MEL_RETURN_CPU', 'CLOSE'):
         return jsonify({'success': False, 'error': 'Неверное действие'}), 400
-    if not comment:
+    if not comment and action != 'CONFIRM_VERDICT':
         return jsonify({'success': False, 'error': 'Комментарий обязателен'}), 400
+    if action == 'CONFIRM_VERDICT' and not comment:
+        comment = 'Технический вердикт инженера подтверждён MCC.'
 
     conn = get_db()
     cur = conn.cursor()
@@ -2127,6 +2027,15 @@ def mcc_finalize():
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
     is_mel_workflow = row['mcc_mel_choice'] == 'MEL'
+    requested_action = action
+    if action == 'CONFIRM_VERDICT':
+        if is_mel_workflow and row['engineer_verdict'] == 'MEL':
+            action = 'MEL_DEFER'
+        elif row['engineer_verdict'] == 'AOG' and row['engineer_condition'] == 'aog':
+            action = 'AOG_RECOVERY'
+        else:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Подтверждение доступно только для вердикта MEL или AOG'}), 409
     if is_mel_workflow:
         if row['engineer_verdict'] != 'MEL' or row['engineer_condition'] != 'mel_deferred':
             conn.close()
@@ -2174,15 +2083,33 @@ def mcc_finalize():
     dce_name = data.get('dce_name') or 'DCE'
     mcc_reviewer = str(data.get('reviewer') or dce_name).strip()
 
+    if action == 'MEL_RETURN_CPU':
+        if not is_mel_workflow or row['routing_stage'] != 'mcc_mel_finalize' or row['mcc_status'] not in ('MEL_CPU_CHECKED', 'MEL_REVIEW'):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Вернуть в ЦПУ можно только MEL-отчёт, ожидающий решения MCC'}), 409
+        return_comment = 'не удалось принять решение'
+        cur.execute("""UPDATE requests SET
+            mcc_status='MEL_CPU_RECHECK', mcc_decision='MEL_RETURNED_TO_CPU',
+            routing_stage='cpu_report', status='report_submitted',
+            mcc_mel_return_comment=?, mcc_comment=COALESCE(mcc_comment,'') || ?,
+            flight_status='DO_NOT_FLY',
+            flight_status_reason='MCC вернул MEL-отчёт в ЦПУ на перепроверку. Полёт запрещён.'
+            WHERE id=?""", (return_comment,
+                '\n[MCC→ЦПУ · MEL перепроверка] ' + return_comment, rid))
+        _log_routing_event(conn, rid, 'cpu_report', mcc_reviewer,
+            'MEL возвращён в ЦПУ на перепроверку: ' + return_comment)
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'request_id': rid, 'action': action,
+                        'mcc_status': 'MEL_CPU_RECHECK', 'routing_stage': 'cpu_report',
+                        'comment': return_comment, 'flight_status': 'DO_NOT_FLY'})
+
     if action == 'AOG_RECOVERY':
         if row['engineer_verdict'] != 'AOG' or row['engineer_condition'] != 'aog':
             conn.close()
             return jsonify({'success': False, 'error': 'AOG Recovery доступен только если техник установил результат AOG'}), 400
         etr = (data.get('etr') or '').strip()
         aog_action = (data.get('aog_action') or '').strip()
-        if not etr:
-            conn.close()
-            return jsonify({'success': False, 'error': 'Укажите ETR'}), 400
         cur.execute("""UPDATE requests SET
             mcc_status='AOG_CONFIRMED', status='aog_waiting',
             mcc_decision='AOG_RECOVERY', mcc_mel_choice='',
@@ -2194,7 +2121,7 @@ def mcc_finalize():
             pilot_notice_at=CURRENT_TIMESTAMP
             WHERE id=?""",
             ('\n[MCC] AOG Recovery: ' + comment, etr, aog_action, dce_name, kupol_ref, rid))
-        _log_routing_event(conn, rid, 'pilot_notice', 'MCC', 'Пилоту передан запрет на вылет. AOG / ETR=' + etr)
+        _log_routing_event(conn, rid, 'pilot_notice', 'MCC', 'Вердикт AOG подтверждён MCC. ETR=' + (etr or 'не указан; будет заполнен при планировании'))
 
     elif action == 'MEL_DEFER':
         if is_mel_workflow:
@@ -2241,7 +2168,7 @@ def mcc_finalize():
     conn.commit()
     conn.close()
     return jsonify({
-        'success': True, 'request_id': rid, 'action': action,
+        'success': True, 'request_id': rid, 'action': requested_action,
         'mcc_status': {'AOG_RECOVERY': 'AOG_CONFIRMED', 'MEL_DEFER': 'MEL_READY', 'CLOSE': 'REPAIRED'}.get(action, action),
         'routing_stage': 'pilot_notice', 'flight_status': 'DO_NOT_FLY'
     })
@@ -2305,24 +2232,19 @@ def mcc_clear(clear_type):
     cur = conn.cursor()
     try:
         deleted = 0
-        if clear_type == 'queue':
-            cur.execute("DELETE FROM requests WHERE mcc_status='PENDING'")
-            deleted = cur.rowcount
-        elif clear_type == 'inspection':
-            cur.execute("DELETE FROM requests WHERE mcc_status='INSPECTION'")
-            deleted = cur.rowcount
-        elif clear_type == 'deferred':
-            cur.execute("DELETE FROM requests WHERE mcc_status IN ('MEL','MEL_REVIEW','MEL_READY','MEL_ACTIVE','MEL_EXPIRED')")
-            deleted = cur.rowcount
-        elif clear_type == 'aog':
-            cur.execute("DELETE FROM requests WHERE mcc_status='AOG_CONFIRMED'")
-            deleted = cur.rowcount
-        elif clear_type == 'history':
-            cur.execute("DELETE FROM requests WHERE mcc_status IN ('REPAIRED','RELEASED','CLOSED')")
-            deleted = cur.rowcount
-        elif clear_type == 'all':
-            cur.execute("DELETE FROM requests WHERE status!='draft'")
-            deleted = cur.rowcount
+        delete_where = {
+            'queue': "mcc_status='PENDING' AND status!='deleted'",
+            'inspection': "mcc_status='INSPECTION' AND status!='deleted'",
+            'deferred': "mcc_status IN ('MEL','MEL_REVIEW','MEL_READY','MEL_ACTIVE','MEL_EXPIRED') AND status!='deleted'",
+            'aog': "mcc_status='AOG_CONFIRMED' AND status!='deleted'",
+            'history': "mcc_status IN ('REPAIRED','RELEASED','CLOSED') AND status!='deleted'",
+            'all': "status NOT IN ('draft','deleted')",
+        }[clear_type]
+        cur.execute(f"SELECT DISTINCT engineer_id FROM requests WHERE {delete_where} AND engineer_id IS NOT NULL")
+        affected_engineers = [r['engineer_id'] for r in cur.fetchall()]
+        deleted = _archive_requests_before_delete(cur, delete_where, reason='Очищено через MCC: ' + clear_type)
+        release_engineers_without_active_requests(conn, affected_engineers)
+        cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to IN (SELECT id FROM requests WHERE status='deleted')")
         conn.commit()
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
@@ -2343,18 +2265,76 @@ def confirm_pilot_request(rid):
 
 
 @app.route('/api/pilot/sign_crs/<rid>', methods=['POST'])
+@app.route('/api/requests/<rid>/pilot-signature', methods=['POST'])
 def pilot_sign_crs(rid):
-    """Пилот не может самостоятельно снимать технический запрет или выпускать ВС."""
+    """Сохраняет подпись пилота об ознакомлении с уже полученным вердиктом.
+
+    Второй URL /api/requests/<id>/pilot-signature используется как основной:
+    некоторые reverse-proxy/правила доступа блокируют старый URL /api/pilot/....
+    Никакого отдельного имени/подтверждения от пилота не требуется.
+    """
+    data = request.get_json(silent=True) or {}
+    signature = str(data.get('signature') or '').strip()
+    signed_by = str(data.get('signed_by') or '').strip()
+
+    if not signature.startswith('data:image/') or ',' not in signature:
+        return jsonify({'success': False, 'error': 'Нарисуйте подпись в поле и повторите отправку'}), 400
+    if len(signature) > 2_500_000:
+        return jsonify({'success': False, 'error': 'Изображение подписи слишком большое'}), 413
+
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, flight_status FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return jsonify({'success': False, 'error': 'Не найдена'}), 404
-    if row['flight_status'] != 'RELEASED':
-        return jsonify({'success': False, 'error': 'ПОЛЁТ ЗАПРЕЩЁН. Подтверждение пилота не снимает техническое ограничение. Требуется отдельное решение MCC.'}), 403
-    return jsonify({'success': False, 'error': 'Допуск уже оформляется/оформлен MCC; подпись пилота не является выпуском ВС.'}), 409
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT id, pilot_name, engineer_verdict, engineer_condition,
+            engineer_report_at, mcc_decision, routing_stage, crs_signed_at
+            FROM requests WHERE id=?""", (rid,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+        # Разрешаем подпись, когда в заявке уже есть переданный результат.
+        # Не привязываем сохранение к одному конкретному mcc_status: для
+        # MEL/AOG/ремонта используются разные статусы.
+        has_verdict = bool(row['engineer_verdict'] or row['engineer_condition'] or
+                           row['engineer_report_at'] or row['mcc_decision'])
+        if not has_verdict:
+            return jsonify({'success': False, 'error': 'Сначала дождитесь итогового вердикта'}), 409
+        if row['crs_signed_at']:
+            return jsonify({'success': True, 'already_signed': True,
+                            'message': 'Подпись уже сохранена'}), 200
+
+        if not signed_by:
+            signed_by = str(row['pilot_name'] or '').strip() or 'Пилот'
+
+        cur.execute("""UPDATE requests
+            SET crs_signature=?, crs_signed_at=CURRENT_TIMESTAMP, crs_signed_by=?
+            WHERE id=? AND (crs_signed_at IS NULL OR crs_signed_at='')""",
+            (signature, signed_by, rid))
+        if cur.rowcount != 1:
+            # Идемпотентность: повторный клик не превращается в ошибку.
+            cur.execute("SELECT crs_signed_at, crs_signed_by FROM requests WHERE id=?", (rid,))
+            saved = cur.fetchone()
+            if saved and saved['crs_signed_at']:
+                conn.commit()
+                return jsonify({'success': True, 'already_signed': True,
+                                'message': 'Подпись уже сохранена'}), 200
+            return jsonify({'success': False, 'error': 'Не удалось сохранить подпись. Повторите попытку'}), 409
+
+        try:
+            _log_routing_event(conn, rid, row['routing_stage'] or 'pilot_notice', 'Пилот',
+                'Пилот подписал подтверждение ознакомления с техническим вердиктом; допуск ВС не изменён')
+        except Exception as log_error:
+            # Ошибка журнала не должна отменять сохранение самой подписи.
+            print(f'[PILOT SIGN] routing log warning for {rid}: {log_error}')
+        conn.commit()
+        return jsonify({'success': True, 'message': 'Подпись сохранена',
+                        'signed_by': signed_by, 'flight_status_unchanged': True}), 200
+    except Exception as exc:
+        conn.rollback()
+        print(f'[PILOT SIGN] save error for {rid}: {exc}')
+        return jsonify({'success': False, 'error': 'Ошибка сохранения подписи. Проверьте журнал сервера'}), 500
+    finally:
+        conn.close()
 
 
 @app.route('/api/mcc/authorize_release', methods=['POST'])
@@ -2425,7 +2405,7 @@ def cpu_mel_queue():
         mcc_comment, cpu_mel_o_completed, cpu_mel_m_completed,
         cpu_mel_check_comment, created_at, routing_stage, mcc_status
         FROM requests WHERE routing_stage='cpu_mel_review' AND mcc_status='MEL_REVIEW'
-          AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
+          AND status NOT IN ('cancelled','flight_cancelled','completed','draft','deleted')
         ORDER BY created_at ASC""")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -2532,7 +2512,7 @@ def cpu_queue():
                    created_at, severity, criticality, engineer_comment, flight_status, flight_status_reason
                    FROM requests
                    WHERE routing_stage='cpu'
-                     AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
+                     AND status NOT IN ('cancelled','flight_cancelled','completed','draft','deleted')
                    ORDER BY created_at ASC""")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -2708,7 +2688,8 @@ def cpu_report_queue():
                    mel_deadline_mode, mel_deadline_value, mel_deadline_start_rule,
                    mcc_proc_m_text, cpu_mel_o_completed, cpu_mel_m_completed,
                    cpu_mel_engineer_required, cpu_mel_applicability_confirmed,
-                   cpu_mel_o_comment, cpu_mel_m_comment, cpu_mel_checked_by, cpu_mel_checked_at
+                   cpu_mel_o_comment, cpu_mel_m_comment, cpu_mel_checked_by, cpu_mel_checked_at,
+                   mcc_mel_return_comment
                    FROM requests WHERE routing_stage='cpu_report'
                      AND engineer_report_at IS NOT NULL
                      AND engineer_verdict IN ('AOG','REPAIR','MEL')
@@ -2851,7 +2832,7 @@ def cpu_forward_report_to_mcc():
         cur.execute("""UPDATE requests SET routing_stage='mcc_mel_finalize', cpu_report_at=CURRENT_TIMESTAMP,
             mcc_status='MEL_CPU_CHECKED', cpu_mel_applicability_confirmed=1,
             cpu_mel_o_completed=?, cpu_mel_m_completed=?, cpu_mel_checked_by=?,
-            cpu_mel_checked_at=CURRENT_TIMESTAMP, cpu_mel_check_comment=?,
+            cpu_mel_checked_at=CURRENT_TIMESTAMP, cpu_mel_check_comment=?, mcc_mel_return_comment='',
             cpu_mel_o_comment=?, cpu_mel_m_comment=?,
             mcc_comment=COALESCE(mcc_comment,'') || ?
             WHERE id=?""", (
@@ -2964,7 +2945,7 @@ def dispatcher_queue():
                    created_at, severity, criticality, flight_status, flight_status_reason
                    FROM requests
                    WHERE routing_stage='dispatcher'
-                     AND status NOT IN ('cancelled','flight_cancelled','completed','draft')
+                     AND status NOT IN ('cancelled','flight_cancelled','completed','draft','deleted')
                    ORDER BY created_at ASC""")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -3005,7 +2986,7 @@ def dispatcher_assign():
     if (eng['status'] or 'free') != 'free':
         conn.close()
         return jsonify({'success': False, 'error': 'Инженер уже занят или недоступен'}), 409
-    cur.execute("SELECT id FROM requests WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled') AND routing_stage='technician'", (eng_id,))
+    cur.execute("SELECT id FROM requests WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','deleted') AND routing_stage='technician'", (eng_id,))
     if cur.fetchone():
         conn.close()
         return jsonify({'success': False, 'error': 'У инженера уже есть активная заявка'}), 409
@@ -3046,7 +3027,7 @@ def dispatcher_assigned():
                    FROM requests r
                    LEFT JOIN engineers e ON e.id = r.engineer_id
                    WHERE r.routing_stage='technician'
-                     AND r.status NOT IN ('completed','cancelled','flight_cancelled','draft')
+                     AND r.status NOT IN ('completed','cancelled','flight_cancelled','draft','deleted')
                    ORDER BY r.created_at DESC""")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -3064,7 +3045,9 @@ def dispatcher_request_route(rid):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment,
-                          r.status, r.routing_stage, e.task_step AS engineer_task_step
+                          r.status, r.routing_stage, e.task_step AS engineer_task_step,
+                          e.status AS engineer_status, e.coords_lat AS engineer_lat,
+                          e.coords_lng AS engineer_lng
                    FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
                    WHERE r.id=?""", (rid,))
     row = cur.fetchone()
@@ -3073,9 +3056,11 @@ def dispatcher_request_route(rid):
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
     if row['routing_stage'] != 'technician':
         return jsonify({'success': False, 'error': 'Заявка уже вышла из этапа инженера'}), 409
-    if row['engineer_task_step'] not in ('pending', 'idle', '', None,
-                                          'accepted', 'in_car', 'arrived', 'diagnosing'):
-        return jsonify({'success': False, 'error': 'Назначение больше не активно',
+    if (row['status'] in ('completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted') or
+            row['routing_stage'] != 'technician' or row['engineer_status'] != 'busy' or
+            row['engineer_lat'] is None or row['engineer_lng'] is None or
+            row['engineer_task_step'] not in ('pending', 'accepted', 'in_car', 'arrived', 'diagnosing')):
+        return jsonify({'success': False, 'error': 'Маршрут доступен только назначенному инженеру с активной заявкой',
                         'awaiting_acceptance': False}), 409
 
     # Rebuild on demand if route data is missing or malformed.
@@ -3114,6 +3099,8 @@ def dispatcher_request_route(rid):
 @app.route('/api/engineers', methods=['GET'])
 def get_engineers():
     conn = get_db()
+    sync_engineer_availability(conn)
+    conn.commit()
     cur = conn.cursor()
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
@@ -3148,6 +3135,8 @@ def get_my_engineer():
 @app.route('/api/engineers/<eng_id>', methods=['GET'])
 def get_engineer(eng_id):
     conn = get_db()
+    sync_engineer_availability(conn)
+    conn.commit()
     cur = conn.cursor()
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
@@ -3219,6 +3208,7 @@ def update_engineer(eng_id):
         cur.execute("UPDATE users SET name=? WHERE id=?", (data['name'], eng_id))
     conn.commit()
     conn.close()
+    _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True})
 
 @app.route('/api/requests/<rid>/accept', methods=['POST'])
@@ -3339,6 +3329,7 @@ def update_engineer_step(eng_id):
 
     conn.commit()
     conn.close()
+    _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True, 'step': step})
 
 
@@ -3350,6 +3341,7 @@ def delete_engineer(eng_id):
     cur.execute("DELETE FROM users WHERE id=?", (eng_id,))
     conn.commit()
     conn.close()
+    _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True})
 
 
@@ -3366,6 +3358,9 @@ def update_engineer_coords(eng_id):
             raise ValueError('Координаты вне допустимого диапазона')
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'Некорректные координаты'}), 400
+    conflicting_aircraft = _aircraft_taxi_conflict(lat, lng)
+    if conflicting_aircraft:
+        return jsonify({'success': False, 'error': 'Перемещение запрещено: рулит самолёт ' + conflicting_aircraft, 'safety_block': True}), 409
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
@@ -3525,6 +3520,9 @@ def update_transport_coords(tid):
             raise ValueError('Координаты вне допустимого диапазона')
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'Некорректные координаты'}), 400
+    conflicting_aircraft = _aircraft_taxi_conflict(lat, lng)
+    if conflicting_aircraft:
+        return jsonify({'success': False, 'error': 'Перемещение запрещено: рулит самолёт ' + conflicting_aircraft, 'safety_block': True}), 409
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, assigned_to FROM transport WHERE id=?", (tid,))
@@ -3579,8 +3577,32 @@ def export_operational_reports_xlsx():
     cur = conn.cursor()
     cur.execute("""SELECT r.*, ar.aircraft_type, ar.configuration AS aircraft_configuration
         FROM requests r LEFT JOIN aircraft_registry ar ON ar.registration=UPPER(r.aircraft)
-        WHERE r.status NOT IN ('draft','cancelled') ORDER BY r.created_at DESC""")
+        ORDER BY r.created_at DESC""")
     rows = [dict(x) for x in cur.fetchall()]
+    archived = []
+    audit_rows = []
+    for row in rows:
+        is_deleted = row.get('status') == 'deleted'
+        row['record_storage'] = 'Архив удалённых' if is_deleted else 'В базе данных'
+        row['archive_reason'] = ''
+        row['archived_at'] = ''
+        try:
+            history = json.loads(row.get('routing_history') or '[]')
+        except Exception:
+            history = []
+        for event in history if isinstance(history, list) else []:
+            if isinstance(event, dict):
+                audit_rows.append({
+                    'request_id': row.get('id', ''), 'occurred_at': event.get('at') or event.get('timestamp') or '',
+                    'action': event.get('action') or 'Событие маршрута', 'actor': event.get('actor') or '',
+                    'stage': event.get('stage') or '', 'details': event.get('note') or event.get('details') or ''
+                })
+        if is_deleted:
+            deleted_events = [e for e in history if isinstance(e, dict) and e.get('stage') == 'deleted'] if isinstance(history, list) else []
+            if deleted_events:
+                row['archive_reason'] = deleted_events[-1].get('note') or ''
+                row['archived_at'] = deleted_events[-1].get('at') or ''
+            archived.append(row)
     conn.close()
 
     wb = Workbook()
@@ -3609,7 +3631,7 @@ def export_operational_reports_xlsx():
         ('Комментарий MCC', 'mcc_mel_review_comment'), ('Совокупное влияние проверено', 'mcc_mel_combined_checked'),
         ('Экипаж проинформирован', 'mcc_mel_crew_briefed'), ('Ограничения проверены', 'mcc_mel_restrictions_verified'),
         ('План устранения', 'mcc_mel_repair_plan'), ('Причина статуса полёта', 'flight_status_reason'),
-        ('Создано', 'created_at')]
+        ('Создано', 'created_at'), ('Хранение записи', 'record_storage')]
     ws.append([c[0] for c in columns])
     for r in rows:
         ws.append([r.get(c[1]) if r.get(c[1]) is not None else '' for c in columns])
@@ -3647,6 +3669,27 @@ def export_operational_reports_xlsx():
             if isinstance(event, dict):
                 log_ws.append([r.get('id',''), r.get('aircraft',''), event.get('timestamp') or event.get('at') or '',
                                event.get('stage') or '', event.get('actor') or '', event.get('note') or event.get('action') or ''])
+    for event in audit_rows:
+        log_ws.append([event.get('request_id',''), '', event.get('occurred_at',''),
+                       event.get('stage',''), event.get('actor',''),
+                       (event.get('action','') + (': ' + event.get('details','') if event.get('details') else ''))])
+
+    reports_ws = wb.create_sheet('Отчёты инженеров')
+    report_cols = [('Заявка','id'),('Борт','aircraft'),('Рейс','flight_number'),('Неисправность','fault_type'),
+                   ('Инженер','engineer_name'),('Вердикт','engineer_verdict'),('Состояние','engineer_condition'),
+                   ('Отчёт','engineer_comment'),('Дата отчёта','engineer_report_at'),('MEL','mcc_mel_ref'),
+                   ('ATA','mcc_ata'),('Категория MEL','mcc_mel_category'),('Редакция MEL','mcc_mel_revision'),
+                   ('Интервал MEL','mel_rectification_interval'),('Хранение записи','record_storage')]
+    reports_ws.append([x[0] for x in report_cols])
+    for r in rows:
+        if r.get('engineer_report_at') or r.get('engineer_comment') or r.get('mel_initial_engineer_report'):
+            reports_ws.append([r.get(k) if r.get(k) is not None else '' for _, k in report_cols])
+
+    archive_ws = wb.create_sheet('Архив удалённых')
+    archive_ws.append(['Заявка','Борт','Дата создания','Дата архивации','Причина','Инженер','Вердикт','Отчёт инженера'])
+    for r in archived:
+        archive_ws.append([r.get('id',''), r.get('aircraft',''), r.get('created_at',''), r.get('archived_at',''),
+                           r.get('archive_reason',''), r.get('engineer_name',''), r.get('engineer_verdict',''), r.get('engineer_comment','')])
 
     for sheet in wb.worksheets:
         sheet.freeze_panes = 'A2'
@@ -3683,11 +3726,13 @@ def get_requests():
     conn = get_db()
     sync_expired_mel(conn)
     cur = conn.cursor()
+    _cleanup_inactive_route_payloads(cur)
+    conn.commit()
     source = request.args.get('source')
     pilot_name = request.args.get('pilot_name')
 
     sql = """SELECT r.id, r.aircraft, r.flight_number, r.fault_type, r.severity, r.terminal, r.parking_id,
-        r.description, r.source, r.engineer_id, r.engineer_name, e.task_step AS engineer_task_step,
+        r.description, r.source, r.engineer_id, r.engineer_name, e.task_step AS engineer_task_step, e.status AS engineer_status,
         ar.aircraft_type, ar.configuration AS aircraft_configuration,
         r.travel_time, r.using_car, r.walk_to_car, r.car_time, r.best_car,
         r.status, r.criticality, r.engineer_comment, r.created_at,
@@ -3711,7 +3756,7 @@ def get_requests():
         r.engineer_condition, r.engineer_report_at, r.dispatcher_report_at, r.cpu_report_at, r.pilot_notice_at
         FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
         LEFT JOIN aircraft_registry ar ON ar.registration=UPPER(r.aircraft)
-        WHERE r.status != 'draft'"""
+        WHERE r.status NOT IN ('draft','deleted')"""
     params = []
     if source:
         sql += " AND source=?"
@@ -3818,13 +3863,11 @@ def delete_request(rid):
         conn.close()
         return jsonify({'error': 'Не найдена'}), 404
     eng_id = row['engineer_id']
-    old_status = row['status']
-    cur.execute("DELETE FROM requests WHERE id=?", (rid,))
+    _archive_requests_before_delete(cur, 'id=?', (rid,), reason='Удалена диспетчером')
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
-    if eng_id and old_status not in ('completed', 'cancelled', 'flight_cancelled'):
-        other = engineer_has_active_requests(conn, eng_id, rid)
-        if other == 0:
-            set_engineer_free(conn, eng_id)
+    # Освобождаем исполнителя независимо от прежнего статуса удалённой заявки.
+    # Если у него осталась другая активная заявка, статус busy сохраняется.
+    release_engineers_without_active_requests(conn, [eng_id])
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -3899,7 +3942,7 @@ def dispatch():
     target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled')
+        WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
           AND engineer_id IS NOT NULL""")
     busy = {r['engineer_id'] for r in cur.fetchall()}
 
@@ -4064,7 +4107,7 @@ def cancel_request(rid):
     target = PARKING_COORDS.get(parking, (55.975, 37.410))
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled')
+        WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
           AND engineer_id IS NOT NULL AND id!=?""", (rid,))
     busy = {r['engineer_id'] for r in cur.fetchall()}
 
@@ -4175,7 +4218,7 @@ def reject_request(rid):
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled')
+        WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
           AND engineer_id IS NOT NULL AND id!=?""", (rid,))
     busy = {r['engineer_id'] for r in cur.fetchall()}
 
@@ -4294,7 +4337,8 @@ def cancel_flight(rid):
         if other == 0:
             cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?", (eng,))
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
-    cur.execute("DELETE FROM requests WHERE id=?", (rid,))
+    _archive_requests_before_delete(cur, 'id=?', (rid,), reason='Удалена при отмене рейса')
+    cur.execute("UPDATE requests SET flight_cancelled=1, flight_cancel_reason=?, flight_cancelled_at=CURRENT_TIMESTAMP WHERE id=?", (reason, rid))
     conn.commit()
     conn.close()
     try_reassign_queued()
@@ -4311,7 +4355,7 @@ def complete_engineer(eng_id):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT id FROM requests WHERE engineer_id=?
-        AND status NOT IN ('completed','cancelled','flight_cancelled')""", (eng_id,))
+        AND status NOT IN ('completed','cancelled','flight_cancelled','deleted')""", (eng_id,))
     if cur.fetchall():
         conn.close()
         return jsonify({'success': False, 'reason': 'has_active_requests'})
@@ -4329,8 +4373,7 @@ def clear_all_requests():
     conn = get_db()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM requests WHERE status != 'draft'")
-        deleted = cur.rowcount
+        deleted = _archive_requests_before_delete(cur, "status NOT IN ('draft','deleted')", reason='Массовая очистка заявок')
         cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL")
         cur.execute("UPDATE transport SET assigned_to=NULL")
         conn.commit()
@@ -4347,8 +4390,11 @@ def clear_all_pilot_requests():
     conn = get_db()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM requests WHERE source='pilot'")
-        deleted = cur.rowcount
+        cur.execute("SELECT DISTINCT engineer_id FROM requests WHERE source='pilot' AND engineer_id IS NOT NULL")
+        affected_engineers = [r['engineer_id'] for r in cur.fetchall()]
+        deleted = _archive_requests_before_delete(cur, "source='pilot' AND status!='deleted'", reason='Очищены заявки пилотов')
+        release_engineers_without_active_requests(conn, affected_engineers)
+        cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to IN (SELECT id FROM requests WHERE status='deleted')")
         conn.commit()
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
@@ -4508,6 +4554,10 @@ def _startup():
     init_db()
     load_svo_geojson()
     load_road_graph()
+    try:
+        _recalc_all_active_routes()
+    except Exception as e:
+        print(f'[STARTUP ROUTE CLEANUP] {e}')
 
 
 _startup()

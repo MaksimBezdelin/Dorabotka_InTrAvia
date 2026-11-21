@@ -268,8 +268,9 @@
     </div>
 
     <div class="section-content active" id="section-queue">
-        <div class="section-toolbar">
+        <div class="section-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn btn-clear" onclick="reloadData()"><i class="fas fa-rotate"></i> Обновить</button>
+            <button class="btn btn-clear" onclick="window.location.href='/api/reports/export.xlsx?role=mcc'"><i class="fas fa-file-excel"></i> Экспорт Excel</button>
         </div>
         <div class="table-wrapper">
             <table>
@@ -477,10 +478,15 @@
                 <div class="form-group">
                     <label>Итоговое решение MCC</label>
                     <div class="choice-grid" id="mccActionGrid">
-                        <div class="choice-card" data-act="AOG_RECOVERY" onclick="selectMccAction('AOG_RECOVERY')">
+                        <div class="choice-card" data-act="CONFIRM_VERDICT" onclick="selectMccAction('CONFIRM_VERDICT')">
+                            <i class="fas fa-circle-check"></i>
+                            <div class="choice-title">Подтвердить вердикт</div>
+                            <div class="choice-desc">Подтвердить техническое заключение инженера</div>
+                        </div>
+                        <div class="choice-card" data-act="AOG_RECOVERY" onclick="selectMccAction('AOG_RECOVERY')" style="display:none;">
                             <i class="fas fa-plane-slash"></i>
                             <div class="choice-title">AOG Recovery</div>
-                            <div class="choice-desc">ВС лететь не может</div>
+                            <div class="choice-desc">Старое действие — скрыто</div>
                         </div>
                         <div class="choice-card" data-act="REPAIR_COMPLETE" onclick="selectMccAction('REPAIR_COMPLETE')">
                             <i class="fas fa-check-double"></i>
@@ -488,9 +494,14 @@
                             <div class="choice-desc">Готово к CRS</div>
                         </div>
                         <div class="choice-card" data-act="MEL_DEFER" onclick="selectMccAction('MEL_DEFER')">
-                            <i class="fas fa-clock"></i>
-                            <div class="choice-title">MEL · условная эксплуатация</div>
-                            <div class="choice-desc">Только по утверждённому пункту и после проверок</div>
+                            <i class="fas fa-circle-check"></i>
+                            <div class="choice-title">Подтвердить MEL</div>
+                            <div class="choice-desc">Принять техническую оценку после проверок MCC</div>
+                        </div>
+                        <div class="choice-card" data-act="MEL_RETURN_CPU" onclick="selectMccAction('MEL_RETURN_CPU')" style="display:none;">
+                            <i class="fas fa-rotate-left"></i>
+                            <div class="choice-title">Отправить на перепроверку</div>
+                            <div class="choice-desc">Скрыто: используется единое подтверждение вердикта</div>
                         </div>
                     </div>
                 </div>
@@ -521,9 +532,9 @@
                 <div id="melDeferBlock" style="display:none;">
                     <div class="readonly-block" id="melFinalizeInfo"></div>
                     <div class="info-block" style="border-left-color:#b7791f;background:#fffbeb;">MEL станет активным только после отдельного действия MCC «Оформить MEL допуск». До этого сохраняется DO NOT FLY. Подтверждайте только после проверки утверждённой документации и всех условий.</div>
-                    <div class="form-group"><label><input type="checkbox" id="melCombinedChecked"> Проверено совокупное влияние всех действующих MEL/CDL *</label></div>
-                    <div class="form-group"><label><input type="checkbox" id="melRestrictionsVerified"> Проверены ограничения и их применимость к конфигурации ВС *</label></div>
-                    <div class="form-group"><label><input type="checkbox" id="melCrewBriefed"> Зафиксировано информирование экипажа / ответственного канала об ограничениях *</label></div>
+                    <div class="form-group"><label><input type="checkbox" id="melCombinedChecked" name="mel_combined_checked" value="1"> Проверено совокупное влияние всех действующих MEL/CDL *</label></div>
+                    <div class="form-group"><label><input type="checkbox" id="melRestrictionsVerified" name="mel_restrictions_verified" value="1"> Проверены ограничения и их применимость к конфигурации ВС *</label></div>
+                    <div class="form-group"><label><input type="checkbox" id="melCrewBriefed" name="mel_crew_briefed" value="1"> Зафиксировано информирование экипажа / ответственного канала об ограничениях *</label></div>
                     <div class="form-group"><label for="melRepairPlan">План устранения дефекта и ответственный *</label><textarea class="form-control" id="melRepairPlan" rows="3" placeholder="Укажите план, ответственного и координационные действия MCC..."></textarea></div>
                 </div>
                 <div class="form-group" style="margin-top:16px;">
@@ -781,7 +792,7 @@ function mapServerToLocal(r) {
     var s = r.mcc_status;
     var localStatus = 'open';
     if (s === 'INSPECTION' || s === 'MEL_REVIEW' || s === 'MEL_PENDING_CPU' || s === 'MEL_MAINTENANCE_REQUIRED' || s === 'MEL_CPU_CHECKED') localStatus = 'assigned';
-    else if (s === 'AOG_CONFIRMED') localStatus = 'in_work';
+    else if (s === 'AOG_CONFIRMED' || s === 'MEL_CPU_RECHECK') localStatus = 'in_work';
     else if (['MEL','MEL_READY','MEL_ACTIVE','MEL_EXPIRED'].indexOf(s) >= 0) localStatus = 'deferred';
     else if (s === 'REPAIRED') localStatus = 'repaired';
     else if (s === 'RELEASED') localStatus = 'released';
@@ -814,6 +825,10 @@ function mapServerToLocal(r) {
         melRef: r.mcc_mel_ref || '',
         melDueDate: r.mcc_due_date || '',
         melDueCondition: r.mcc_due_condition || '',
+        melIntervalLimit: r.mel_rectification_interval || '',
+        melAssessmentComment: r.mel_assessment_comment || '',
+        melAssessedBy: r.mel_assessed_by || '',
+        melReturnComment: r.mcc_mel_return_comment || '',
         melRevision: r.mcc_mel_revision || '',
         melDescription: r.mcc_mel_description || '',
         melRestrictions: r.mcc_mel_restrictions || '',
@@ -1463,6 +1478,49 @@ function submitSendToCpu() {
 }
 window.submitSendToCpu = submitSendToCpu;
 
+
+function parseEngineerReportForMcc(raw) {
+    var text = String(raw || ''), route = null;
+    if (text.indexOf('ROUTE:') === 0) {
+        var payload = text.substring(6), depth = 0, end = -1, inString = false, escaped = false;
+        for (var i=0;i<payload.length;i++) { var ch=payload[i];
+            if (inString) { if (escaped) escaped=false; else if (ch==='\\') escaped=true; else if (ch==='"') inString=false; continue; }
+            if (ch==='"') inString=true; else if (ch==='{') depth++; else if (ch==='}') { depth--; if (depth===0) { end=i+1; break; } }
+        }
+        if (end>0) { try { route=JSON.parse(payload.substring(0,end)); } catch(_) {} text=payload.substring(end).replace(/^\s+/, ''); }
+    }
+    var labels=['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий','ПУНКТ MEL','ATA','КАТЕГОРИЯ MEL','РЕДАКЦИЯ MEL','ИНТЕРВАЛ / ЛИМИТ'];
+    var data={};
+    labels.forEach(function(label){ var rest=labels.filter(function(x){return x!==label;}).join('|');
+        var re=new RegExp('(?:^|\\n)'+label+':\\s*([\\s\\S]*?)(?=\\n(?:'+rest+'):|\\n─{3,}|$)','i'); var m=text.match(re); data[label]=m?m[1].trim():'';
+    });
+    var author=(text.match(/^ОТЧЁТ О ДИАГНОСТИКЕ от (.+)$/im)||[])[1]||'';
+    return {text:text, route:route, author:author, fields:data};
+}
+function renderMccEngineerReport(raw, mel) {
+    var p=parseEngineerReportForMcc(raw), f=p.fields, route=p.route;
+    var field=function(label,value){return '<div style="padding:11px 12px;background:#f8fafc;border:1px solid #e7edf4;border-radius:10px;min-width:0;"><div style="font-size:10px;color:#8493a7;font-weight:800;text-transform:uppercase;letter-spacing:.45px;margin-bottom:5px;">'+label+'</div><div style="font-size:13px;color:#24364b;font-weight:650;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;">'+esc(value||'—')+'</div></div>';};
+    var html='<section style="margin-top:12px;padding:16px;background:linear-gradient(145deg,#f8fbff,#fff);border:1px solid #dce6f1;border-radius:14px;box-shadow:0 4px 14px rgba(30,60,90,.05);">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="font-size:15px;font-weight:850;color:#1e3a5f;"><i class="fas fa-clipboard-list" style="margin-right:7px;color:#3b82f6;"></i>Отчёт о диагностике</div>'+
+      (route?'<span style="padding:6px 10px;border-radius:20px;background:#eaf5ff;border:1px solid #c9e3fb;color:#17619a;font-size:11px;font-weight:800;"><i class="fas fa-route" style="margin-right:5px;"></i>Маршрут рассчитан</span>':'')+'</div>'+
+      '<div style="font-size:11px;color:#64748b;margin-bottom:10px;">Инженер: <strong style="color:#334155;">'+esc(p.author||'—')+'</strong></div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;">'+
+      field('Состояние ВС',f['Состояние ВС'])+field('Категория',f['Категория'])+field('Обнаружено',f['Обнаружено'])+field('Выполненные работы',f['Выполненные работы'])+field('Время диагностики',f['Время диагностики'])+field('Материалы',f['Материалы'])+field('Нужны детали',f['Нужны детали'])+field('Комментарий',f['Комментарий'])+
+      '</div>';
+    var melRef=f['ПУНКТ MEL']||(mel&&mel.ref), ata=f['ATA']||(mel&&mel.ata), cat=f['КАТЕГОРИЯ MEL']||(mel&&mel.category), rev=f['РЕДАКЦИЯ MEL']||(mel&&mel.revision), interval=f['ИНТЕРВАЛ / ЛИМИТ']||(mel&&mel.interval);
+    if (melRef||ata||cat||rev||interval) html+='<div style="margin-top:13px;padding:13px;background:#fffbeb;border:1px solid #f2d28a;border-radius:11px;"><div style="font-size:13px;font-weight:850;color:#85530a;margin-bottom:10px;"><i class="fas fa-book-open" style="margin-right:7px;"></i>Техническая оценка MEL</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;">'+field('Пункт MEL',melRef)+field('ATA',ata)+field('Категория MEL',cat)+field('Редакция MEL',rev)+field('Интервал / лимит',interval)+'</div></div>';
+    if (mel && mel.verdict === 'AOG') {
+      html+='<div style="margin-top:13px;padding:13px;background:linear-gradient(135deg,#fff5f5,#fff);border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:11px;">'+
+        '<div style="font-size:13px;font-weight:850;color:#991b1b;margin-bottom:10px;"><i class="fas fa-triangle-exclamation" style="margin-right:7px;"></i>Техническая оценка AOG</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;">'+
+        field('Вердикт инженера','AOG')+field('ATA',mel.ata)+field('Категория / зона',f['Категория'])+field('Обнаружено',f['Обнаружено'])+
+        field('Выполненные работы',f['Выполненные работы'])+field('Время диагностики',f['Время диагностики'])+field('Материалы',f['Материалы'])+field('Нужны детали',f['Нужны детали'])+
+        field('ETR / срок восстановления',mel.etr || 'Будет указан при планировании AOG')+field('Действие AOG',mel.aogAction || 'Будет определено MCC')+
+        '</div><div style="margin-top:10px;padding:10px;background:#fff;border:1px solid #fee2e2;border-radius:8px;"><div style="font-size:10px;color:#991b1b;font-weight:800;text-transform:uppercase;margin-bottom:4px;">Комментарий инженера</div><div style="font-size:13px;color:#24364b;white-space:pre-wrap;">'+esc(f['Комментарий'] || '—')+'</div></div></div>';
+    }
+    html+='</section>'; return html;
+}
+
 function openAssessModal(id) {
     var e = findEntry(id);
     if (!e) return;
@@ -1480,11 +1538,16 @@ function openAssessModal(id) {
     document.getElementById('aogRecoveryBlock').style.display = 'none';
     document.getElementById('repairCompleteBlock').style.display = 'none';
     document.getElementById('melDeferBlock').style.display = 'none';
+    var confirmCard = document.querySelector('#mccActionGrid .choice-card[data-act="CONFIRM_VERDICT"]');
     var melCard = document.querySelector('#mccActionGrid .choice-card[data-act="MEL_DEFER"]');
-    if (melCard) melCard.style.display = e.engineerVerdict === 'MEL' && e.melWorkflow ? 'block' : 'none';
+    var melReturnCard = document.querySelector('#mccActionGrid .choice-card[data-act="MEL_RETURN_CPU"]');
     var aogCard = document.querySelector('#mccActionGrid .choice-card[data-act="AOG_RECOVERY"]');
-    if (aogCard) aogCard.style.display = e.engineerVerdict === 'AOG' ? 'block' : 'none';
     var repairCard = document.querySelector('#mccActionGrid .choice-card[data-act="REPAIR_COMPLETE"]');
+    var needsUnifiedConfirm = (e.engineerVerdict === 'AOG') || (e.engineerVerdict === 'MEL' && e.melWorkflow);
+    if (confirmCard) confirmCard.style.display = 'none';
+    if (melCard) melCard.style.display = 'none';
+    if (melReturnCard) melReturnCard.style.display = 'none';
+    if (aogCard) aogCard.style.display = 'none';
     if (repairCard) repairCard.style.display = e.engineerVerdict === 'REPAIR' && !e.melWorkflow ? 'block' : 'none';
     ['melCombinedChecked','melRestrictionsVerified','melCrewBriefed'].forEach(function(id) {
         var el = document.getElementById(id); if (el) el.checked = false;
@@ -1492,9 +1555,23 @@ function openAssessModal(id) {
     var melPlan = document.getElementById('melRepairPlan');
     if (melPlan) melPlan.value = '';
     document.getElementById('mccComment').value = '';
+    var assessSubmit = document.getElementById('assessSubmitBtn');
+    if (assessSubmit) assessSubmit.innerHTML = '<i class="fas fa-pen-to-square"></i> Зафиксировать';
     document.getElementById('aogEt').value = '';
     document.getElementById('aogAction').value = '';
     document.getElementById('repairRect').value = '';
+    if (needsUnifiedConfirm) {
+        selectMccAction('CONFIRM_VERDICT');
+        var actionPicker = document.querySelector('#assessFinalizeBlock .form-group');
+        if (actionPicker) actionPicker.style.display = 'none';
+        var mccCommentGroup = document.getElementById('mccComment').closest('.form-group');
+        if (mccCommentGroup) mccCommentGroup.style.display = 'none';
+    } else {
+        var actionPicker = document.querySelector('#assessFinalizeBlock .form-group');
+        if (actionPicker) actionPicker.style.display = 'block';
+        var mccCommentGroup = document.getElementById('mccComment').closest('.form-group');
+        if (mccCommentGroup) mccCommentGroup.style.display = 'block';
+    }
 
     document.getElementById('assessInfoBlock').innerHTML =
         '<div class="ro-row"><span class="ro-label">Борт</span><span class="ro-val">' + esc(e.aircraft) + '</span></div>' +
@@ -1508,9 +1585,19 @@ function openAssessModal(id) {
         (e.defect ? '<div class="v-row"><span class="v-label">Описание</span><span class="v-val" style="max-width:65%;text-align:right;font-weight:400;font-family:inherit;">' + esc(shortText(e.defect, 150)) + '</span></div>' : '') +
         (e.engineerVerdict ? '<div class="v-row"><span class="v-label">Предварительное заключение</span><span class="v-val">' + esc(e.engineerVerdict) + '</span></div>' : '') +
         (e.engineerCondition ? '<div class="v-row"><span class="v-label">Результат диагностики</span><span class="v-val">' + esc(e.engineerCondition) + '</span></div>' : '') +
-        (e.engineerComment ? '<div style="margin-top:10px;padding:12px;background:#f8fafc;border:1px solid #e8ecf0;border-radius:8px;white-space:pre-wrap;font-size:12px;line-height:1.5;"><strong>Отчёт инженера</strong>\n' + esc(e.engineerComment) + '</div>' : '') +
+        (e.engineerComment ? renderMccEngineerReport(e.engineerComment, {verdict:e.engineerVerdict,ref:e.melRef,ata:e.ata,category:e.melCategory,revision:e.melRevision,interval:e.melIntervalLimit || e.melDueDate || e.melDueCondition,etr:e.aogEtr,aogAction:e.aogAction}) : '') +
         (e.melWorkflow && e.melInitialEngineerReport ? '<div style="margin-top:10px;padding:12px;background:#fffbeb;border:1px solid #f2d28a;border-radius:8px;white-space:pre-wrap;font-size:12px;line-height:1.5;"><strong>Первичная диагностика MEL · ' + esc(e.melInitialAssessedBy || 'инженер') + ' · ' + esc(e.melInitialEngineerReportAt || '—') + '</strong>\n' + esc(e.melInitialEngineerReport) + '</div>' : '') +
-        (e.melWorkflow ? '<div style="margin-top:12px;padding:12px;background:#fffbeb;border:1px solid #f2d28a;border-radius:8px;font-size:12px;line-height:1.5;"><strong>Пункт MEL ' + esc(e.melRef) + ' · Cat ' + esc(e.melCategory) + '</strong><br>Редакция: ' + esc(e.melRevision || '—') + '<br>Срок / условие: ' + esc(e.melDueDate || e.melDueCondition || '—') + '<br>Ограничения: ' + esc(e.melRestrictions || '—') + '<br>Проверка ЦПУ: ' + esc(e.cpuMelCheckComment || '—') + '<br>O: ' + (e.melORequired ? (e.cpuMelOCompleted ? 'подтверждена' : 'не подтверждена') : 'не требуется') + ' · M: ' + (e.melMRequired ? (e.cpuMelMCompleted ? 'подтверждена ЦПУ' : 'не подтверждена') : 'не требуется') + '<br>Выполнение M техником: ' + (e.melMRequired ? (e.melMProcedureCompletedByEngineer ? 'подтверждено' : 'нет подтверждения') : 'не требуется') + (e.melMProcedureEngineerComment ? '<br>Отчёт техника по M: ' + esc(e.melMProcedureEngineerComment) : '') + '</div>' : '') +
+        (e.melWorkflow ? '<div style="margin-top:14px;padding:16px;background:linear-gradient(135deg,#fffaf0,#fff);border:1px solid #e8c879;border-left:4px solid #c58b24;border-radius:12px;font-size:13px;line-height:1.55;box-shadow:0 4px 14px rgba(120,90,30,.07);">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><strong style="font-size:15px;color:#7c4a03;"><i class="fas fa-book-open" style="margin-right:7px;"></i>Техническая оценка MEL инженером</strong><span style="padding:4px 9px;border-radius:20px;background:#fff0c2;color:#8a5700;font-size:11px;font-weight:800;">ОЖИДАЕТ РЕШЕНИЯ MCC</span></div>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;">' +
+            '<div style="padding:10px;background:#fff;border:1px solid #efdfbd;border-radius:8px;"><div style="font-size:10px;color:#8a6a35;font-weight:800;text-transform:uppercase;letter-spacing:.4px;">Пункт MEL</div><div style="font-size:15px;font-weight:800;color:#263445;">' + esc(e.melRef || '—') + '</div></div>' +
+            '<div style="padding:10px;background:#fff;border:1px solid #efdfbd;border-radius:8px;"><div style="font-size:10px;color:#8a6a35;font-weight:800;text-transform:uppercase;letter-spacing:.4px;">ATA</div><div style="font-size:15px;font-weight:800;color:#263445;">' + esc(e.ata || '—') + '</div></div>' +
+            '<div style="padding:10px;background:#fff;border:1px solid #efdfbd;border-radius:8px;"><div style="font-size:10px;color:#8a6a35;font-weight:800;text-transform:uppercase;letter-spacing:.4px;">Категория</div><div style="font-size:15px;font-weight:800;color:#263445;">Cat ' + esc(e.melCategory || '—') + '</div></div>' +
+            '<div style="padding:10px;background:#fff;border:1px solid #efdfbd;border-radius:8px;"><div style="font-size:10px;color:#8a6a35;font-weight:800;text-transform:uppercase;letter-spacing:.4px;">Редакция</div><div style="font-size:15px;font-weight:800;color:#263445;">' + esc(e.melRevision || '—') + '</div></div>' +
+            '<div style="grid-column:1/-1;padding:10px;background:#fff;border:1px solid #efdfbd;border-radius:8px;"><div style="font-size:10px;color:#8a6a35;font-weight:800;text-transform:uppercase;letter-spacing:.4px;">Интервал / лимит</div><div style="font-size:14px;font-weight:800;color:#263445;">' + esc(e.melIntervalLimit || e.melDueDate || e.melDueCondition || 'По условию из утверждённого MEL') + '</div></div></div>' +
+            '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #f0dfb8;"><strong>Описание пункта:</strong> ' + esc(e.melDescription || '—') + '<br><strong>Ограничения:</strong> ' + esc(e.melRestrictions || '—') + '<br><strong>Инженер:</strong> ' + esc(e.melAssessedBy || e.engineerName || '—') + '<br><strong>Обоснование:</strong> ' + esc(e.melAssessmentComment || '—') + '</div>' +
+            '<div style="margin-top:11px;padding:10px;background:#fff;border:1px solid #eadfca;border-radius:8px;"><strong>Проверка ЦПУ</strong><br>' + esc(e.cpuMelCheckComment || '—') + '<br>O-процедура: ' + (e.melORequired ? (e.cpuMelOCompleted ? 'подтверждена' : 'не подтверждена') : 'не требуется') + ' · M-процедура: ' + (e.melMRequired ? (e.cpuMelMCompleted ? 'подтверждена' : 'не подтверждена') : 'не требуется') + (e.melMProcedureEngineerComment ? '<br><strong>Отчёт техника по M:</strong> ' + esc(e.melMProcedureEngineerComment) : '') + '</div>' +
+            (e.melInitialEngineerReport ? '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;"><strong>Первичный отчёт инженера</strong><br>' + esc(e.melInitialEngineerReport) + '</div>' : '') + '</div>' : '') +
         '<div style="margin-top:10px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px;font-weight:700;">До отдельного решения MCC эксплуатационный статус не активирован.</div>';
     if (e.melWorkflow) {
         var melFinalizeInfo = document.getElementById('melFinalizeInfo');
@@ -1527,8 +1614,8 @@ function openAssessModal(id) {
     document.getElementById('assessNotReadyBlock').style.display = 'none';
     document.getElementById('assessFinalizeBlock').style.display = 'block';
     document.getElementById('assessSubmitBtn').style.display = 'inline-flex';
-    document.getElementById('assessFooterHint').textContent = e.melWorkflow
-        ? 'ЦПУ завершило проверки MEL. Зафиксируйте решение MCC.'
+    document.getElementById('assessFooterHint').textContent = needsUnifiedConfirm
+        ? (e.engineerVerdict === 'AOG' ? 'Проверьте техническую оценку AOG и подтвердите вердикт инженера.' : 'ЦПУ завершило проверки MEL. Подтвердите вердикт инженера.')
         : 'Отчёт инженера получен. Выберите итоговое решение MCC.';
 
     document.getElementById('assessModal').classList.add('show');
@@ -1548,71 +1635,79 @@ function selectMccAction(action) {
     if (sel) sel.classList.add('active');
     document.getElementById('aogRecoveryBlock').style.display = action === 'AOG_RECOVERY' ? 'block' : 'none';
     document.getElementById('repairCompleteBlock').style.display = action === 'REPAIR_COMPLETE' ? 'block' : 'none';
-    document.getElementById('melDeferBlock').style.display = action === 'MEL_DEFER' ? 'block' : 'none';
+    document.getElementById('melDeferBlock').style.display = (action === 'MEL_DEFER' || (action === 'CONFIRM_VERDICT' && findEntry(currentAssessId) && findEntry(currentAssessId).melWorkflow)) ? 'block' : 'none';
     document.getElementById('assessFooterHint').textContent =
+        action === 'CONFIRM_VERDICT' ? 'Подтверждение технического вердикта инженера' :
         action === 'AOG_RECOVERY' ? 'AOG Recovery' :
         action === 'REPAIR_COMPLETE' ? 'Ремонт завершён' :
-        action === 'MEL_DEFER' ? 'MEL готов к отдельному условному допуску MCC' : 'Выберите результат';
+        action === 'MEL_DEFER' ? 'Подтверждение MEL после обязательных проверок MCC' :
+        action === 'MEL_RETURN_CPU' ? 'Отчёт будет возвращён в ЦПУ с комментарием «не удалось принять решение»' : 'Выберите результат';
+    var submitBtn = document.getElementById('assessSubmitBtn');
+    if (submitBtn) submitBtn.innerHTML = action === 'CONFIRM_VERDICT' ? '<i class="fas fa-check"></i> Подтвердить вердикт' : (action === 'MEL_RETURN_CPU' ? '<i class="fas fa-rotate-left"></i> Вернуть в ЦПУ' : '<i class="fas fa-pen-to-square"></i> Зафиксировать');
 }
 window.selectMccAction = selectMccAction;
 
 function submitAssessment() {
     if (!mccAction) { showToast('Выберите результат', 'error'); return; }
+    var entry = findEntry(currentAssessId);
+    if (!entry) { showToast('Заявка не найдена', 'error'); return; }
     var comment = document.getElementById('mccComment').value.trim();
-    if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
-
     var finalizeAction, extra = {};
-    if (mccAction === 'AOG_RECOVERY') {
+
+    if (mccAction === 'CONFIRM_VERDICT') {
+        if (entry.engineerVerdict !== 'MEL' && entry.engineerVerdict !== 'AOG') {
+            showToast('Единое подтверждение доступно только для MEL и AOG', 'error'); return;
+        }
+        comment = comment || 'Технический вердикт инженера подтверждён MCC.';
+        finalizeAction = 'CONFIRM_VERDICT';
+        if (entry.engineerVerdict === 'MEL') {
+            var assessRoot = document.getElementById('assessModal');
+            var combinedEl = assessRoot ? assessRoot.querySelector('#melCombinedChecked') : null;
+            var restrictionsEl = assessRoot ? assessRoot.querySelector('#melRestrictionsVerified') : null;
+            var crewEl = assessRoot ? assessRoot.querySelector('#melCrewBriefed') : null;
+            var planEl = assessRoot ? assessRoot.querySelector('#melRepairPlan') : null;
+            if (!combinedEl || !restrictionsEl || !crewEl || !planEl) {
+                showToast('Не удалось прочитать поля проверки MCC. Закройте и повторно откройте карточку MEL.', 'error'); return;
+            }
+            var missingChecks = [];
+            if (!combinedEl.checked) missingChecks.push('совокупное влияние MEL/CDL');
+            if (!restrictionsEl.checked) missingChecks.push('ограничения и конфигурация ВС');
+            if (!crewEl.checked) missingChecks.push('информирование экипажа');
+            var repairPlan = String(planEl.value || '').trim();
+            if (repairPlan.length < 5) missingChecks.push('план устранения (не менее 5 символов)');
+            if (missingChecks.length) { showToast('Не заполнено: ' + missingChecks.join('; '), 'error'); return; }
+            extra.mel_combined_checked = true;
+            extra.mel_restrictions_verified = true;
+            extra.mel_crew_briefed = true;
+            extra.mel_repair_plan = repairPlan;
+        }
+    } else if (mccAction === 'AOG_RECOVERY') {
         var et = document.getElementById('aogEt').value.trim();
         var act = document.getElementById('aogAction').value;
         if (!et) { showToast('Укажите ETR', 'error'); return; }
-        if (!act) { showToast('Выберите действие', 'error'); return; }
-        finalizeAction = 'AOG_RECOVERY';
-        extra.etr = et;
-        extra.aog_action = act;
+        finalizeAction = 'AOG_RECOVERY'; extra.etr = et; extra.aog_action = act;
+        if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
     } else if (mccAction === 'MEL_DEFER') {
-        var combinedChecked = document.getElementById('melCombinedChecked').checked;
-        var restrictionsVerified = document.getElementById('melRestrictionsVerified').checked;
-        var crewBriefed = document.getElementById('melCrewBriefed').checked;
-        var repairPlan = document.getElementById('melRepairPlan').value.trim();
-        if (!combinedChecked || !restrictionsVerified || !crewBriefed || repairPlan.length < 5) {
-            showToast('Завершите все проверки MCC и укажите план устранения', 'error'); return;
-        }
         finalizeAction = 'MEL_DEFER';
-        extra.mel_combined_checked = true;
-        extra.mel_restrictions_verified = true;
-        extra.mel_crew_briefed = true;
-        extra.mel_repair_plan = repairPlan;
+        if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
+    } else if (mccAction === 'MEL_RETURN_CPU') {
+        finalizeAction = 'MEL_RETURN_CPU'; comment = 'не удалось принять решение';
     } else {
         var rect = document.getElementById('repairRect').value.trim();
         if (!rect) { showToast('Опишите работы', 'error'); return; }
+        if (!comment) { showToast('Комментарий обязателен', 'error'); return; }
         finalizeAction = 'CLOSE';
         comment = comment + '\n[Работы] ' + rect;
     }
 
-    // Инженерный вердикт (в том числе AOG) уже записан вместе с отчётом.
-    // MCC фиксирует только своё итоговое решение и не перезаписывает диагноз инженера.
     var reviewerName = 'MCC';
     try { reviewerName = (JSON.parse(sessionStorage.getItem('userSession') || '{}').name || reviewerName); } catch (e) {}
-    var payload = Object.assign({
-        request_id: currentAssessId,
-        action: finalizeAction,
-        comment: comment,
-        reviewer: reviewerName
-    }, extra);
-    fetch(API_URL + '/mcc/finalize', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(function(r) {
-        return r.json().then(function(data) {
-            if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось сохранить решение MCC');
-            return data;
-        });
-    })
+    var payload = Object.assign({request_id:currentAssessId, action:finalizeAction, comment:comment, reviewer:reviewerName}, extra);
+    fetch(API_URL + '/mcc/finalize', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+    .then(function(r) { return r.json().then(function(data) { if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось сохранить решение MCC'); return data; }); })
     .then(function(res) {
         closeAssessModal();
-        showToast(finalizeAction === 'MEL_DEFER' ? 'Проверка MEL завершена. Теперь MCC может отдельно активировать условную эксплуатацию.' : 'Решение MCC зафиксировано. Пилоту передано ограничение на вылет.', 'success');
+        showToast(finalizeAction === 'CONFIRM_VERDICT' ? (entry.engineerVerdict === 'AOG' ? 'Вердикт AOG подтверждён MCC.' : 'Вердикт MEL подтверждён MCC. Для условной эксплуатации требуется отдельный допуск.') : (finalizeAction === 'MEL_RETURN_CPU' ? 'MEL возвращён в ЦПУ на перепроверку.' : 'Решение MCC зафиксировано.'), 'success');
         reloadData();
     })
     .catch(function(err) { showToast('Ошибка: ' + err.message, 'error'); });

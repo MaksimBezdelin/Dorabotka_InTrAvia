@@ -294,7 +294,10 @@ tbody tr.row-urgent { border-left: 3px solid var(--aero-red); }
     <div class="card" style="margin-top:16px;">
         <div class="card-header">
             <h3>Отчёты инженеров — проверка ЦПУ и передача в MCC</h3>
-            <span class="badge badge-aog" id="cpuReportsCount">0</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="badge badge-aog" id="cpuReportsCount">0</span>
+                <button class="btn btn-secondary btn-sm" onclick="window.location.href='/api/reports/export.xlsx?role=cpu'"><i class="fas fa-file-excel"></i> Экспорт Excel</button>
+            </div>
         </div>
         <div class="table-wrapper">
             <table>
@@ -695,7 +698,7 @@ function extractReportField(text, label, allLabels) {
 
 function parseEngineerReport(r) {
     var text = stripRoutePrefix(r.engineer_comment || '');
-    var labels = ['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий'];
+    var labels = ['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий','ПУНКТ MEL','ATA','КАТЕГОРИЯ MEL','РЕДАКЦИЯ MEL','ИНТЕРВАЛ / ЛИМИТ'];
     var values = {};
     labels.forEach(function(label) { values[label] = extractReportField(text, label, labels); });
     var titleMatch = text.match(/^ОТЧЁТ О ДИАГНОСТИКЕ(?: от (.*))?/i);
@@ -737,7 +740,7 @@ function renderCpuReports() {
         var verdict = isAog
             ? '<span class="badge badge-aog">AOG · вылет запрещён</span>'
             : isMel
-                ? '<span class="badge" style="background:#fff7e6;color:#9a6700;border:1px solid #f2cf79;">MEL · Cat ' + esc(r.mcc_mel_category || '—') + '</span>'
+                ? (r.mcc_mel_return_comment ? '<span class="badge" style="background:#fff0d5;color:#8a4b08;border:1px solid #efc078;">MEL · ПЕРЕПРОВЕРКА</span>' : '<span class="badge" style="background:#fff7e6;color:#9a6700;border:1px solid #f2cf79;">MEL · Cat ' + esc(r.mcc_mel_category || '—') + '</span>')
                 : '<span class="badge badge-ok">' + esc(conditionLabel(r.engineer_condition)) + '</span>';
         return '<tr>' +
             '<td><strong>' + esc(r.aircraft || '—') + '</strong><div style="font-size:11px;color:var(--aero-gray);">' + esc(r.flight_number || '') + '</div></td>' +
@@ -760,6 +763,7 @@ function openCpuReport(id) {
     var verdictText = isAog ? 'AOG · ВЫЛЕТ ЗАПРЕЩЁН' : (isMel ? 'MEL · ТЕХНИЧЕСКАЯ ОЦЕНКА ИНЖЕНЕРА' : (report.engineer_verdict === 'REPAIR' ? 'REPAIR · НА ПРОВЕРКУ MCC' : 'ТРЕБУЕТ ПРОВЕРКИ'));
     document.getElementById('reportModalSub').textContent = 'Заявка ' + (report.id || '—') + ' · отчёт от ' + formatDate(report.engineer_report_at);
     document.getElementById('reportModalBody').innerHTML =
+        (report.mcc_mel_return_comment ? '<div class="report-section" style="border:1px solid #f0bd69;background:#fff7e8;border-left:5px solid #c47b16;"><h3><i class="fas fa-rotate-left"></i> Возврат от MCC · требуется перепроверка</h3><p style="font-weight:800;color:#8a4b08;">' + esc(report.mcc_mel_return_comment) + '</p><p>Проверьте техническую оценку MEL и повторно передайте отчёт в MCC после проверки.</p></div>' : '') +
         '<div class="report-hero">' +
             '<div><div class="report-hero-title">' + esc(report.aircraft || 'Воздушное судно') + '</div>' +
             '<div class="report-hero-sub">' +

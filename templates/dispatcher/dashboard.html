@@ -246,6 +246,7 @@
         .parking-marker .parking-icon { display: block; font-size: 18px; line-height: 1; color: var(--aero-blue); }
         .parking-marker .parking-label { font-size: 8px; font-weight: 600; color: #1a2332; display: block; margin-top: -1px; }
         .aircraft-parking-marker { background: transparent; border: none; }
+        .moving-aircraft-marker { background: transparent; border: none; pointer-events: auto; }
 
         .route-label-marker {
             background: rgba(201, 168, 76, 0.95);
@@ -1167,6 +1168,7 @@
         </div>
 
         <div class="reports-toolbar">
+            <button class="btn btn-secondary btn-sm" onclick="window.location.href=API_URL + '/reports/export.xlsx?role=dispatcher'"><i class="fas fa-file-excel"></i> Экспорт Excel</button>
             <div class="search-box">
                 <i class="fas fa-search"></i>
                 <input type="text" id="reportsSearch" placeholder="Поиск по рейсу, инженеру, неисправности..." oninput="filterReports()">
@@ -1245,7 +1247,7 @@
                 <i class="fas fa-times"></i> Сбросить
             </button>
             <button class="btn btn-secondary btn-sm" onclick="exportPilotRequests()">
-                <i class="fas fa-file-export"></i> Экспорт JSON
+                <i class="fas fa-file-excel"></i> Выгрузить всё в Excel
             </button>
             <button class="btn btn-clear btn-sm" onclick="clearAllPilotRequests()">
                 <i class="fas fa-trash"></i> Очистить все
@@ -1477,7 +1479,8 @@ var state = {
     loadInterval: null, coordsInterval: null, map: null,
     routeData: {}, routeFetchPending: {}, transportLoaded: false, isUpdating: false,
     dataLoaded: false, mapMarkers: {},
-    roadsLayer: null, aircraftLayer: null, parkingLayer: null,
+    roadsLayer: null, aircraftLayer: null, parkingLayer: null, taxiGraph: null, aircraftSimulations: {}, aircraftTaxiLayer: null, aircraftSafetyTimer: null,
+    ambientAircraftTarget: 3 + Math.floor(Math.random() * 5), ambientAircraftTargetTimer: null,
     currentTab: 'dispatch',
     isDragging: false
 };
@@ -1582,7 +1585,7 @@ function hasReport(comment) {
 function parseReportFields(text) {
     var parsed = { engineer: '—', condition: '', conditionLabel: '', category: '', categoryLabel: '',
         findings: '', actions: '', duration: '', realDuration: '', materials: '',
-        needParts: false, comment: '', raw: text };
+        needParts: false, comment: '', melRef:'', melAta:'', melCategory:'', melRevision:'', melIntervalLimit:'', raw: text };
     if (!text) return parsed;
     var lines = text.split('\n');
     for (var i = 0; i < lines.length; i++) {
@@ -1608,6 +1611,11 @@ function parseReportFields(text) {
         else if ((m = line.match(/^Материалы:\s*(.+)$/i))) parsed.materials = m[1].trim();
         else if ((m = line.match(/^Нужны детали:\s*(.+)$/i))) parsed.needParts = m[1].trim().toLowerCase() === 'да';
         else if ((m = line.match(/^Комментарий:\s*(.+)$/i))) parsed.comment = m[1].trim();
+        else if ((m = line.match(/^ПУНКТ MEL:\s*(.+)$/i))) parsed.melRef = m[1].trim();
+        else if ((m = line.match(/^ATA:\s*(.+)$/i))) parsed.melAta = m[1].trim();
+        else if ((m = line.match(/^КАТЕГОРИЯ MEL:\s*(.+)$/i))) parsed.melCategory = m[1].trim();
+        else if ((m = line.match(/^РЕДАКЦИЯ MEL:\s*(.+)$/i))) parsed.melRevision = m[1].trim();
+        else if ((m = line.match(/^ИНТЕРВАЛ \/ ЛИМИТ:\s*(.+)$/i))) parsed.melIntervalLimit = m[1].trim();
     }
     return parsed;
 }
@@ -1661,6 +1669,7 @@ function addReportFromRequest(request) {
         materials: parsed.materials,
         needParts: parsed.needParts,
         comment: parsed.comment,
+        melRef: parsed.melRef, melAta: parsed.melAta, melCategory: parsed.melCategory, melRevision: parsed.melRevision, melIntervalLimit: parsed.melIntervalLimit,
         raw: reportText,
         completedAt: new Date().toISOString()
     };
@@ -1690,8 +1699,9 @@ function Employee(data) {
     this.name = data.name || 'Техник';
     this.deviceId = data.device_id || ('EN-' + String(data.number || 0).padStart(3, '0'));
     this.skill = data.specialization || 'general';
-    this.lat = data.coords_lat || 55.975;
-    this.lng = data.coords_lng || 37.410;
+    // Координаты маркера инженера берём из БД без truthy-fallback.
+    this.lat = (data.coords_lat !== undefined && data.coords_lat !== null) ? Number(data.coords_lat) : 55.975;
+    this.lng = (data.coords_lng !== undefined && data.coords_lng !== null) ? Number(data.coords_lng) : 37.410;
     this.status = data.status || 'free';
     this.busy = this.status !== 'free' && this.status !== 'offline';
     this.task = data.task || '';
@@ -1749,7 +1759,7 @@ function saveStateToLocalStorage() {
     } catch(e) { return false; }
 }
 
-function persistEngineerCoords(emp) {
+function persistEngineerCoords(emp, previousPosition) {
     if (!emp || !emp.realId) return;
     emp._syncPending = true;
     fetch(API_URL + '/engineers/' + emp.realId + '/coords', {
@@ -1760,7 +1770,15 @@ function persistEngineerCoords(emp) {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         emp._syncPending = false;
-        if (!res || !res.success) console.warn('[SYNC] engineer coords failed', res);
+        if (!res || !res.success) {
+            console.warn('[SYNC] engineer coords failed', res);
+            if (res && res.safety_block && previousPosition) {
+                emp.lat = previousPosition.lat; emp.lng = previousPosition.lng;
+                var marker = state.mapMarkers['emp_' + emp.realId];
+                if (marker) marker.setLatLng([emp.lat, emp.lng]);
+                showToast(res.error || 'Перемещение остановлено из-за руления самолёта', 'warning');
+            }
+        }
     })
     .catch(function(err) {
         emp._syncPending = false;
@@ -1768,7 +1786,7 @@ function persistEngineerCoords(emp) {
     });
 }
 
-function persistTransportCoords(tr) {
+function persistTransportCoords(tr, previousPosition) {
     if (!tr || !tr.id) return;
     tr._syncPending = true;
     fetch(API_URL + '/transport/' + tr.id + '/coords', {
@@ -1779,7 +1797,15 @@ function persistTransportCoords(tr) {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         tr._syncPending = false;
-        if (!res || !res.success) console.warn('[SYNC] transport coords failed', res);
+        if (!res || !res.success) {
+            console.warn('[SYNC] transport coords failed', res);
+            if (res && res.safety_block && previousPosition) {
+                tr.lat = previousPosition.lat; tr.lng = previousPosition.lng;
+                var marker = state.mapMarkers['car_' + tr.id];
+                if (marker) marker.setLatLng([tr.lat, tr.lng]);
+                showToast(res.error || 'Перемещение остановлено из-за руления самолёта', 'warning');
+            }
+        }
     })
     .catch(function(err) {
         tr._syncPending = false;
@@ -2000,6 +2026,7 @@ function loadDataOnce() {
 
 function processRequestsData(data) {
     state.tickets = data || [];
+    setTimeout(syncAircraftFromRequests, 0);
     state.activeRequests = [];
     state.cancelledRequests = [];
     state.delays = [];
@@ -2093,6 +2120,7 @@ function processRequestsData(data) {
             replacesId: t.replaces_request_id || null,
             assignedAt: t.inspection_assigned_at || null,
             engineerTaskStep: t.engineer_task_step || 'idle',
+            engineerStatus: t.engineer_status || 'free',
             createdAt: t.created_at || null
         });
     }
@@ -2104,7 +2132,9 @@ function processRequestsData(data) {
     for (var ir = 0; ir < state.activeRequests.length; ir++) {
         var ar = state.activeRequests[ir];
         if (!ar.engineerId) continue;
-        if (['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(ar.engineerTaskStep) === -1) {
+        if (ar.engineerStatus !== 'busy') { clearRouteForEngineer(ar.engineerId); continue; }
+        if (['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(ar.status) !== -1) { clearRouteForEngineer(ar.engineerId); continue; }
+        if (['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(ar.engineerTaskStep) === -1) {
             clearRouteForEngineer(ar.engineerId);
             continue;
         }
@@ -2220,7 +2250,8 @@ function loadRequestsOnly() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             processRequestsData(data);
-            renderMapMarkers();          // ← перерисовать карту с новыми маршрутами
+            syncRoutesWithActiveRequests();
+            renderMapMarkers();          // перерисовать карту только с маршрутами работающих инженеров
             updateActiveRequests();
             updateStats();
             if (state.currentTab === 'pilot') renderPilotRequests();
@@ -2238,8 +2269,9 @@ function syncRoutesWithActiveRequests() {
     var activeByEngineer = {};
     for (var i = 0; i < state.activeRequests.length; i++) {
         var a = state.activeRequests[i];
-        if (a.engineerId && a.parking && a.parking !== '—' &&
-            ['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(a.engineerTaskStep) !== -1) {
+        if (a.engineerId && a.engineerStatus === 'busy' && a.parking && a.parking !== '—' &&
+            ['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(a.status) === -1 &&
+            ['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(a.engineerTaskStep) !== -1) {
             activeByEngineer[a.engineerId] = a;
         }
     }
@@ -2453,6 +2485,414 @@ function clearRouteForEngineer(engineerId) {
 
 var map;
 
+// ============================================================
+// Симуляция руления самолётов по aircraft_paths.geojson
+// ============================================================
+function taxiDistanceMeters(a, b) {
+    return distanceKm(a[0], a[1], b[0], b[1]) * 1000;
+}
+
+function buildAircraftTaxiGraph(geojson) {
+    var nodes = {}, runwayEnds = [], edgeCount = 0;
+    function nodeFor(coord) {
+        var lat = Number(coord[1]), lng = Number(coord[0]);
+        var key = lat.toFixed(5) + ',' + lng.toFixed(5);
+        if (!nodes[key]) nodes[key] = { key: key, point: [lat, lng], edges: [] };
+        return nodes[key];
+    }
+    (geojson.features || []).forEach(function(feature) {
+        var props = feature.properties || {};
+        var category = String(props.category || '').toLowerCase();
+        var coords = feature.geometry && feature.geometry.coordinates;
+        if (!coords || feature.geometry.type !== 'LineString' ||
+            ['runway', 'taxiway', 'apron'].indexOf(category) === -1 || coords.length < 2) return;
+        var lineNodes = coords.map(nodeFor);
+        for (var i = 1; i < lineNodes.length; i++) {
+            var a = lineNodes[i - 1], b = lineNodes[i];
+            if (a.key === b.key) continue;
+            var weight = taxiDistanceMeters(a.point, b.point);
+            a.edges.push({ to: b.key, weight: weight });
+            b.edges.push({ to: a.key, weight: weight });
+            edgeCount++;
+        }
+        if (category === 'runway') {
+            runwayEnds.push(lineNodes[0].key, lineNodes[lineNodes.length - 1].key);
+        }
+    });
+    state.taxiGraph = { nodes: nodes, runwayEnds: Array.from(new Set(runwayEnds)), edgeCount: edgeCount };
+    state._ambientTaxiAreaNodes = null;
+    console.log('[AIRCRAFT] Сеть руления загружена:', Object.keys(nodes).length, 'узлов,', edgeCount, 'сегментов');
+    syncAircraftFromRequests();
+}
+
+function nearestTaxiNode(target) {
+    var graph = state.taxiGraph, best = null, bestDist = Infinity;
+    Object.keys(graph.nodes).forEach(function(key) {
+        var d = taxiDistanceMeters(graph.nodes[key].point, target);
+        if (d < bestDist) { bestDist = d; best = key; }
+    });
+    return best;
+}
+
+function shortestTaxiPath(startKey, endKey) {
+    var graph = state.taxiGraph, dist = {}, prev = {}, queue = [];
+    Object.keys(graph.nodes).forEach(function(k) { dist[k] = Infinity; });
+    dist[startKey] = 0; queue.push({ key: startKey, cost: 0 });
+    while (queue.length) {
+        queue.sort(function(a, b) { return a.cost - b.cost; });
+        var current = queue.shift();
+        if (current.cost !== dist[current.key]) continue;
+        if (current.key === endKey) break;
+        var edges = graph.nodes[current.key].edges;
+        for (var i = 0; i < edges.length; i++) {
+            var next = edges[i].to, candidate = current.cost + edges[i].weight;
+            if (candidate < dist[next]) {
+                dist[next] = candidate; prev[next] = current.key;
+                queue.push({ key: next, cost: candidate });
+            }
+        }
+    }
+    if (!isFinite(dist[endKey])) return null;
+    var path = [], cursor = endKey;
+    while (cursor) { path.unshift(graph.nodes[cursor].point); if (cursor === startKey) break; cursor = prev[cursor]; }
+    return path.length && path[0] ? path : null;
+}
+
+function createAircraftTaxiRoute(parkingId) {
+    if (!state.taxiGraph || !window.CONFIG || !CONFIG.MAP_POINTS[parkingId]) return null;
+    var target = [CONFIG.MAP_POINTS[parkingId].lat, CONFIG.MAP_POINTS[parkingId].lng];
+    var endKey = nearestTaxiNode(target);
+    if (!endKey) return null;
+    var bestPath = null, bestCost = Infinity;
+    var starts = state.taxiGraph.runwayEnds;
+    for (var i = 0; i < starts.length; i++) {
+        var path = shortestTaxiPath(starts[i], endKey);
+        if (!path) continue;
+        var cost = 0;
+        for (var j = 1; j < path.length; j++) cost += taxiDistanceMeters(path[j - 1], path[j]);
+        cost += taxiDistanceMeters(path[path.length - 1], target);
+        if (cost < bestCost) { bestCost = cost; bestPath = path; }
+    }
+    if (!bestPath) return null;
+    if (taxiDistanceMeters(bestPath[bestPath.length - 1], target) > 10) bestPath.push(target);
+    return bestPath;
+}
+
+// Фоновая симуляция использует случайные узлы сети в районе B/C,
+// а не всегда начинает движение с торца ВПП.
+function ambientTaxiAreaNodes() {
+    if (state._ambientTaxiAreaNodes) return state._ambientTaxiAreaNodes;
+    var refs = ((CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || [])).map(String);
+    var parkings = _allParkingsCache.filter(function(p) {
+        return p && refs.indexOf(String(p.ref)) !== -1 && p.lat != null && p.lng != null;
+    });
+    var nodes = Object.keys(state.taxiGraph.nodes).filter(function(key) {
+        var point = state.taxiGraph.nodes[key].point;
+        return parkings.some(function(p) { return taxiDistanceMeters(point, [p.lat, p.lng]) <= 850; });
+    });
+    state._ambientTaxiAreaNodes = nodes;
+    return nodes;
+}
+
+function createAmbientTaxiRoute(startPoint, parkingId) {
+    var graph = state.taxiGraph;
+    var areaNodes = ambientTaxiAreaNodes();
+    if (!areaNodes || areaNodes.length < 2) return null;
+    var startKey = startPoint ? nearestTaxiNode(startPoint) : areaNodes[Math.floor(Math.random() * areaNodes.length)];
+    if (areaNodes.indexOf(startKey) === -1) startKey = areaNodes[Math.floor(Math.random() * areaNodes.length)];
+    var endKey = null, target = null;
+    if (parkingId != null && CONFIG.MAP_POINTS[parkingId]) {
+        target = [CONFIG.MAP_POINTS[parkingId].lat, CONFIG.MAP_POINTS[parkingId].lng];
+        endKey = nearestTaxiNode(target);
+    } else {
+        var choices = areaNodes.filter(function(k) {
+            return k !== startKey && taxiDistanceMeters(graph.nodes[startKey].point, graph.nodes[k].point) > 140;
+        });
+        if (!choices.length) return null;
+        endKey = choices[Math.floor(Math.random() * choices.length)];
+    }
+    if (!endKey || endKey === startKey) return null;
+    var route = shortestTaxiPath(startKey, endKey);
+    if (!route || route.length < 2) return null;
+    if (target && taxiDistanceMeters(route[route.length - 1], target) > 10) route.push(target);
+    return route;
+}
+
+function aircraftIcon() {
+    return L.divIcon({ className: 'moving-aircraft-marker',
+        html: '<div style="font-size:25px;line-height:28px;filter:drop-shadow(0 1px 2px #111);">✈️</div>',
+        iconSize: [30, 30], iconAnchor: [15, 15] });
+}
+
+function isGroundUnitNearAircraft(position) {
+    var safeMeters = 45;
+    for (var i = 0; i < (state.employees || []).length; i++) {
+        var emp = state.employees[i];
+        if (emp.lat != null && emp.lng != null && taxiDistanceMeters(position, [emp.lat, emp.lng]) < safeMeters) return true;
+    }
+    for (var j = 0; j < (state.transport || []).length; j++) {
+        var car = state.transport[j];
+        if (car.lat != null && car.lng != null && taxiDistanceMeters(position, [car.lat, car.lng]) < safeMeters) return true;
+    }
+    return false;
+}
+
+function animateAircraftTaxi(sim) {
+    if (sim.animationFrame) cancelAnimationFrame(sim.animationFrame);
+    var total = 0; sim.cumulative = [0];
+    for (var i = 1; i < sim.route.length; i++) {
+        total += taxiDistanceMeters(sim.route[i - 1], sim.route[i]);
+        sim.cumulative.push(total);
+    }
+    sim.totalMeters = total;
+    var duration = Math.max(6500, Math.min(18000, total / 48 * 1000));
+    sim.startedAt = performance.now(); sim.duration = duration; sim.moving = true;
+    function frame(now) {
+        var progress = Math.min(1, (now - sim.startedAt) / sim.duration);
+        var distance = sim.totalMeters * progress, idx = 1;
+        while (idx < sim.cumulative.length - 1 && sim.cumulative[idx] < distance) idx++;
+        var from = sim.route[Math.max(0, idx - 1)], to = sim.route[Math.min(idx, sim.route.length - 1)];
+        var segmentStart = sim.cumulative[Math.max(0, idx - 1)], segmentLen = Math.max(0.001, sim.cumulative[Math.min(idx, sim.cumulative.length - 1)] - segmentStart);
+        var part = Math.max(0, Math.min(1, (distance - segmentStart) / segmentLen));
+        var pos = [from[0] + (to[0] - from[0]) * part, from[1] + (to[1] - from[1]) * part];
+        // Самолёт ждёт, если на его пути находится инженер или спецтранспорт.
+        if (isGroundUnitNearAircraft(pos)) {
+            sim.startedAt += 32;
+            sim.animationFrame = requestAnimationFrame(frame);
+            return;
+        }
+        sim.marker.setLatLng(pos);
+        if (progress < 1) sim.animationFrame = requestAnimationFrame(frame);
+        else {
+            sim.marker.setLatLng(sim.route[sim.route.length - 1]);
+            sim.moving = false; sim.arrived = true;
+            syncAircraftSafetyReservations();
+            if (sim.requestDeparture) {
+                // После подписи пилота борт покидает стоянку и исчезает с карты.
+                if (sim.marker) map.removeLayer(sim.marker);
+                delete state.aircraftSimulations[sim.id];
+                syncAircraftSafetyReservations();
+            } else if (sim.ambient) {
+                if (sim.ambientMode === 'parking' && !sim.departing) {
+                    // Часть бортов действительно заезжает на стоянку и ждёт.
+                    sim.departureTimer = setTimeout(function() {
+                        if (!state.aircraftSimulations[sim.id]) return;
+                        sim.route = sim.route.slice().reverse();
+                        sim.departing = true; sim.arrived = false;
+                        animateAircraftTaxi(sim);
+                    }, 9000 + Math.random() * 22000);
+                } else if (sim.departing) {
+                    // После выезда самолёт исчезает, а новый появляется из другого места.
+                    if (sim.marker) map.removeLayer(sim.marker);
+                    delete state.aircraftSimulations[sim.id];
+                    syncAircraftSafetyReservations();
+                    scheduleAmbientAircraft(1800 + Math.random() * 8500);
+                } else {
+                    // Остальные продолжают рулить по перрону: несколько случайных участков,
+                    // иногда с заездом на стоянку, иногда без остановки на ней.
+                    sim.ambientLegs = (sim.ambientLegs || 0) + 1;
+                    sim.departureTimer = setTimeout(function() {
+                        if (!state.aircraftSimulations[sim.id]) return;
+                        if (sim.ambientLegs >= sim.ambientMaxLegs) {
+                            if (sim.marker) map.removeLayer(sim.marker);
+                            delete state.aircraftSimulations[sim.id];
+                            syncAircraftSafetyReservations();
+                            scheduleAmbientAircraft(1200 + Math.random() * 7000);
+                            return;
+                        }
+                        var current = sim.route[sim.route.length - 1];
+                        var goToParking = Math.random() < 0.38;
+                        var nextParking = null;
+                        if (goToParking) {
+                            var refs = (CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || []).map(String);
+                            var freeParkings = _allParkingsCache.filter(function(p) {
+                                return p && refs.indexOf(String(p.ref)) !== -1 && p.ref != null && CONFIG.MAP_POINTS[p.ref] &&
+                                    !Object.keys(state.aircraftSimulations).some(function(otherId) {
+                                        var other = state.aircraftSimulations[otherId];
+                                        return other && other.id !== sim.id && String(other.parkingId) === String(p.ref) && other.ambientMode === 'parking';
+                                    });
+                            });
+                            if (freeParkings.length) nextParking = String(freeParkings[Math.floor(Math.random() * freeParkings.length)].ref);
+                        }
+                        var nextRoute = createAmbientTaxiRoute(current, nextParking);
+                        if (!nextRoute || nextRoute.length < 2) {
+                            sim.ambientLegs = sim.ambientMaxLegs;
+                            sim.departureTimer = setTimeout(function() {
+                                if (sim.marker) map.removeLayer(sim.marker);
+                                delete state.aircraftSimulations[sim.id];
+                                syncAircraftSafetyReservations();
+                                scheduleAmbientAircraft(1500 + Math.random() * 7000);
+                            }, 1000);
+                            return;
+                        }
+                        sim.route = nextRoute;
+                        sim.parkingId = nextParking || null;
+                        sim.ambientMode = nextParking ? 'parking' : 'roaming';
+                        sim.departing = false;
+                        sim.arrived = false;
+                        sim.marker.setTooltipContent(sim.aircraft + (nextParking ? ' — руление к стоянке ' + nextParking : ' — руление по перрону B/C'));
+                        animateAircraftTaxi(sim);
+                    }, 1800 + Math.random() * 6500);
+                }
+            }
+        }
+    }
+    sim.animationFrame = requestAnimationFrame(frame);
+    syncAircraftSafetyReservations();
+}
+
+function syncAircraftSafetyReservations() {
+    var reservations = [];
+    Object.keys(state.aircraftSimulations || {}).forEach(function(id) {
+        var sim = state.aircraftSimulations[id];
+        if (sim && sim.moving && sim.route && sim.route.length > 1) {
+            reservations.push({ id: id, aircraft: sim.aircraft, route: sim.route });
+        }
+    });
+    if (state.aircraftSafetyTimer) clearTimeout(state.aircraftSafetyTimer);
+    state.aircraftSafetyTimer = setTimeout(function() {
+        fetch(API_URL + '/aircraft/taxi-reservations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aircraft: reservations })
+        }).catch(function(err) { console.warn('[AIRCRAFT] safety sync failed', err); });
+    }, 100);
+}
+
+function syncAircraftFromRequests() {
+    if (!map || !state.taxiGraph || !state.tickets) return;
+    var live = {};
+    (state.tickets || []).forEach(function(ticket) {
+        if (ticket.source !== 'pilot' || !ticket.parking_id ||
+            ['draft', 'deleted', 'cancelled', 'flight_cancelled'].indexOf(ticket.status) !== -1 ||
+            ticket.flight_cancelled) return;
+        var id = String(ticket.id);
+        live[id] = true;
+        var existing = state.aircraftSimulations[id];
+        var isSigned = !!(ticket.crs_signed_at || ticket.crs_signed);
+
+        // Если борт уже стоит по заявке, держим его на стоянке до подписи.
+        if (existing) {
+            if (isSigned && existing.waitingForSignature && !existing.requestDeparture) {
+                existing.waitingForSignature = false;
+                existing.requestDeparture = true;
+                existing.departing = true;
+                existing.route = existing.route.slice().reverse();
+                existing.arrived = false;
+                existing.marker.setTooltipContent((existing.aircraft || 'Самолёт') + ' — подпись получена, выезд со стоянки ' + existing.parkingId);
+                animateAircraftTaxi(existing);
+            }
+            return;
+        }
+
+        var route = createAircraftTaxiRoute(String(ticket.parking_id));
+        if (!route || route.length < 1) {
+            console.warn('[AIRCRAFT] Не удалось определить стоянку', ticket.parking_id, ticket.id);
+            return;
+        }
+        var parkingPoint = [CONFIG.MAP_POINTS[ticket.parking_id].lat, CONFIG.MAP_POINTS[ticket.parking_id].lng];
+        // Заявочный самолёт появляется сразу на стоянке — руление к ней не проигрывается.
+        var marker = L.marker(parkingPoint, { icon: aircraftIcon(), zIndexOffset: 1700, interactive: true })
+            .addTo(map).bindTooltip((ticket.aircraft || 'Самолёт') + (isSigned ? ' — подпись получена' : ' — ожидает подпись пилота'));
+        var sim = state.aircraftSimulations[id] = {
+            id: id, aircraft: ticket.aircraft || 'Самолёт', parkingId: String(ticket.parking_id),
+            marker: marker, route: route, moving: false, arrived: true, ambient: false,
+            waitingForSignature: !isSigned, requestDeparture: false
+        };
+
+        // Если подпись уже была сохранена до загрузки карты, сразу запускаем выезд.
+        if (isSigned) {
+            sim.waitingForSignature = false;
+            sim.requestDeparture = true;
+            sim.departing = true;
+            sim.route = route.slice().reverse();
+            sim.arrived = false;
+            marker.setTooltipContent((sim.aircraft || 'Самолёт') + ' — подпись получена, выезд со стоянки ' + sim.parkingId);
+            animateAircraftTaxi(sim);
+        }
+    });
+    Object.keys(state.aircraftSimulations).forEach(function(id) {
+        if (!live[id] && !state.aircraftSimulations[id].ambient) {
+            var sim = state.aircraftSimulations[id];
+            if (sim.animationFrame) cancelAnimationFrame(sim.animationFrame);
+            if (sim.departureTimer) clearTimeout(sim.departureTimer);
+            if (sim.marker) map.removeLayer(sim.marker);
+            delete state.aircraftSimulations[id];
+        }
+    });
+    syncAircraftSafetyReservations();
+}
+
+// Фоновое движение воздушных судов: только терминалы B/C.
+// Поддерживаем переменное количество 3–7 одновременно видимых фоновых бортов.
+function scheduleAmbientAircraft(delay) {
+    if (state.ambientAircraftTimer) clearTimeout(state.ambientAircraftTimer);
+    state.ambientAircraftTimer = setTimeout(spawnAmbientAircraft, delay == null ? 3500 : delay);
+}
+
+function scheduleAmbientAircraftTargetChange() {
+    if (state.ambientAircraftTargetTimer) clearTimeout(state.ambientAircraftTargetTimer);
+    state.ambientAircraftTargetTimer = setTimeout(function() {
+        state.ambientAircraftTarget = 3 + Math.floor(Math.random() * 5);
+        scheduleAmbientAircraft(500);
+        scheduleAmbientAircraftTargetChange();
+    }, 35000 + Math.random() * 30000);
+}
+
+function spawnAmbientAircraft() {
+    if (!map || !state.taxiGraph || !_allParkingsCache || !_allParkingsCache.length) {
+        scheduleAmbientAircraft(3000); return;
+    }
+    var ambientCount = Object.keys(state.aircraftSimulations || {}).filter(function(id) {
+        return state.aircraftSimulations[id] && state.aircraftSimulations[id].ambient;
+    }).length;
+    var targetCount = Math.max(3, Math.min(7, Number(state.ambientAircraftTarget) || 5));
+    if (ambientCount >= targetCount || ambientCount >= 7) {
+        scheduleAmbientAircraft(4500 + Math.random() * 3500); return;
+    }
+
+    // Фоновый трафик только в районе терминалов B/C.
+    var refs = (CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || []).map(String);
+    var candidates = _allParkingsCache.filter(function(p) {
+        return p && p.ref != null && p.lat != null && p.lng != null &&
+            refs.indexOf(String(p.ref)) !== -1 && CONFIG.MAP_POINTS[p.ref];
+    });
+    var areaNodes = ambientTaxiAreaNodes();
+    if (!candidates.length || !areaNodes || areaNodes.length < 2) {
+        console.warn('[AIRCRAFT] Недостаточно узлов сети для симуляции B/C');
+        scheduleAmbientAircraft(5000); return;
+    }
+
+    // Выбираем случайный тип поведения: большинство просто рулит по перрону,
+    // часть направляется к свободной стоянке.
+    var parkingMode = Math.random() < 0.38;
+    var used = {};
+    Object.keys(state.aircraftSimulations).forEach(function(id) {
+        var x = state.aircraftSimulations[id];
+        if (x && x.parkingId && x.ambientMode === 'parking') used[String(x.parkingId)] = true;
+    });
+    var free = candidates.filter(function(p) { return !used[String(p.ref)]; });
+    if (!free.length) parkingMode = false;
+    var parking = parkingMode ? free[Math.floor(Math.random() * free.length)] : null;
+    var route = createAmbientTaxiRoute(null, parking ? String(parking.ref) : null);
+    if (!route || route.length < 2) { scheduleAmbientAircraft(3500); return; }
+
+    var id = 'ambient_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+    var callsigns = ['SU 1452', 'DP 602', 'FV 318', 'UT 721', 'N4 205', 'SU 218', 'DP 814', 'FV 407', 'U6 331', 'S7 426', 'DP 910', 'FV 552', 'SU 807'];
+    var aircraft = callsigns[Math.floor(Math.random() * callsigns.length)];
+    var marker = L.marker(route[0], { icon: aircraftIcon(), zIndexOffset: 1600, interactive: true })
+        .addTo(map).bindTooltip(aircraft + (parking ? ' — терминал B/C, стоянка ' + parking.ref : ' — руление по перрону B/C'));
+    var sim = state.aircraftSimulations[id] = {
+        id: id, aircraft: aircraft, parkingId: parking ? String(parking.ref) : null, marker: marker,
+        route: route, moving: false, arrived: false, ambient: true,
+        ambientMode: parking ? 'parking' : 'roaming', departing: false,
+        ambientLegs: 0, ambientMaxLegs: 2 + Math.floor(Math.random() * 3)
+    };
+    animateAircraftTaxi(sim);
+
+    // Несинхронные появления из разных точек: интервалы каждый раз случайные.
+    scheduleAmbientAircraft(1800 + Math.random() * 6500);
+}
+
 function initMap() {
     map = L.map('map', {
         center: [55.981349, 37.388359],
@@ -2568,6 +3008,7 @@ function initMap() {
             // Кэшируем список стоянок для выпадающего списка
             _allParkingsCache = list;
             updateParkingList();
+            syncAircraftFromRequests();
             // Parking coordinates may arrive after the requests/engineers API.
             // Retry active accepted engineers now that MAP_POINTS is complete.
             for (var ri = 0; ri < state.employees.length; ri++) {
@@ -2581,12 +3022,13 @@ function initMap() {
     fetch('/static/aircraft_paths.geojson')
         .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson'); return res.json(); })
         .then(function(data) {
-            state.aircraftLayer = L.geoJSON(data, {
-                style: function() {
-                    return { color: '#8a9bb5', weight: 1, opacity: 0.5, fillOpacity: 0.05 };
-                }
-            }).addTo(map);
-            console.log('[MAP] aircraft_paths.geojson добавлен (контуры)');
+            // GeoJSON используется только как невидимая навигационная сеть.
+            // На карте показываем исключительно движущиеся метки самолётов.
+            state.aircraftLayer = null;
+            buildAircraftTaxiGraph(data);
+            scheduleAmbientAircraft(700);
+            scheduleAmbientAircraftTargetChange();
+            console.log('[MAP] Скрытая сеть руления загружена; фоновая симуляция 3–7 самолётов в терминалах B/C');
         })
         .catch(function(e) { console.warn('[MAP] aircraft_paths.geojson:', e.message); });
 
@@ -2632,8 +3074,9 @@ function renderMapMarkers() {
             .on('dragend', function(e) {
                 state.isDragging = false;
                 var pos = e.target.getLatLng();
+                var previousPosition = { lat: employee.lat, lng: employee.lng };
                 employee.lat = pos.lat; employee.lng = pos.lng;
-                persistEngineerCoords(employee);
+                persistEngineerCoords(employee, previousPosition);
                 if (!employee.isFree()) updateRouteForEngineer(employee.realId, true);
                 saveStateToLocalStorage();
                 showToast(employee.name + ' перемещён и сохранён', 'success');
@@ -2672,8 +3115,9 @@ function renderMapMarkers() {
             .on('dragend', function(e) {
                 state.isDragging = false;
                 var pos = e.target.getLatLng();
+                var previousPosition = { lat: vehicle.lat, lng: vehicle.lng };
                 vehicle.lat = pos.lat; vehicle.lng = pos.lng;
-                persistTransportCoords(vehicle);
+                persistTransportCoords(vehicle, previousPosition);
                 for (var k = 0; k < state.employees.length; k++) {
                     if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId, true);
                 }
@@ -2788,7 +3232,9 @@ function updateRouteForEngineer(engineerId, force) {
 
     var routeKey = 'route_' + engineerId;
     if (!activeRequest) { clearRouteForEngineer(engineerId); return; }
-    if (['pending', 'idle', '', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(activeRequest.engineerTaskStep) === -1) {
+    if (activeRequest.engineerStatus !== 'busy') { clearRouteForEngineer(engineerId); return; }
+    if (['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(activeRequest.status) !== -1) { clearRouteForEngineer(engineerId); return; }
+    if (['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(activeRequest.engineerTaskStep) === -1) {
         clearRouteForEngineer(engineerId);
         return;
     }
@@ -3823,7 +4269,7 @@ function applyReportsFilters() {
     for (var i = 0; i < state.reports.length; i++) {
         var r = state.reports[i];
         if (search) {
-            var hs = ((r.aircraft || '') + ' ' + (r.engineer || '') + ' ' + (r.faultName || '') + ' ' + (r.parkingId || '') + ' ' + (r.findings || '') + ' ' + (r.actions || '') + ' ' + (r.comment || '') + ' ' + (r.conditionLabel || '') + ' ' + (r.categoryLabel || '')).toLowerCase();
+            var hs = ((r.aircraft || '') + ' ' + (r.engineer || '') + ' ' + (r.faultName || '') + ' ' + (r.parkingId || '') + ' ' + (r.findings || '') + ' ' + (r.actions || '') + ' ' + (r.comment || '') + ' ' + (r.melRef || '') + ' ' + (r.melAta || '') + ' ' + (r.melCategory || '') + ' ' + (r.melRevision || '') + ' ' + (r.melIntervalLimit || '') + ' ' + (r.conditionLabel || '') + ' ' + (r.categoryLabel || '')).toLowerCase();
             if (hs.indexOf(search) === -1) continue;
         }
         if (engFilter && r.engineer !== engFilter) continue;
@@ -3928,7 +4374,14 @@ function openReportModal(reportId) {
         (r.findings ? '<div class="report-detail-section"><h4><i class="fas fa-search"></i> Обнаружено</h4><div class="detail-content">' + escapeHtml(r.findings) + '</div></div>' : '') +
         (r.actions ? '<div class="report-detail-section"><h4><i class="fas fa-tools"></i> Работы</h4><div class="detail-content">' + escapeHtml(r.actions) + '</div></div>' : '') +
         (r.materials ? '<div class="report-detail-section"><h4><i class="fas fa-box"></i> Материалы</h4><div class="detail-content">' + escapeHtml(r.materials) + '</div></div>' : '') +
+        '<div class="report-detail-section"><h4><i class="fas fa-cubes"></i> Нужны детали</h4><div class="detail-content">' + (r.needParts ? 'Да' : 'Нет') + '</div></div>' +
         (r.comment ? '<div class="report-detail-section"><h4><i class="fas fa-comment"></i> Комментарий</h4><div class="detail-content">' + escapeHtml(r.comment) + '</div></div>' : '') +
+        (r.melRef || r.melAta || r.melCategory || r.melRevision || r.melIntervalLimit ? '<div class="report-detail-section" style="background:#fffbeb;border:1px solid #f2d28a;border-radius:12px;"><h4><i class="fas fa-book-open"></i> Техническая оценка MEL</h4><div class="report-detail-grid">' +
+          '<div class="report-detail-item"><div class="label">Пункт MEL</div><div class="value">' + escapeHtml(r.melRef || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">ATA</div><div class="value">' + escapeHtml(r.melAta || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">Категория MEL</div><div class="value">' + escapeHtml(r.melCategory || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">Редакция MEL</div><div class="value">' + escapeHtml(r.melRevision || '—') + '</div></div>' +
+          '<div class="report-detail-item" style="grid-column:1/-1;"><div class="label">Интервал / лимит</div><div class="value">' + escapeHtml(r.melIntervalLimit || '—') + '</div></div></div></div>' : '') +
         '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeReportModal()">Закрыть</button></div>';
     document.getElementById('reportModalContent').innerHTML = html;
     document.getElementById('reportModal').classList.add('show');
@@ -4225,20 +4678,14 @@ function clearAllPilotRequests() {
     showToast('Все заявки КВС удалены', 'success');
 }
 function exportPilotRequests() {
-    if (state.pilotRequests.length === 0) { showToast('Нет данных для экспорта', 'info'); return; }
     try {
-        var exportData = state.pilotRequests.map(function(r) {
-            return { id: r.id, requestId: r.requestId, pilotName: r.pilotName, pilotRank: r.pilotRank, aircraft: r.aircraft, faultType: r.faultType, terminal: r.terminal, parkingId: r.parkingId, duration: r.duration, sentAt: r.sentAt, status: r.status, audioText: r.audioText || '', hasAudio: !!r.audioBase64 };
-        });
-        var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'pilot_requests_' + new Date().toISOString().slice(0,10) + '.json';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Экспорт готов', 'success');
-    } catch(e) { console.error(e); showToast('Не удалось экспортировать', 'error'); }
+        // Сервер формирует единый Excel из текущих заявок, архива, журналов и отчётов.
+        window.location.href = API_URL + '/reports/export.xlsx';
+        showToast('Подготовка Excel-выгрузки…', 'info');
+    } catch(e) {
+        console.error(e);
+        showToast('Не удалось подготовить Excel-выгрузку', 'error');
+    }
 }
 
 function updateCancelledBadge() {

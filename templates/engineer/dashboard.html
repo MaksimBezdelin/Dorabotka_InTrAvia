@@ -114,6 +114,14 @@
         .empty-state i { font-size: 40px; opacity: 0.4; display: block; margin-bottom: 10px; color: var(--aero-blue); }
         .empty-state p { font-size: 14px; font-weight: 500; }
         .empty-state span { font-size: 12px; }
+        .panel-hidden { display: none !important; }
+        .history-report { background:#fff; border:1px solid var(--aero-gray-light); border-left:4px solid var(--aero-blue); border-radius:10px; padding:16px 18px; margin-bottom:12px; }
+        .history-report-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+        .history-report-title { font-size:14px; font-weight:800; color:var(--aero-text); }
+        .history-report-meta { font-size:11px; color:var(--aero-gray); margin-top:4px; }
+        .history-report-verdict { font-size:11px; font-weight:800; color:var(--aero-blue); background:var(--aero-blue-pale); border-radius:6px; padding:5px 9px; height:max-content; }
+        .history-report-body { font-size:12px; line-height:1.55; color:var(--aero-text-light); white-space:pre-wrap; overflow-wrap:anywhere; background:#f8fafc; border-radius:8px; padding:12px; }
+        .history-report-details { margin-top:9px; font-size:11px; color:var(--aero-gray); }
 
         .toast { position: fixed; top: 24px; right: 24px; padding: 12px 20px; background: var(--aero-blue); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.25); z-index: 9999; display: flex; align-items: center; gap: 10px; max-width: 480px; animation: slideIn 0.3s ease; }
         .toast.success { border-left: 4px solid var(--aero-blue-light); }
@@ -201,7 +209,8 @@
         </div>
     </div>
     <ul class="sidebar-nav">
-        <li class="active"><a href="#"><i class="fas fa-tasks"></i><span>Мои задачи</span></a></li>
+        <li class="active" id="navTasks"><a href="#tasks" onclick="showEngineerSection('tasks'); return false;"><i class="fas fa-tasks"></i><span>Мои задачи</span></a></li>
+        <li id="navReports"><a href="#reports" onclick="showEngineerSection('reports'); return false;"><i class="fas fa-clipboard-list"></i><span>Прошлые отчёты</span></a></li>
         <li><a href="#" onclick="openProfileModal(); return false;"><i class="fas fa-user-circle"></i><span>Личный кабинет</span></a></li>
     </ul>
     <div class="aeroflot-brand">
@@ -231,6 +240,7 @@
         </div>
     </div>
 
+    <div id="tasksPanel">
     <div class="stats-grid">
         <div class="stat-card"><div class="stat-value" id="taskCount">0</div><div class="stat-label">Активных задач</div></div>
         <div class="stat-card"><div class="stat-value" id="doneToday">0</div><div class="stat-label">Выполнено сегодня</div></div>
@@ -256,6 +266,12 @@
         <div id="routeInfo" style="font-size:13px;color:var(--aero-text-light);text-align:center;padding:8px;">
             <span style="color:var(--aero-gray);">Нет активного маршрута</span>
         </div>
+    </div>
+    </div>
+
+    <div class="card panel-hidden" id="reportsPanel">
+        <div class="card-header"><h3>Прошлые отчёты</h3><button class="btn btn-secondary" type="button" onclick="loadPastReports()"><i class="fas fa-sync-alt"></i> Обновить</button></div>
+        <div id="pastReportsList"><div class="empty-state"><i class="fas fa-clipboard-list"></i><p>Загрузка отчётов…</p></div></div>
     </div>
 </div>
 
@@ -297,6 +313,22 @@
         var blockReloadUntil = 0;
         var lastRouteSignature = '';
         var PARKING_COORDS = {};
+        // Полноценная симуляция самолётов инженера по связанной сети руления.
+        var engineerAircraftMarkers={}, engineerAircraftSimulations={}, engineerTaxiGraph=null;
+        var engineerAmbientTaxiAreaNodes=null, engineerAircraftTimer=null, engineerAmbientTarget=5;
+        function engineerPlaneIcon(){return L.divIcon({className:'moving-aircraft-marker',html:'<div style="font-size:25px;line-height:28px;filter:drop-shadow(0 1px 2px #111);">✈️</div>',iconSize:[30,30],iconAnchor:[15,15]});}
+        function engineerTaxiDistance(a,b){var R=6371000,r=Math.PI/180,dl=(b[0]-a[0])*r,dg=(b[1]-a[1])*r,x=Math.sin(dl/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dg/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+        function buildEngineerTaxiGraph(data){var nodes={},edges=0;function node(c){var lat=+c[1],lng=+c[0],k=lat.toFixed(5)+','+lng.toFixed(5);return nodes[k]||(nodes[k]={key:k,point:[lat,lng],edges:[]});}(data.features||[]).forEach(function(f){var cat=String((f.properties||{}).category||'').toLowerCase(),c=f.geometry&&f.geometry.coordinates;if(!c||f.geometry.type!=='LineString'||['runway','taxiway','apron'].indexOf(cat)<0||c.length<2)return;var line=c.map(node);for(var i=1;i<line.length;i++){var x=line[i-1],y=line[i];if(x.key===y.key)continue;var w=engineerTaxiDistance(x.point,y.point);x.edges.push({to:y.key,weight:w});y.edges.push({to:x.key,weight:w});edges++;}});engineerTaxiGraph={nodes:nodes,edgeCount:edges};engineerAmbientTaxiAreaNodes=null;console.log('[AIRCRAFT] Сеть руления инженера:',Object.keys(nodes).length,'узлов');}
+        function nearestEngineerTaxiNode(p){var best=null,bd=Infinity;if(!engineerTaxiGraph)return null;Object.keys(engineerTaxiGraph.nodes).forEach(function(k){var d=engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,p);if(d<bd){bd=d;best=k;}});return best;}
+        function shortestEngineerTaxiPath(start,end){var g=engineerTaxiGraph;if(!g||!g.nodes[start]||!g.nodes[end])return null;var d={},prev={},q=[];Object.keys(g.nodes).forEach(function(k){d[k]=Infinity;});d[start]=0;q.push({key:start,cost:0});while(q.length){q.sort(function(x,y){return x.cost-y.cost;});var cur=q.shift();if(cur.cost!==d[cur.key])continue;if(cur.key===end)break;g.nodes[cur.key].edges.forEach(function(e){var nd=cur.cost+e.weight;if(nd<d[e.to]){d[e.to]=nd;prev[e.to]=cur.key;q.push({key:e.to,cost:nd});}});}if(!isFinite(d[end]))return null;var path=[],k=end;while(k){path.unshift(g.nodes[k].point);if(k===start)break;k=prev[k];}return path.length>1?path:null;}
+        function engineerAreaNodes(){if(engineerAmbientTaxiAreaNodes)return engineerAmbientTaxiAreaNodes;var parks=Object.keys(PARKING_COORDS).map(function(k){var p=PARKING_COORDS[k];return[+p.lat,+p.lng];});engineerAmbientTaxiAreaNodes=Object.keys(engineerTaxiGraph?engineerTaxiGraph.nodes:{}).filter(function(k){var pt=engineerTaxiGraph.nodes[k].point;return parks.some(function(x){return engineerTaxiDistance(pt,x)<=1100;});});return engineerAmbientTaxiAreaNodes;}
+        function createEngineerTaxiRoute(from,to){var a=nearestEngineerTaxiNode(from),b=nearestEngineerTaxiNode(to);if(!a||!b||a===b)return null;var path=shortestEngineerTaxiPath(a,b);if(!path)return null;if(engineerTaxiDistance(path[0],from)>8)path.unshift(from);if(engineerTaxiDistance(path[path.length-1],to)>8)path.push(to);return path;}
+        function createEngineerRandomRoute(from,to){var area=engineerAreaNodes();if(!area||area.length<2)return null;var start=nearestEngineerTaxiNode(from);if(!start||area.indexOf(start)<0){start=area[Math.floor(Math.random()*area.length)];from=engineerTaxiGraph.nodes[start].point;}var choices=area.filter(function(k){return k!==start&&engineerTaxiDistance(engineerTaxiGraph.nodes[start].point,engineerTaxiGraph.nodes[k].point)>220;});if(!choices.length)return null;if(!to)to=engineerTaxiGraph.nodes[choices[Math.floor(Math.random()*choices.length)]].point;return createEngineerTaxiRoute(from,to);}
+        function animateEngineerAircraft(sim,done){if(sim.frame)cancelAnimationFrame(sim.frame);var r=sim.route||[],cum=[0],total=0;for(var i=1;i<r.length;i++){total+=engineerTaxiDistance(r[i-1],r[i]);cum.push(total);}if(r.length<2||total<1){if(done)done();return;}var duration=Math.max(6500,Math.min(26000,total/(7+Math.random()*2)*1000)),started=performance.now();sim.moving=true;function frame(now){if(!sim.marker||!map||!map.hasLayer(sim.marker))return;var progress=Math.min(1,(now-started)/duration),d=total*progress,j=1;while(j<cum.length-1&&cum[j]<d)j++;var x=r[j-1],y=r[j],seg=Math.max(.001,cum[j]-cum[j-1]),part=Math.max(0,Math.min(1,(d-cum[j-1])/seg));sim.marker.setLatLng([x[0]+(y[0]-x[0])*part,x[1]+(y[1]-x[1])*part]);if(progress<1)sim.frame=requestAnimationFrame(frame);else{sim.marker.setLatLng(r[r.length-1]);sim.moving=false;if(done)done();}}sim.frame=requestAnimationFrame(frame);}
+        function removeEngineerAircraft(sim){if(!sim)return;if(sim.frame)cancelAnimationFrame(sim.frame);if(sim.timer)clearTimeout(sim.timer);if(sim.marker&&map&&map.hasLayer(sim.marker))map.removeLayer(sim.marker);if(sim.id!=null){delete engineerAircraftSimulations[String(sim.id)];delete engineerAircraftMarkers[String(sim.id)];}}
+        function refreshEngineerRequestAircraft(){if(!mapInitialized||!map||!engineerTaxiGraph)return;fetch('/api/requests').then(function(r){return r.json();}).then(function(requests){if(!Array.isArray(requests))return;var live={};requests.forEach(function(req){if(!req||!req.parking_id||['completed','cancelled','flight_cancelled','deleted','draft'].indexOf(req.status)>=0||req.flight_cancelled)return;var p=PARKING_COORDS[String(req.parking_id)];if(!p)return;var id=String(req.id),signed=!!(req.crs_signed_at||req.crs_signed),sim=engineerAircraftSimulations[id];live[id]=true;var label=(req.aircraft||'Самолёт')+' · стоянка '+req.parking_id+(signed?' · подпись получена':' · ожидает подпись');if(!sim){var marker=L.marker([+p.lat,+p.lng],{icon:engineerPlaneIcon(),zIndexOffset:1700,interactive:true}).addTo(map).bindTooltip(label,{direction:'top'});sim=engineerAircraftSimulations[id]={id:id,marker:marker,aircraft:req.aircraft||'Самолёт',parkingId:String(req.parking_id),waitingForSignature:true,requestAircraft:true};engineerAircraftMarkers[id]=marker;}else sim.marker.setTooltipContent(label);if(signed&&sim.waitingForSignature&&!sim.departureStarted){sim.waitingForSignature=false;sim.departureStarted=true;var from=[+p.lat,+p.lng],area=engineerAreaNodes(),exits=area.filter(function(k){return engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,from)>350;}),to=exits.length?engineerTaxiGraph.nodes[exits[Math.floor(Math.random()*exits.length)]].point:null;sim.route=to?createEngineerTaxiRoute(from,to):null;if(sim.route&&sim.route.length>1){sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · выезд после подписи');animateEngineerAircraft(sim,function(){removeEngineerAircraft(sim);});}else{sim.departureStarted=false;sim.waitingForSignature=true;sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · подпись получена, ожидание маршрута выезда');}}});Object.keys(engineerAircraftSimulations).forEach(function(id){var sim=engineerAircraftSimulations[id];if(sim.requestAircraft&&!live[id])removeEngineerAircraft(sim);});}).catch(function(e){console.warn('[AIRCRAFT] Не удалось обновить самолёты заявок:',e);});}
+        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
+        function startEngineerAmbientAircraft(){fetch('/static/aircraft_paths.geojson').then(function(r){if(!r.ok)throw new Error('aircraft_paths.geojson');return r.json();}).then(function(data){buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
 
         // ─── Движение инженера по маршруту (по времени) ───
         var moveInterval = null;
@@ -607,6 +639,11 @@
                 duration: g('reportDuration'), materials: g('reportMaterials'),
                 needParts: chk('reportNeedParts'), comment: g('reportComment'),
                 melItemRef: g('melItemRef'),
+                // Preserve all manually entered MEL assessment fields across the 5-second task refresh.
+                melAta: g('engineerMelAta'),
+                melCategory: g('engineerMelCategory'),
+                melRevision: g('engineerMelRevision'),
+                melIntervalLimit: g('engineerMelIntervalLimit'),
                 melMProcedureCompleted: chk('melMProcedureCompleted'), melMProcedureComment: g('melMProcedureComment')
             };
         }
@@ -625,6 +662,10 @@
             set('reportComment', draft.comment);
             pendingMelMProcedureDraft = { completed: !!draft.melMProcedureCompleted, comment: draft.melMProcedureComment || '' };
             set('melItemRef', draft.melItemRef);
+            set('engineerMelAta', draft.melAta);
+            set('engineerMelCategory', draft.melCategory);
+            set('engineerMelRevision', draft.melRevision);
+            set('engineerMelIntervalLimit', draft.melIntervalLimit);
             set('melMProcedureComment', draft.melMProcedureComment);
             setChk('melMProcedureCompleted', draft.melMProcedureCompleted);
         }
@@ -642,7 +683,7 @@
                     }
                     if (!eng) return;
 
-                    if (taskStep === 'diagnosing' && isReportFormOpen()) {
+                    if (taskStep === 'diagnosing' && isReportFormOpen() && eng.task) {
                         engineerData = eng;
                         var badge0 = document.getElementById('statusBadge');
                         if (badge0 && eng.status) {
@@ -659,7 +700,9 @@
                     }
 
                     var isFree = (eng.status === 'free' || eng.status === 'offline') || !eng.task;
-                    if (isFree && taskStep !== 'idle' && taskStep !== 'completed') {
+                    // Если диспетчер удалил заявку или сервер снял назначение,
+                    // карточка исчезает немедленно, даже если локальный этап был completed.
+                    if (isFree && (taskStep !== 'idle' || taskData || lastRequestId || currentRoute)) {
                         if (diagnoseTimerInterval) clearInterval(diagnoseTimerInterval);
                         diagnoseTimerInterval = null; diagnoseStartedAt = null;
                         stopMoving();
@@ -735,11 +778,18 @@
                     }
 
                     taskData = request;
-                    // Маршрут-превью показываем сразу после назначения.
-                    // До принятия инженером не запускаем движение и ETA-таймер.
-                    if (request.status === 'assigned' || taskStep === 'pending') {
+                    // До принятия показываем предварительный маршрут от метки инженера
+                    // до стоянки. Движение и таймер до принятия не запускаются.
+                    if (taskStep === 'idle' && engineerData.status === 'busy') taskStep = 'pending';
+                    if (engineerData.status !== 'busy' ||
+                        ['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(request.status) !== -1 ||
+                        ['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(taskStep) === -1) {
                         if (moveInterval) stopMoving();
-                        if (taskStep !== 'pending') taskStep = 'pending';
+                        currentRoute = null;
+                        lastRouteSignature = '';
+                        drawRouteOnMap(null);
+                        updateTaskWithRoute(request);
+                        return;
                     }
                     if (lastRequestId !== request.id) {
                         lastRequestId = request.id;
@@ -747,21 +797,27 @@
                     }
 
                     var routeData = parseRouteFromComment(request.engineer_comment);
-                    if (!routeData) {
-                        var parkingCoords = PARKING_COORDS[request.parking_id];
-                        if (parkingCoords) {
-                            var fLat = engineerData.coords_lat || 55.975;
-                            var fLng = engineerData.coords_lng || 37.410;
-                            routeData = {
-                                from: { lat: fLat, lng: fLng },
-                                to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
-                                time: request.travel_time || 0,
-                                usingCar: false, walkToCar: 0, bestCarTime: 0,
-                                bestCarLat: null, bestCarLng: null,
-                                bestCar: null, parkingId: request.parking_id,
-                                path: [[fLat, fLng], [parkingCoords.lat, parkingCoords.lng]]
-                            };
+                    if (routeData) {
+                        // Привязываем начало линии строго к текущей метке инженера,
+                        // а конец — к координате стоянки из серверного маршрута.
+                        var liveLat = Number(engineerData.coords_lat);
+                        var liveLng = Number(engineerData.coords_lng);
+                        if (Number.isFinite(liveLat) && Number.isFinite(liveLng)) {
+                            routeData.from = { lat: liveLat, lng: liveLng };
+                            if (routeData.path && routeData.path.length) {
+                                routeData.path = routeData.path.slice();
+                                routeData.path[0] = [liveLat, liveLng];
+                                routeData.path[routeData.path.length - 1] = [Number(routeData.to.lat), Number(routeData.to.lng)];
+                            }
                         }
+                    }
+
+                    if (!routeData) {
+                        currentRoute = null;
+                        lastRouteSignature = '';
+                        drawRouteOnMap(null);
+                        updateTaskWithRoute(request);
+                        return;
                     }
 
                     if (!moveInterval) {
@@ -785,6 +841,55 @@
                 })
                 .catch(function(err) { console.error('Ошибка загрузки заявок:', err); });
         }
+
+        function showEngineerSection(section) {
+            var tasks = section !== 'reports';
+            var tasksPanel = document.getElementById('tasksPanel');
+            var reportsPanel = document.getElementById('reportsPanel');
+            if (tasksPanel) tasksPanel.classList.toggle('panel-hidden', !tasks);
+            if (reportsPanel) reportsPanel.classList.toggle('panel-hidden', tasks);
+            var navTasks = document.getElementById('navTasks');
+            var navReports = document.getElementById('navReports');
+            if (navTasks) navTasks.classList.toggle('active', tasks);
+            if (navReports) navReports.classList.toggle('active', !tasks);
+            var heading = document.querySelector('.page-header h1');
+            if (heading) heading.textContent = tasks ? 'Мои задачи' : 'Прошлые отчёты';
+            if (!tasks) loadPastReports();
+            else if (map) setTimeout(function(){ map.invalidateSize(); }, 100);
+        }
+        window.showEngineerSection = showEngineerSection;
+
+        function loadPastReports() {
+            if (!engineerId) return;
+            var list = document.getElementById('pastReportsList');
+            if (list && !list.dataset.loaded) list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Загрузка отчётов…</p></div>';
+            fetch('/api/engineer/reports?engineer_id=' + encodeURIComponent(engineerId))
+                .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(data){
+                    if (!list) return;
+                    list.dataset.loaded = '1';
+                    var reports = data.reports || [];
+                    if (!reports.length) {
+                        list.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>Прошлых отчётов пока нет</p><span>Отправленные отчёты появятся здесь</span></div>';
+                        return;
+                    }
+                    list.innerHTML = reports.map(function(r){
+                        var date = r.engineer_report_at ? new Date(r.engineer_report_at.replace(' ', 'T')).toLocaleString('ru-RU') : 'Дата не указана';
+                        var title = (r.aircraft || 'ВС') + (r.flight_number ? ' · рейс ' + r.flight_number : '') + (r.fault_type ? ' · ' + String(r.fault_type).replace(/_/g,' ') : '');
+                        var verdict = r.engineer_verdict || r.engineer_condition || 'Отчёт отправлен';
+                        var details = [];
+                        if (r.parking_id) details.push('Стоянка: ' + r.parking_id);
+                        if (r.mcc_mel_ref) details.push('MEL: ' + r.mcc_mel_ref);
+                        if (r.mcc_ata) details.push('ATA: ' + r.mcc_ata);
+                        if (r.mcc_mel_category) details.push('Категория: ' + r.mcc_mel_category);
+                        if (r.mcc_mel_revision) details.push('Редакция: ' + r.mcc_mel_revision);
+                        if (r.mel_rectification_interval) details.push('Интервал / лимит: ' + r.mel_rectification_interval);
+                        return '<article class="history-report"><div class="history-report-head"><div><div class="history-report-title">' + escapeTaskHtml(title) + '</div><div class="history-report-meta">' + escapeTaskHtml(date) + ' · Заявка №' + escapeTaskHtml(r.id) + '</div></div><span class="history-report-verdict">' + escapeTaskHtml(verdict) + '</span></div><div class="history-report-body">' + escapeTaskHtml(r.engineer_comment || 'Текст отчёта отсутствует') + '</div>' + (details.length ? '<div class="history-report-details">' + escapeTaskHtml(details.join(' · ')) + '</div>' : '') + '</article>';
+                    }).join('');
+                })
+                .catch(function(err){ if (list) list.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Не удалось загрузить отчёты</p><span>' + escapeTaskHtml(err.message) + '</span></div>'; });
+        }
+        window.loadPastReports = loadPastReports;
 
         function renderSteps() {
             var steps = [
@@ -835,6 +940,18 @@
             });
         }
 
+
+        function renderPreviousEngineerReport(raw) {
+            var text=String(raw||'');
+            if(text.indexOf('ROUTE:')===0){var payload=text.substring(6),depth=0,end=-1,inString=false,escaped=false;for(var i=0;i<payload.length;i++){var ch=payload[i];if(inString){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')inString=false;continue;}if(ch==='"')inString=true;else if(ch==='{')depth++;else if(ch==='}'){depth--;if(depth===0){end=i+1;break;}}}if(end>0)text=payload.substring(end).replace(/^\s+/, '');}
+            if(text.indexOf('ОТЧЁТ О ДИАГНОСТИКЕ')===-1)return '';
+            var labels=['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий','ПУНКТ MEL','ATA','КАТЕГОРИЯ MEL','РЕДАКЦИЯ MEL','ИНТЕРВАЛ / ЛИМИТ'], values={};
+            labels.forEach(function(label){var rest=labels.filter(function(x){return x!==label;}).join('|');var re=new RegExp('(?:^|\\n)'+label+':\\s*([\\s\\S]*?)(?=\\n(?:'+rest+'):|\\n─{3,}|$)','i');var m=text.match(re);values[label]=m?m[1].trim():'';});
+            var html='<div style="margin-top:12px;padding:14px;background:#f8fbff;border:1px solid #dce6f1;border-radius:12px;"><div style="font-size:12px;font-weight:850;color:#1e3a5f;margin-bottom:9px;"><i class="fas fa-clipboard-list"></i> Ранее отправленный отчёт</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;">';
+            labels.forEach(function(label){if(!values[label])return;html+='<div style="padding:8px 9px;background:#fff;border:1px solid #e8edf3;border-radius:8px;"><div style="font-size:9px;color:#8493a7;font-weight:800;text-transform:uppercase;margin-bottom:4px;">'+label+'</div><div style="font-size:11px;color:#26384d;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;">'+escapeTaskHtml(values[label])+'</div></div>';});
+            return html+'</div></div>';
+        }
+
         function updateTaskWithRoute(request) {
             if (Date.now() < blockReloadUntil) return;
             var taskList = document.getElementById('taskList');
@@ -862,6 +979,7 @@
 
             var faultName = request.fault_type ? request.fault_type.replace(/_/g, ' ') : 'Неизвестная';
             var melTaskHtml = '';
+            var previousReportHtml = renderPreviousEngineerReport(request.engineer_comment || '');
             if (request.mcc_mel_choice === 'MEL' && request.mcc_proc_m) {
                 melTaskHtml = '<div style="margin-top:12px;padding:14px 16px;background:#fffbeb;border:1px solid #f2cf79;border-left:4px solid #d69e2e;border-radius:9px;">' +
                     '<div style="font-size:12px;font-weight:800;color:#854d0e;margin-bottom:7px;"><i class="fas fa-clipboard-check"></i> ЗАДАНИЕ ПО M-ПРОЦЕДУРЕ MEL</div>' +
@@ -913,6 +1031,7 @@
                 '<span>' + routeText + '</span>' +
                 '</div>' +
                 melTaskHtml +
+                previousReportHtml +
                 '</div>' +
                 '<div class="task-actions">' + actionsHtml + '</div>' +
                 '</div>';
@@ -925,9 +1044,11 @@
                 var melAtaInput = document.getElementById('engineerMelAta');
                 var melCategoryInput = document.getElementById('engineerMelCategory');
                 var melRevisionInput = document.getElementById('engineerMelRevision');
+                var melIntervalInput = document.getElementById('engineerMelIntervalLimit');
                 if (melAtaInput && !melAtaInput.value && request.mcc_ata) melAtaInput.value = request.mcc_ata;
                 if (melCategoryInput && !melCategoryInput.value && request.mcc_mel_category) melCategoryInput.value = request.mcc_mel_category;
                 if (melRevisionInput && !melRevisionInput.value && request.mcc_mel_revision) melRevisionInput.value = request.mcc_mel_revision;
+                if (melIntervalInput && !melIntervalInput.value && request.mel_rectification_interval) melIntervalInput.value = request.mel_rectification_interval;
                 updateEngineerMelVisibility();
                 updateEngineerMProcedureVisibility();
             }
@@ -970,6 +1091,7 @@
                         '<div class="form-group" style="flex:1;"><label>Категория MEL *</label><input id="engineerMelCategory" type="text" maxlength="20" placeholder="Например: B" autocomplete="off"></div>' +
                     '</div>' +
                     '<div class="form-group" style="margin-bottom:8px;"><label>Редакция MEL *</label><input id="engineerMelRevision" type="text" maxlength="80" placeholder="Например: Rev. 12 / 2026-01" autocomplete="off"></div>' +
+                    '<div class="form-group" style="margin-bottom:8px;"><label>Интервал / лимит *</label><textarea id="engineerMelIntervalLimit" rows="2" maxlength="500" placeholder="Например: устранить в течение 3 календарных дней / по условию из утверждённого MEL"></textarea></div>' +
                     '<div id="melMProcedureBlock" style="display:none;margin-top:12px;padding:12px;background:#fff;border:1px solid #e9c46a;border-radius:8px;">' +
                         '<div style="font-weight:800;color:#854d0e;margin-bottom:6px;">Для этой задачи требуется M-процедура</div>' +
                         '<div id="melMProcedureText" style="font-size:12px;color:#78350f;line-height:1.5;white-space:pre-wrap;margin-bottom:10px;"></div>' +
@@ -1107,6 +1229,9 @@
         function updateRoutePolyline(pos) {
             if (!routeMarkers['polyline'] || !routeMarkers['polylineFullPath']) return;
             if (!movePath || !currentRoute) return;
+            // Не схлопываем и не скрываем линию в последние метры маршрута:
+            // оставляем последний видимый участок до стоянки.
+            if (currentRoute.to && haversineM(pos.lat, pos.lng, currentRoute.to.lat, currentRoute.to.lng) < 3) return;
 
             var bestIdx = 0, bestDist = Infinity;
             for (var i = 0; i < movePath.length; i++) {
@@ -1125,8 +1250,10 @@
             }
             if (startIdx > fullPath.length - 1) startIdx = fullPath.length - 1;
 
-            var newLatLngs = [];
-            for (var j = startIdx; j < fullPath.length; j++) {
+            // Линия всегда начинается точно от текущей метки инженера.
+            // Пройденный участок скрываем, но сам маршрут не удаляем.
+            var newLatLngs = [[pos.lat, pos.lng]];
+            for (var j = startIdx + 1; j < fullPath.length; j++) {
                 newLatLngs.push([fullPath[j][0], fullPath[j][1]]);
             }
             if (currentRoute.to) {
@@ -1135,15 +1262,10 @@
                     newLatLngs.push([currentRoute.to.lat, currentRoute.to.lng]);
                 }
             }
-            if (newLatLngs.length < 2) {
-                if (routeMarkers['polyline']) {
-                    try { map.removeLayer(routeMarkers['polyline']); } catch(e) {}
-                    delete routeMarkers['polyline'];
-                }
-                delete routeMarkers['polylineFullPath'];
-                return;
-            }
-            routeMarkers['polyline'].setLatLngs(newLatLngs);
+            // Если инженер уже прибыл, сохраняем видимый пройденный маршрут,
+            // а не удаляем линию из-за совпадения начальной и конечной точек.
+            if (newLatLngs.length < 2) newLatLngs = fullPath.slice();
+            if (routeMarkers['polyline']) routeMarkers['polyline'].setLatLngs(newLatLngs);
         }
 
         function startMoving() {
@@ -1256,11 +1378,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ lat: last[0], lng: last[1] })
                 }).catch(function() {});
-                if (routeMarkers['polyline']) {
-                    try { map.removeLayer(routeMarkers['polyline']); } catch(e) {}
-                    delete routeMarkers['polyline'];
-                }
-                delete routeMarkers['polylineFullPath'];
+                // Не удаляем и не перерисовываем линию после прибытия:
+                // последний участок остаётся видимым на карте.
                 stopMoving();
                 showToast('Вы прибыли на стоянку', 'success');
             }
@@ -1330,11 +1449,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ lat: currentRoute.to.lat, lng: currentRoute.to.lng })
                 }).catch(function() {});
-                if (routeMarkers['polyline']) {
-                    try { map.removeLayer(routeMarkers['polyline']); } catch(e) {}
-                    delete routeMarkers['polyline'];
-                }
-                delete routeMarkers['polylineFullPath'];
+                // Сохраняем последний участок маршрута на карте после прибытия.
             }
             showToast('Вы прибыли на место', 'success');
             reportStep('arrived');
@@ -1386,6 +1501,7 @@
             var engineerMelAta = ((document.getElementById('engineerMelAta') || {}).value || '').trim();
             var engineerMelCategory = ((document.getElementById('engineerMelCategory') || {}).value || '').trim();
             var engineerMelRevision = ((document.getElementById('engineerMelRevision') || {}).value || '').trim();
+            var engineerMelIntervalLimit = ((document.getElementById('engineerMelIntervalLimit') || {}).value || '').trim();
             var melMProcedureCompletedEl = document.getElementById('melMProcedureCompleted');
             var melMProcedureCompleted = !!(melMProcedureCompletedEl && melMProcedureCompletedEl.checked);
             var melMProcedureCommentEl = document.getElementById('melMProcedureComment');
@@ -1397,8 +1513,8 @@
             if (condition === 'mel_deferred' && !melItemRef) {
                 showToast('Укажите номер пункта MEL, например 27-2-1', 'error'); return;
             }
-            if (condition === 'mel_deferred' && (!engineerMelAta || !engineerMelCategory || !engineerMelRevision)) {
-                showToast('Заполните ATA, категорию и редакцию MEL', 'error'); return;
+            if (condition === 'mel_deferred' && (!engineerMelAta || !engineerMelCategory || !engineerMelRevision || !engineerMelIntervalLimit)) {
+                showToast('Заполните ATA, категорию, редакцию MEL и интервал / лимит', 'error'); return;
             }
             if (condition === 'mel_deferred' && isMelMaintenanceTask && (!melMProcedureCompleted || melMProcedureComment.length < 5)) {
                 showToast('Для этой задачи обязательна M-процедура: подтвердите выполнение и подробно опишите работу', 'error'); return;
@@ -1457,6 +1573,7 @@
                     'ATA: ' + engineerMelAta + '\n' +
                     'КАТЕГОРИЯ MEL: ' + engineerMelCategory + '\n' +
                     'РЕДАКЦИЯ MEL: ' + engineerMelRevision + '\n' +
+                    'ИНТЕРВАЛ / ЛИМИТ: ' + engineerMelIntervalLimit + '\n' +
                     (isMelMaintenanceTask ? ('M-процедура выполнена техником: ' + (melMProcedureCompleted ? 'ДА' : 'НЕТ') + '\nОтчёт по M-процедуре: ' + melMProcedureComment + '\n') : '')) : '') +
                 '──────────────────────────';
 
@@ -1477,6 +1594,7 @@
                     mel_ata: condition === 'mel_deferred' ? engineerMelAta : '',
                     mel_category: condition === 'mel_deferred' ? engineerMelCategory : '',
                     mel_revision: condition === 'mel_deferred' ? engineerMelRevision : '',
+                    mel_interval_limit: condition === 'mel_deferred' ? engineerMelIntervalLimit : '',
                     mel_catalog_id: '',
                     mel_assessment_comment: '',
                     mel_m_procedure_completed: condition === 'mel_deferred' && isMelMaintenanceTask ? melMProcedureCompleted : false,
@@ -1732,6 +1850,11 @@
             loadParkingCoords().finally(function() {
                 loadTasks();
                 setInterval(loadTasks, 5000);
+                loadParkingCoords().then(function() {
+                    startEngineerAmbientAircraft();
+                    refreshEngineerRequestAircraft();
+                    setInterval(refreshEngineerRequestAircraft, 5000);
+                });
             });
         });
     })();
