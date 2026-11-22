@@ -6,7 +6,7 @@
     <title>Диспетчер — InTrAvia Вектор</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -107,6 +107,27 @@
         .sidebar-nav li a i { width: 18px; font-size: 14px; text-align: center; }
 
         .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+        .aeroflot-brand {
+            text-align: center;
+            padding: 16px 0;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            margin-bottom: 14px;
+            color: #8899aa;
+        }
+        .aeroflot-brand img {
+            max-width: 110px;
+            height: auto;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+        .aeroflot-brand .brand-text-small {
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1.4;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
         .btn-logout {
             width: 100%; padding: 9px; background: rgba(255, 255, 255, 0.05); color: #8899aa;
             border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px;
@@ -142,13 +163,6 @@
             letter-spacing: -0.5px;
             line-height: 1;
             font-variant-numeric: tabular-nums;
-        }
-
-        .stat-card .stat-label {
-            font-size: 12px;
-            color: var(--aero-gray);
-            margin-top: 6px;
-            font-weight: 500;
         }
 
         /* MAP */
@@ -232,6 +246,7 @@
         .parking-marker .parking-icon { display: block; font-size: 18px; line-height: 1; color: var(--aero-blue); }
         .parking-marker .parking-label { font-size: 8px; font-weight: 600; color: #1a2332; display: block; margin-top: -1px; }
         .aircraft-parking-marker { background: transparent; border: none; }
+        .moving-aircraft-marker { background: transparent; border: none; pointer-events: auto; }
 
         .route-label-marker {
             background: rgba(201, 168, 76, 0.95);
@@ -259,47 +274,6 @@
         .emp-status { font-size: 10px; padding: 1px 8px; border-radius: 4px; font-weight: 500; }
         .emp-status.free { background: #e6f4ea; color: #1a7a3a; }
         .emp-status.busy { background: #fce8e6; color: #b33a3a; }
-
-        /* AIRPORT MAP / SIMULATION */
-        .sim-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
-        .sim-field {
-            display: flex; flex-direction: column; gap: 4px;
-            font-size: 11px; font-weight: 600; color: var(--aero-text-light);
-        }
-        .sim-field input {
-            width: 92px; padding: 7px 9px;
-            border: 1px solid var(--aero-gray-light); border-radius: 6px;
-            font-size: 13px; font-family: inherit; color: var(--aero-text);
-        }
-        .sim-field input:focus { outline: none; border-color: var(--aero-blue); }
-        .sim-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--aero-text); padding-bottom: 7px; }
-        .sim-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
-        .sim-status { font-size: 11px; color: var(--aero-gray); font-weight: 500; margin-left: 4px; }
-        .airport-stand-marker { background: transparent; border: none; }
-        .airport-stand {
-            width: 22px; height: 22px; border-radius: 50%;
-            background: #1e40af; color: #fff;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 8px; font-weight: 700; line-height: 1;
-            border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
-            cursor: pointer;
-        }
-        .sim-plane-marker { background: transparent; border: none; }
-        .sim-plane-wrap { position: relative; width: 28px; height: 28px; }
-        .sim-plane-icon {
-            width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-            color: #0f4c81; font-size: 17px;
-            filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
-            transition: color 0.2s;
-        }
-        .sim-plane-marker.at-stand .sim-plane-icon { color: #15803d; }
-        .sim-plane-marker.aog .sim-plane-icon { color: #c62828; }
-        .sim-plane-label {
-            position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.85); color: #fff;
-            font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
-            padding: 1px 5px; border-radius: 4px; white-space: nowrap;
-        }
 
         /* SECTIONS / CARDS */
         .section-content { display: none; flex-direction: column; gap: 16px; flex: 1; }
@@ -429,7 +403,17 @@
         .request-item:last-child { border-bottom: none; }
         .request-item .req-title { font-weight: 600; font-size: 13px; }
         .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
-        .request-item .req-status { font-size: 12px; font-weight: 500; }
+        .request-item .req-delete-btn {
+            width: 28px; height: 28px; border-radius: 6px;
+            border: 1px solid #fecaca; background: #fef2f2;
+            color: var(--aero-red); cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 12px; transition: all 0.15s;
+            margin-left: 8px; flex-shrink: 0;
+        }
+        .request-item .req-delete-btn:hover {
+            background: var(--aero-red); color: #fff; border-color: var(--aero-red);
+        }
 
         .report-badge {
             display: inline-block;
@@ -598,12 +582,6 @@
         .flight-status.completed { background: #dcfce7; color: var(--aero-green); }
         .flight-status.cancelled { background: var(--aero-gray-light); color: var(--aero-text-light); }
         .flight-status.new { background: #fef3c7; color: #b45309; }
-        .flight-status.aog { background: #fee2e2; color: #b91c1c; font-weight: 700; }
-        .flight-status.deferred { background: #ffedd5; color: #c2410c; }
-        .flight-status.inspection { background: #dbeafe; color: #1d4ed8; }
-        .flight-status.repair { background: #e0f2fe; color: #0369a1; }
-        .flights-table tr.row-aog { background: #fef2f2; }
-        .flights-table tr.row-deferred { background: #fff7ed; }
 
         .flight-delay-timer {
             display: inline-flex; align-items: center; gap: 4px;
@@ -915,7 +893,7 @@
         }
         @media (max-width: 768px) {
             .sidebar { width: 68px; padding: 16px 12px; }
-            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span { display: none; }
+            .sidebar-brand .brand-text, .sidebar-user, .sidebar-nav li a span, .aeroflot-brand { display: none; }
             .sidebar-nav li a { justify-content: center; padding: 12px; }
             .main { padding: 16px; }
             .stats-grid { grid-template-columns: 1fr; }
@@ -970,6 +948,10 @@
             <a><i class="fas fa-ban"></i><span>Отменённые</span></a>
         </li>
     </ul>
+    <div class="aeroflot-brand">
+        <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
+        <div class="brand-text-small">Разработано специально для<br>ПАО «Аэрофлот»</div>
+    </div>
     <div class="sidebar-footer">
         <button class="btn-logout" onclick="logout()">
             <i class="fas fa-sign-out-alt"></i><span>Выйти</span>
@@ -1018,136 +1000,6 @@
             <div class="map-hint">SVO · B, C, D, E, F · спецтранспорт</div>
         </div>
 
-        <div class="card sim-card">
-            <div class="card-header">
-                <h3><i class="fas fa-plane-departure" style="color:var(--aero-blue);"></i> Демо: движение самолётов</h3>
-                <span class="sim-status" id="simStatus">Загрузка схемы…</span>
-            </div>
-            <div class="sim-controls">
-                <label class="sim-field">Самолётов
-                    <input type="number" id="simCount" min="1" max="12" step="1" value="4">
-                </label>
-                <label class="sim-field">Скорость, км/ч
-                    <input type="number" id="simSpeed" min="5" max="80" step="5" value="25">
-                </label>
-                <label class="sim-field">Стоянка, с
-                    <input type="number" id="simDwell" min="2" max="120" step="1" value="12">
-                </label>
-                <label class="sim-field">Интервал выпуска, с
-                    <input type="number" id="simInterval" min="1" max="60" step="1" value="4">
-                </label>
-                <label class="sim-field">Ускорение, ×
-                    <input type="number" id="simScale" min="1" max="60" step="1" value="20">
-                </label>
-                <label class="sim-check"><input type="checkbox" id="simLayout" checked> Схема аэродрома</label>
-                <label class="sim-check"><input type="checkbox" id="simLabels" checked> Подписи бортов</label>
-            </div>
-            <div class="sim-actions">
-                <button type="button" class="btn btn-primary" id="simStartBtn">
-                    <i class="fas fa-play"></i> Старт
-                </button>
-                <button type="button" class="btn btn-secondary" id="simPauseBtn" disabled>
-                    <i class="fas fa-pause"></i> Пауза
-                </button>
-                <button type="button" class="btn btn-secondary" id="simResetBtn">
-                    <i class="fas fa-undo"></i> Сброс
-                </button>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <h3>Новая заявка</h3>
-            </div>
-            <form id="dispatchForm" onsubmit="createRequest(event)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Терминал</label>
-                        <select id="terminalSelect" onchange="updateParkingList()">
-                            <option value="B">B</option>
-                            <option value="C">C</option>
-                            <option value="D" selected>D</option>
-                            <option value="E">E</option>
-                            <option value="F">F</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Выход / стоянка</label>
-                        <select id="parkingSelect"></select>
-                    </div>
-                    <div class="form-group">
-                        <label>Тип неисправности</label>
-                        <select id="faultType">
-                            <optgroup label="Двигатель">
-                                <option value="engine_failure">Отказ двигателя</option>
-                                <option value="engine_oil">Утечка масла в двигателе</option>
-                                <option value="engine_overheat">Перегрев двигателя</option>
-                                <option value="engine_vibration">Повышенная вибрация двигателя</option>
-                                <option value="engine_start">Проблема с запуском двигателя</option>
-                                <option value="fuel_leak">Утечка топлива</option>
-                                <option value="fuel_system">Отказ топливной системы</option>
-                            </optgroup>
-                            <optgroup label="Авионика">
-                                <option value="avionics_nav">Отказ навигационной системы</option>
-                                <option value="avionics_radio">Отказ радиосвязи</option>
-                                <option value="avionics_autopilot">Отказ автопилота</option>
-                                <option value="avionics_transponder">Отказ транспондера</option>
-                                <option value="avionics_display">Отказ дисплея / экрана</option>
-                                <option value="avionics_gps">Отказ GPS</option>
-                            </optgroup>
-                            <optgroup label="Гидравлика">
-                                <option value="hydraulic">Отказ гидравлики</option>
-                                <option value="hydraulic_leak">Утечка гидравлической жидкости</option>
-                                <option value="hydraulic_pressure">Падение давления в гидросистеме</option>
-                            </optgroup>
-                            <optgroup label="Электрика">
-                                <option value="electrical">Отказ электроснабжения</option>
-                                <option value="electrical_generator">Отказ генератора</option>
-                                <option value="electrical_battery">Отказ аккумулятора</option>
-                                <option value="electrical_short">Короткое замыкание</option>
-                                <option value="electrical_lighting">Отказ освещения</option>
-                            </optgroup>
-                            <optgroup label="Механика">
-                                <option value="landing_gear">Неисправность шасси</option>
-                                <option value="pneumatic">Отказ пневматики</option>
-                                <option value="brake_system">Неисправность тормозной системы</option>
-                                <option value="flap_issue">Проблема с закрылками</option>
-                                <option value="aileron_issue">Проблема с элеронами</option>
-                                <option value="rudder_issue">Проблема с рулём направления</option>
-                                <option value="wing_damage">Повреждение крыла</option>
-                                <option value="fuselage_damage">Повреждение фюзеляжа</option>
-                                <option value="door_issue">Неисправность двери</option>
-                            </optgroup>
-                            <optgroup label="Прочее">
-                                <option value="air_condition">Неисправность кондиционирования</option>
-                                <option value="pressurization">Разгерметизация кабины</option>
-                                <option value="oxygen_system">Отказ кислородной системы</option>
-                                <option value="fire_system">Неисправность пожарной системы</option>
-                                <option value="deicing_system">Отказ противообледенительной системы</option>
-                            </optgroup>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Серьёзность</label>
-                        <select id="faultSeverity">
-                            <option value="high">Высокая</option>
-                            <option value="medium" selected>Средняя</option>
-                            <option value="low">Низкая</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Номер рейса</label>
-                        <input type="text" id="flightNumber" placeholder="SU-1234" required>
-                    </div>
-                    <div class="form-group" style="display:flex;align-items:flex-end;">
-                        <button type="submit" class="btn btn-primary btn-full">
-                            <i class="fas fa-paper-plane"></i> Отправить заявку
-                        </button>
-                    </div>
-                </div>
-            </form>
-        </div>
-
         <div id="notificationContainer"></div>
 
         <div class="card">
@@ -1167,8 +1019,10 @@
                 </div>
             </div>
         </div>
+
     </div>
 
+    </div>
     <div class="section-content" id="tab-delays">
         <div class="page-header">
             <div>
@@ -1242,10 +1096,6 @@
                 <div class="stat-value" id="flightsAllRejected">0</div>
                 <div class="stat-label">Все отказались</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="flightsAOG" style="color:#b91c1c;">0</div>
-                <div class="stat-label">AOG — лететь нельзя</div>
-            </div>
         </div>
 
         <div class="flights-toolbar">
@@ -1258,9 +1108,6 @@
                 <option value="assigned">Назначен</option>
                 <option value="queued">В очереди / задержан</option>
                 <option value="all_rejected">Все отказались</option>
-                <option value="aog">AOG — лететь нельзя</option>
-                <option value="deferred">MEL — отложено</option>
-                <option value="inspection">Идёт осмотр</option>
                 <option value="completed">Выполнен</option>
                 <option value="cancelled">Отменён инженером</option>
             </select>
@@ -1321,6 +1168,7 @@
         </div>
 
         <div class="reports-toolbar">
+            <button class="btn btn-secondary btn-sm" onclick="window.location.href=API_URL + '/reports/export.xlsx?role=dispatcher'"><i class="fas fa-file-excel"></i> Экспорт Excel</button>
             <div class="search-box">
                 <i class="fas fa-search"></i>
                 <input type="text" id="reportsSearch" placeholder="Поиск по рейсу, инженеру, неисправности..." oninput="filterReports()">
@@ -1399,7 +1247,7 @@
                 <i class="fas fa-times"></i> Сбросить
             </button>
             <button class="btn btn-secondary btn-sm" onclick="exportPilotRequests()">
-                <i class="fas fa-file-export"></i> Экспорт JSON
+                <i class="fas fa-file-excel"></i> Выгрузить всё в Excel
             </button>
             <button class="btn btn-clear btn-sm" onclick="clearAllPilotRequests()">
                 <i class="fas fa-trash"></i> Очистить все
@@ -1507,8 +1355,7 @@
     </div>
 </div>
 
-<script src="/static/vendor/leaflet/leaflet.js"></script>
-<script src="/static/js/airport-map.js?v=3"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var API_URL = '/api';
 
@@ -1630,18 +1477,20 @@ var state = {
     cancelledRequests: [], delays: [], flights: [],
     recognizingPilotId: null,
     loadInterval: null, coordsInterval: null, map: null,
-    routeData: {}, transportLoaded: false, isUpdating: false,
+    routeData: {}, routeFetchPending: {}, transportLoaded: false, isUpdating: false,
     dataLoaded: false, mapMarkers: {},
-    roadsLayer: null, aircraftLayer: null, parkingLayer: null,
-    currentTab: 'dispatch'
+    roadsLayer: null, aircraftLayer: null, parkingLayer: null, taxiGraph: null, aircraftSimulations: {}, aircraftTaxiLayer: null, aircraftSafetyTimer: null,
+    ambientAircraftTarget: 3 + Math.floor(Math.random() * 5), ambientAircraftTargetTimer: null,
+    currentTab: 'dispatch',
+    isDragging: false
 };
-
 var STORAGE_KEY = 'dispatcherState_v19';
 var REPORTS_KEY = 'dispatcherReports_v2';
 var DELETED_REPORTS_KEY = 'dispatcherDeletedReports_v1';
 var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
 
 var pilotTableSignature = '';
+var workflowQueueInterval = null;
 var pilotAudioState = {};
 
 var transcriptionQueue = [];
@@ -1699,6 +1548,35 @@ function extractReportFromComment(comment) {
     return comment;
 }
 
+function parseRouteFromComment(comment) {
+    if (!comment || comment.indexOf('ROUTE:') !== 0) return null;
+    try {
+        var rest = comment.substring(6);
+        var depth = 0, endIdx = -1;
+        for (var i = 0; i < rest.length; i++) {
+            if (rest[i] === '{') depth++;
+            else if (rest[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+        }
+        if (endIdx <= 0) return null;
+        var parsed = JSON.parse(rest.substring(0, endIdx));
+        return {
+            from: { lat: parsed.flat, lng: parsed.flng },
+            to: { lat: parsed.tlat, lng: parsed.tlng },
+            totalTime: Number(parsed.tt) || 0,
+            usingCar: parsed.uc === true || parsed.uc === 1,
+            walkToCar: Number(parsed.wc) || 0,
+            bestCarTime: Number(parsed.ct) || 0,
+            walkToCarExact: parsed.wc_exact != null ? Number(parsed.wc_exact) : null,
+            bestCarTimeExact: parsed.ct_exact != null ? Number(parsed.ct_exact) : null,
+            bestCarLat: parsed.bclat,
+            bestCarLng: parsed.bclng,
+            bestCar: parsed.bc ? { deviceId: parsed.bc, lat: parsed.bclat, lng: parsed.bclng } : null,
+            parkingId: parsed.pid,
+            path: parsed.path || null
+        };
+    } catch (e) { return null; }
+}
+
 function hasReport(comment) {
     var report = extractReportFromComment(comment);
     return report && report.indexOf('ОТЧЁТ') !== -1;
@@ -1707,7 +1585,7 @@ function hasReport(comment) {
 function parseReportFields(text) {
     var parsed = { engineer: '—', condition: '', conditionLabel: '', category: '', categoryLabel: '',
         findings: '', actions: '', duration: '', realDuration: '', materials: '',
-        needParts: false, comment: '', raw: text };
+        needParts: false, comment: '', melRef:'', melAta:'', melCategory:'', melRevision:'', melIntervalLimit:'', raw: text };
     if (!text) return parsed;
     var lines = text.split('\n');
     for (var i = 0; i < lines.length; i++) {
@@ -1733,31 +1611,22 @@ function parseReportFields(text) {
         else if ((m = line.match(/^Материалы:\s*(.+)$/i))) parsed.materials = m[1].trim();
         else if ((m = line.match(/^Нужны детали:\s*(.+)$/i))) parsed.needParts = m[1].trim().toLowerCase() === 'да';
         else if ((m = line.match(/^Комментарий:\s*(.+)$/i))) parsed.comment = m[1].trim();
+        else if ((m = line.match(/^ПУНКТ MEL:\s*(.+)$/i))) parsed.melRef = m[1].trim();
+        else if ((m = line.match(/^ATA:\s*(.+)$/i))) parsed.melAta = m[1].trim();
+        else if ((m = line.match(/^КАТЕГОРИЯ MEL:\s*(.+)$/i))) parsed.melCategory = m[1].trim();
+        else if ((m = line.match(/^РЕДАКЦИЯ MEL:\s*(.+)$/i))) parsed.melRevision = m[1].trim();
+        else if ((m = line.match(/^ИНТЕРВАЛ \/ ЛИМИТ:\s*(.+)$/i))) parsed.melIntervalLimit = m[1].trim();
     }
     return parsed;
 }
 
-/* Отчёты теперь на сервере (/api/reports), localStorage больше не используется */
 function loadReportsFromStorage() {
-    return state.reports || [];
+    try { var s = localStorage.getItem(REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
+    catch(e) { return []; }
 }
-function loadReportsFromServer() {
-    return fetch('/api/reports')
-        .then(function(r) { return r.json(); })
-        .then(function(list) {
-            state.reports = Array.isArray(list) ? list : [];
-            if (typeof renderReports === 'function') renderReports();
-            updateReportsBadge();
-            return state.reports;
-        })
-        .catch(function(err) { console.error('[reports]', err); return []; });
-}
-function saveReportsToStorage() { updateReportsBadge(); return true; }
-function pushReportToServer(report) {
-    return fetch('/api/reports', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(report)
-    }).catch(function(err) { console.error('[reports]', err); });
+function saveReportsToStorage() {
+    try { localStorage.setItem(REPORTS_KEY, JSON.stringify(state.reports)); updateReportsBadge(); return true; }
+    catch(e) { return false; }
 }
 function loadDeletedReportsFromStorage() {
     try { var s = localStorage.getItem(DELETED_REPORTS_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; }
@@ -1800,13 +1669,12 @@ function addReportFromRequest(request) {
         materials: parsed.materials,
         needParts: parsed.needParts,
         comment: parsed.comment,
+        melRef: parsed.melRef, melAta: parsed.melAta, melCategory: parsed.melCategory, melRevision: parsed.melRevision, melIntervalLimit: parsed.melIntervalLimit,
         raw: reportText,
         completedAt: new Date().toISOString()
     };
     state.reports.unshift(report);
-    report.text = report.raw || report.findings || '';
-    pushReportToServer(report);
-    updateReportsBadge();
+    saveReportsToStorage();
     return true;
 }
 
@@ -1831,11 +1699,14 @@ function Employee(data) {
     this.name = data.name || 'Техник';
     this.deviceId = data.device_id || ('EN-' + String(data.number || 0).padStart(3, '0'));
     this.skill = data.specialization || 'general';
-    this.lat = data.coords_lat || 55.975;
-    this.lng = data.coords_lng || 37.410;
+    // Координаты маркера инженера берём из БД без truthy-fallback.
+    this.lat = (data.coords_lat !== undefined && data.coords_lat !== null) ? Number(data.coords_lat) : 55.975;
+    this.lng = (data.coords_lng !== undefined && data.coords_lng !== null) ? Number(data.coords_lng) : 37.410;
     this.status = data.status || 'free';
     this.busy = this.status !== 'free' && this.status !== 'offline';
     this.task = data.task || '';
+    this.taskStep = data.task_step || 'idle';
+    this.taskStartedAt = data.task_started_at || null;
 }
 Employee.prototype.isFree = function() { return !this.busy; };
 Employee.prototype.distanceTo = function(lat, lng) { return distanceKm(this.lat, this.lng, lat, lng); };
@@ -1865,10 +1736,12 @@ function saveStateToLocalStorage() {
             if (state.routeData.hasOwnProperty(key)) {
                 var r = state.routeData[key];
                 data.routeData[key] = {
-                    from: r.from, to: r.to, empId: r.empId,
+                    from: r.from, to: r.to, empId: r.empId, requestId: r.requestId,
+                    parkingId: r.parkingId || '',
                     totalTime: r.totalTime, walkTime: r.walkTime,
                     bestCar: r.bestCar ? { id: r.bestCar.id, deviceId: r.bestCar.deviceId, lat: r.bestCar.lat, lng: r.bestCar.lng, speed: r.bestCar.speed } : null,
                     bestCarTime: r.bestCarTime, walkToCar: r.walkToCar,
+                    bestCarTimeExact: r.bestCarTimeExact, walkToCarExact: r.walkToCarExact,
                     usingCar: r.usingCar, path: r.path || null
                 };
             }
@@ -1886,6 +1759,110 @@ function saveStateToLocalStorage() {
     } catch(e) { return false; }
 }
 
+function persistEngineerCoords(emp, previousPosition) {
+    if (!emp || !emp.realId) return;
+    emp._syncPending = true;
+    fetch(API_URL + '/engineers/' + emp.realId + '/coords', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: emp.lat, lng: emp.lng })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        emp._syncPending = false;
+        if (!res || !res.success) {
+            console.warn('[SYNC] engineer coords failed', res);
+            if (res && res.safety_block && previousPosition) {
+                emp.lat = previousPosition.lat; emp.lng = previousPosition.lng;
+                var marker = state.mapMarkers['emp_' + emp.realId];
+                if (marker) marker.setLatLng([emp.lat, emp.lng]);
+                showToast(res.error || 'Перемещение остановлено из-за руления самолёта', 'warning');
+            }
+        }
+    })
+    .catch(function(err) {
+        emp._syncPending = false;
+        console.error('[SYNC] engineer coords error', err);
+    });
+}
+
+function persistTransportCoords(tr, previousPosition) {
+    if (!tr || !tr.id) return;
+    tr._syncPending = true;
+    fetch(API_URL + '/transport/' + tr.id + '/coords', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: tr.lat, lng: tr.lng, speed: tr.speed })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        tr._syncPending = false;
+        if (!res || !res.success) {
+            console.warn('[SYNC] transport coords failed', res);
+            if (res && res.safety_block && previousPosition) {
+                tr.lat = previousPosition.lat; tr.lng = previousPosition.lng;
+                var marker = state.mapMarkers['car_' + tr.id];
+                if (marker) marker.setLatLng([tr.lat, tr.lng]);
+                showToast(res.error || 'Перемещение остановлено из-за руления самолёта', 'warning');
+            }
+        }
+    })
+    .catch(function(err) {
+        tr._syncPending = false;
+        console.error('[SYNC] transport coords error', err);
+    });
+}
+
+function persistRouteToServer(requestId, routeData, opts) {
+    if (!requestId || !routeData) return;
+    opts = opts || {};
+
+    var routeJSON = JSON.stringify({
+        tt: routeData.totalTime,
+        uc: routeData.usingCar,
+        wc: routeData.walkToCar,
+        ct: routeData.bestCarTime,
+        wc_exact: routeData.walkToCarExact != null ? routeData.walkToCarExact : routeData.walkToCar,
+        ct_exact: routeData.bestCarTimeExact != null ? routeData.bestCarTimeExact : routeData.bestCarTime,
+        bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
+        bclat: routeData.bestCar ? routeData.bestCar.lat : null,
+        bclng: routeData.bestCar ? routeData.bestCar.lng : null,
+        flat: routeData.from.lat,
+        flng: routeData.from.lng,
+        tlat: routeData.to.lat,
+        tlng: routeData.to.lng,
+        pid: routeData.parkingId || '',
+        path: routeData.path || null
+    });
+
+    var existingTicket = null;
+    for (var i = 0; i < state.tickets.length; i++) {
+        if (state.tickets[i].id === requestId) { existingTicket = state.tickets[i]; break; }
+    }
+    if (existingTicket && existingTicket.status === 'completed') return;
+
+    var reportPart = existingTicket
+        ? extractReportFromComment(existingTicket.engineer_comment || '')
+        : '';
+
+    var payload = {
+        engineer_comment: 'ROUTE:' + routeJSON + (reportPart ? '\n' + reportPart : ''),
+        travel_time: Number(routeData.totalTime) || 0,
+        using_car: routeData.usingCar ? 1 : 0,
+        walk_to_car: Number(routeData.walkToCar) || 0,
+        car_time: Number(routeData.bestCarTime) || 0,
+        best_car: routeData.bestCar ? routeData.bestCar.deviceId : null
+    };
+    if (opts.status) payload.status = opts.status;
+    if (opts.criticality) payload.criticality = opts.criticality;
+
+    fetch(API_URL + '/requests/' + requestId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(function(err) { console.warn('[ROUTE] persist failed', err); });
+}
+
 function loadStateFromLocalStorage() {
     try {
         var saved = localStorage.getItem(STORAGE_KEY);
@@ -1896,47 +1873,40 @@ function loadStateFromLocalStorage() {
             for (var key in data.routeData) {
                 if (data.routeData.hasOwnProperty(key)) {
                     var r = data.routeData[key];
+                    // Server ROUTE payload is authoritative. Do not replace it
+                    // with an older local cache that may have no requestId/ETA.
+                    if (state.routeData[key] && state.routeData[key].requestId) continue;
                     var bestCar = null;
                     if (r.bestCar) {
-                        for (var i = 0; i < state.transport.length; i++) if (state.transport[i].id === r.bestCar.id) { bestCar = state.transport[i]; break; }
+                        for (var i = 0; i < state.transport.length; i++) {
+                            if ((r.bestCar.id != null && state.transport[i].id === r.bestCar.id) ||
+                                (r.bestCar.deviceId && state.transport[i].deviceId === r.bestCar.deviceId)) {
+                                bestCar = state.transport[i]; break;
+                            }
+                        }
+                        if (!bestCar) bestCar = r.bestCar;
+                    }
+                    var matchingActive = null;
+                    for (var ia = 0; ia < state.activeRequests.length; ia++) {
+                        if (state.activeRequests[ia].engineerId === r.empId) { matchingActive = state.activeRequests[ia]; break; }
                     }
                     state.routeData[key] = {
                         from: r.from, to: r.to, empId: r.empId,
-                        totalTime: r.totalTime, walkTime: r.walkTime,
+                        requestId: r.requestId || (matchingActive ? matchingActive.id : null),
+                        parkingId: r.parkingId || (matchingActive ? matchingActive.parking : ''),
+                        totalTime: Number(r.totalTime) || (matchingActive ? Number(matchingActive.time) : 0) || 0,
+                        walkTime: r.walkTime,
                         bestCar: bestCar, bestCarTime: r.bestCarTime,
-                        walkToCar: r.walkToCar, usingCar: r.usingCar,
-                        path: r.path || null
+                        walkToCar: r.walkToCar,
+                        bestCarTimeExact: r.bestCarTimeExact, walkToCarExact: r.walkToCarExact,
+                        usingCar: r.usingCar, path: r.path || null
                     };
                 }
             }
         }
-        if (data.employees) {
-            for (var i2 = 0; i2 < state.employees.length; i2++) {
-                for (var j2 = 0; j2 < data.employees.length; j2++) {
-                    if (state.employees[i2].realId === data.employees[j2].realId) {
-                        state.employees[i2].lat = data.employees[j2].lat;
-                        state.employees[i2].lng = data.employees[j2].lng;
-                        state.employees[i2].busy = data.employees[j2].busy;
-                        state.employees[i2].status = data.employees[j2].status;
-                        state.employees[i2].task = data.employees[j2].task;
-                        break;
-                    }
-                }
-            }
-        }
-        if (data.transport) {
-            for (var i3 = 0; i3 < state.transport.length; i3++) {
-                for (var j3 = 0; j3 < data.transport.length; j3++) {
-                    if (state.transport[i3].id === data.transport[j3].id) {
-                        state.transport[i3].lat = data.transport[j3].lat;
-                        state.transport[i3].lng = data.transport[j3].lng;
-                        state.transport[i3].speed = data.transport[j3].speed;
-                        state.transport[i3].assignedTo = data.transport[j3].assignedTo || null;
-                        break;
-                    }
-                }
-            }
-        }
+        // Coordinates/status of engineers and vehicles are loaded from SQLite API.
+        // Do not restore old localStorage coordinates here: that caused moved markers
+        // to jump back to stale positions on refresh.
         return true;
     } catch(e) { return false; }
 }
@@ -1979,7 +1949,7 @@ function init() {
     if (document.getElementById('delaysDate')) document.getElementById('delaysDate').textContent = dateStr;
     if (document.getElementById('flightsDate')) document.getElementById('flightsDate').textContent = dateStr;
 
-    loadReportsFromServer();
+    state.reports = loadReportsFromStorage();
     state.deletedReports = loadDeletedReportsFromStorage();
     state.pilotRequests = loadPilotRequestsFromStorage();
     updatePilotBadge();
@@ -1990,22 +1960,21 @@ function init() {
     initMap();
     updateParkingList();
     loadDataOnce();
+    relayDispatcherReportsToCpu();
+    if (workflowQueueInterval) clearInterval(workflowQueueInterval);
+    workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
 
     if (state.loadInterval) clearInterval(state.loadInterval);
     state.loadInterval = setInterval(function() {
-        if (!state.isUpdating) {
+        if (!state.isUpdating && !state.isDragging) {
             loadRequestsOnly();
-            updateActiveRequests();
-            updateStats();
-            renderMapMarkers();
-            saveStateToLocalStorage();
         }
-    }, 2000);
+    }, 1000);
 
     if (state.coordsInterval) clearInterval(state.coordsInterval);
     state.coordsInterval = setInterval(function() {
-        if (!state.isUpdating) refreshCoordsOnly();
-    }, 1000);
+        if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
+    }, 500);
 }
 
 function loadDataOnce() {
@@ -2057,6 +2026,7 @@ function loadDataOnce() {
 
 function processRequestsData(data) {
     state.tickets = data || [];
+    setTimeout(syncAircraftFromRequests, 0);
     state.activeRequests = [];
     state.cancelledRequests = [];
     state.delays = [];
@@ -2076,7 +2046,15 @@ function processRequestsData(data) {
     for (var i = 0; i < data.length; i++) {
         var t = data[i];
 
-        if (t.source === 'pilot' || t.pilot_audio) {
+        // Заявки от пилота/ЦПУ: в блок «Заявки от КВС» отправляем только те,
+        // что ещё НЕ прошли маршрутизацию (draft / mcc / cpu-ожидание).
+        // Если заявка уже у техника или у диспетчера — она должна быть
+        // в «Активных заявках» диспетчера.
+        var isPilotSource = (t.source === 'pilot' || t.pilot_audio);
+        var stage = t.routing_stage || 'mcc';
+        var isRoutedFurther = ['technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage) !== -1;
+
+        if (isPilotSource && !isRoutedFurther) {
             pilotReqs.push({
                 id: t.id, source: 'pilot',
                 pilotName: t.pilot_name || t.engineer_name || 'Пилот',
@@ -2094,8 +2072,7 @@ function processRequestsData(data) {
             if (!t.pilot_audio_text && t.pilot_audio && !transcriptionAttempted[t.id] && !whisperDisabled) {
                 enqueueTranscription(t.id);
             }
-            // черновик пилота диспетчеру не показываем, пока пилот не подтвердил
-            if ((t.status || '') === 'draft') continue;
+            continue;
         }
 
         var isCancelled = (t.status === 'cancelled');
@@ -2123,6 +2100,9 @@ function processRequestsData(data) {
             continue;
         }
 
+        // Этапы маршрутизации обрабатываются в отдельных очередях ниже,
+        // чтобы не смешивать заявки у диспетчера и возвратные отчёты с активным выездом.
+        if (['dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage) !== -1) continue;
         if (t.status === 'completed') continue;
 
         var fd = CONFIG.FAULT_TYPES[t.fault_type];
@@ -2134,17 +2114,63 @@ function processRequestsData(data) {
             engineerId: t.engineer_id || null,
             time: t.travel_time || 0,
             status: t.status || 'assigned',
-            mccStatus: t.mcc_status || '',
-            engineerVerdict: t.engineer_verdict || '',
-            chainStage: t.chain_stage || '',
-            aogSince: t.aog_since || null,
-            source: t.source || 'dispatcher',
             criticality: t.criticality || 'medium',
             comment: t.engineer_comment || '',
             isReplacement: !!t.replaces_request_id,
             replacesId: t.replaces_request_id || null,
+            assignedAt: t.inspection_assigned_at || null,
+            engineerTaskStep: t.engineer_task_step || 'idle',
+            engineerStatus: t.engineer_status || 'free',
             createdAt: t.created_at || null
         });
+    }
+
+    // ── Сразу восстанавливаем маршруты диспетчера из ROUTE: ──
+    // После назначения у заявки уже есть engineer_comment с ROUTE:
+    // (бэкенд пишет маршрут-превью сразу). Рисуем сразу, без ожидания
+    // refreshCoordsOnly / updateRouteForEngineer.
+    for (var ir = 0; ir < state.activeRequests.length; ir++) {
+        var ar = state.activeRequests[ir];
+        if (!ar.engineerId) continue;
+        if (ar.engineerStatus !== 'busy') { clearRouteForEngineer(ar.engineerId); continue; }
+        if (['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(ar.status) !== -1) { clearRouteForEngineer(ar.engineerId); continue; }
+        if (['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(ar.engineerTaskStep) === -1) {
+            clearRouteForEngineer(ar.engineerId);
+            continue;
+        }
+        if (!ar.parking || ar.parking === '—') continue;
+        if (ar.status === 'queued') continue;
+        var ticket = null;
+        for (var it = 0; it < data.length; it++) {
+            if (data[it].id === ar.id) { ticket = data[it]; break; }
+        }
+        if (!ticket) continue;
+        var parsedRoute = parseRouteFromComment(ticket.engineer_comment || '');
+        if (!parsedRoute) continue;
+        var routeKey = 'route_' + ar.engineerId;
+        // Не перезаписываем только полностью совпадающий маршрут. ETA из БД
+        // должен обновить карточку и карту даже при том же requestId.
+        if (state.routeData[routeKey] &&
+            state.routeData[routeKey].requestId === ar.id &&
+            Number(state.routeData[routeKey].totalTime) === Number(parsedRoute.totalTime) &&
+            JSON.stringify(state.routeData[routeKey].path || null) === JSON.stringify(parsedRoute.path || null)) continue;
+        state.routeData[routeKey] = {
+            from: parsedRoute.from,
+            to: parsedRoute.to,
+            empId: ar.engineerId,
+            requestId: ar.id,
+            parkingId: parsedRoute.parkingId || ar.parking,
+            totalTime: Number(parsedRoute.totalTime) || Number(ar.time) || 0,
+            walkTime: Number(parsedRoute.totalTime) || Number(ar.time) || 0,
+            bestCar: parsedRoute.bestCar,
+            bestCarTime: parsedRoute.bestCarTime,
+            walkToCar: parsedRoute.walkToCar,
+            bestCarTimeExact: parsedRoute.bestCarTimeExact,
+            walkToCarExact: parsedRoute.walkToCarExact,
+            usingCar: parsedRoute.usingCar,
+            path: parsedRoute.path
+        };
+        ar.time = Number(parsedRoute.totalTime) || Number(ar.time) || 0;
     }
 
     for (var i2 = 0; i2 < data.length; i2++) {
@@ -2175,7 +2201,12 @@ function processRequestsData(data) {
     state.flights = [];
     for (var i3 = 0; i3 < data.length; i3++) {
         var t3 = data[i3];
-        if (t3.status === 'draft') continue;
+        // Заявки от пилота/ЦПУ, ещё не прошедшие маршрутизацию, в «Рейсы» не берём.
+        // Прошедшие (technician/dispatcher/done) — показываем как обычные рейсы.
+        var isPilotSource3 = (t3.source === 'pilot' || t3.pilot_audio);
+        var stage3 = t3.routing_stage || 'mcc';
+        var isRoutedFurther3 = ['technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize','pilot_notice','released','done'].indexOf(stage3) !== -1;
+        if (isPilotSource3 && !isRoutedFurther3) continue;
         if (t3.flight_cancelled) continue;
         var fd3 = CONFIG.FAULT_TYPES[t3.fault_type];
         var delayElapsed = 0;
@@ -2190,11 +2221,6 @@ function processRequestsData(data) {
             engineer: t3.engineer_name || '—',
             engineerId: t3.engineer_id || null,
             status: t3.status || 'assigned',
-            mccStatus: t3.mcc_status || '',
-            engineerVerdict: t3.engineer_verdict || '',
-            chainStage: t3.chain_stage || '',
-            aogSince: t3.aog_since || null,
-            source: t3.source || 'dispatcher',
             criticality: t3.criticality || 'medium',
             travelTime: t3.travel_time || 0,
             createdAt: t3.created_at || null,
@@ -2211,7 +2237,6 @@ function processRequestsData(data) {
     }
 
     state.pilotRequests = pilotReqs;
-    updateSimAircraftPool();
     savePilotRequestsToStorage();
     updatePilotBadge();
     updateCancelledBadge();
@@ -2225,6 +2250,8 @@ function loadRequestsOnly() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             processRequestsData(data);
+            syncRoutesWithActiveRequests();
+            renderMapMarkers();          // перерисовать карту только с маршрутами работающих инженеров
             updateActiveRequests();
             updateStats();
             if (state.currentTab === 'pilot') renderPilotRequests();
@@ -2233,6 +2260,47 @@ function loadRequestsOnly() {
             if (state.currentTab === 'flights') renderFlights();
         })
         .catch(function(err) { console.error(err); });
+}
+
+// Синхронизирует state.routeData с активными заявками:
+// — убирает маршруты для заявок, которых больше нет / сменился инженер
+// — создаёт/обновляет маршруты для назначенных инженеров
+function syncRoutesWithActiveRequests() {
+    var activeByEngineer = {};
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        var a = state.activeRequests[i];
+        if (a.engineerId && a.engineerStatus === 'busy' && a.parking && a.parking !== '—' &&
+            ['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(a.status) === -1 &&
+            ['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(a.engineerTaskStep) !== -1) {
+            activeByEngineer[a.engineerId] = a;
+        }
+    }
+
+    // 1. Удаляем устаревшие маршруты
+    for (var rk in state.routeData) {
+        if (!state.routeData.hasOwnProperty(rk)) continue;
+        var rd = state.routeData[rk];
+        var empId = rd.empId;
+        var active = empId ? activeByEngineer[empId] : null;
+        if (!active || active.id !== rd.requestId) {
+            // маршрут больше не соответствует активной заявке этого инженера
+            if (empId) clearRouteForEngineer(empId);
+            else {
+                if (state.mapMarkers[rk]) { try { map.removeLayer(state.mapMarkers[rk]); } catch(e) {} delete state.mapMarkers[rk]; }
+                if (state.mapMarkers[rk + '_label']) { try { map.removeLayer(state.mapMarkers[rk + '_label']); } catch(e) {} delete state.mapMarkers[rk + '_label']; }
+                delete state.routeData[rk];
+            }
+        }
+    }
+
+    // 2. Для назначенных инженеров без маршрута — рисуем
+    for (var empId2 in activeByEngineer) {
+        if (!activeByEngineer.hasOwnProperty(empId2)) continue;
+        var routeKey = 'route_' + empId2;
+        if (!state.routeData[routeKey]) {
+            updateRouteForEngineer(empId2);
+        }
+    }
 }
 
 function enqueueTranscription(requestId) {
@@ -2285,42 +2353,63 @@ function processTranscriptionQueue() {
 }
 
 function refreshCoordsOnly() {
+    if (!state.dataLoaded) return;
+
+    // ─────────── Инженеры ───────────
     fetch(API_URL + '/engineers')
         .then(function(res) { return res.json(); })
         .then(function(data) {
+            if (!data) return;
             var changed = false;
             for (var i = 0; i < data.length; i++) {
                 var e = data[i];
                 for (var j = 0; j < state.employees.length; j++) {
-                    if (state.employees[j].realId === e.id) {
-                        var newLat = e.coords_lat || state.employees[j].lat;
-                        var newLng = e.coords_lng || state.employees[j].lng;
-                        if (Math.abs(state.employees[j].lat - newLat) > 0.00001 || Math.abs(state.employees[j].lng - newLng) > 0.00001) {
-                            state.employees[j].lat = newLat;
-                            state.employees[j].lng = newLng;
+                    var emp = state.employees[j];
+                    if (emp.realId !== e.id) continue;
+
+                    // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
+                    if (!emp._syncPending) {
+                        var newLat = (e.coords_lat !== undefined && e.coords_lat !== null) ? e.coords_lat : emp.lat;
+                        var newLng = (e.coords_lng !== undefined && e.coords_lng !== null) ? e.coords_lng : emp.lng;
+                        if (Math.abs(emp.lat - newLat) > 0.00001 ||
+                            Math.abs(emp.lng - newLng) > 0.00001) {
+                            emp.lat = newLat;
+                            emp.lng = newLng;
                             changed = true;
                         }
-                        var newStatus = e.status || 'free';
-                        var newTask = e.task || '';
-                        if (state.employees[j].status !== newStatus || state.employees[j].task !== newTask) {
-                            state.employees[j].status = newStatus;
-                            state.employees[j].busy = newStatus !== 'free' && newStatus !== 'offline';
-                            state.employees[j].task = newTask;
-                            changed = true;
-                        }
-                        break;
                     }
+                    var newStatus = e.status || 'free';
+                    var newTask = e.task || '';
+                    var newStep = e.task_step || 'idle';
+                    var newStarted = e.task_started_at || null;
+                    if (emp.status !== newStatus || emp.task !== newTask ||
+                        emp.taskStep !== newStep || emp.taskStartedAt !== newStarted) {
+                        emp.status = newStatus;
+                        emp.busy = newStatus !== 'free' && newStatus !== 'offline';
+                        emp.task = newTask;
+                        emp.taskStep = newStep;
+                        emp.taskStartedAt = newStarted;
+                        changed = true;
+                    }
+                    break;
                 }
             }
             if (changed) {
-                renderMapMarkers();
+                // Двигаем существующие маркеры без пересоздания
                 for (var k = 0; k < state.employees.length; k++) {
-                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                    var empK = state.employees[k];
+                    var mk = state.mapMarkers['emp_' + empK.realId];
+                    if (mk && empK.lat != null && empK.lng != null) {
+                        mk.setLatLng([empK.lat, empK.lng]);
+                    }
                 }
+                // Пересчитываем оставшееся время в карточках
+                if (typeof updateActiveRequests === 'function') updateActiveRequests();
             }
         })
-        .catch(function(err) { console.error(err); });
+        .catch(function(err) { console.error('[SYNC] refresh engineers', err); });
 
+    // ─────────── Транспорт ───────────
     fetch(API_URL + '/transport')
         .then(function(res) { return res.json(); })
         .then(function(data) {
@@ -2329,25 +2418,61 @@ function refreshCoordsOnly() {
             for (var i = 0; i < data.length; i++) {
                 var t = data[i];
                 for (var j = 0; j < state.transport.length; j++) {
-                    if (state.transport[j].id === t.id) {
-                        if (Math.abs(state.transport[j].lat - t.lat) > 0.00001 || Math.abs(state.transport[j].lng - t.lng) > 0.00001) {
-                            state.transport[j].lat = t.lat;
-                            state.transport[j].lng = t.lng;
+                    var tr = state.transport[j];
+                    if (tr.id !== t.id) continue;
+
+                    // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
+                    if (!tr._syncPending) {
+                        if (Math.abs(tr.lat - t.lat) > 0.00001 ||
+                            Math.abs(tr.lng - t.lng) > 0.00001) {
+                            tr.lat = t.lat;
+                            tr.lng = t.lng;
                             changed = true;
                         }
-                        if (t.speed && state.transport[j].speed !== t.speed) { state.transport[j].speed = t.speed; changed = true; }
-                        break;
+                        if (t.speed && tr.speed !== t.speed) {
+                            tr.speed = t.speed;
+                            changed = true;
+                        }
                     }
+                    tr.assignedTo = t.assigned_to || tr.assignedTo;
+                    break;
                 }
             }
             if (changed) {
-                renderMapMarkers();
-                for (var k = 0; k < state.employees.length; k++) {
-                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId);
+                for (var k = 0; k < state.transport.length; k++) {
+                    var carK = state.transport[k];
+                    var mkC = state.mapMarkers['car_' + carK.id];
+                    if (!mkC) continue;
+                    var cLat = carK.lat, cLng = carK.lng;
+                    // Если машина привязана к заявке и инженер в ней — двигаем к инженеру
+                    if (carK.assignedTo) {
+                        for (var ia2 = 0; ia2 < state.activeRequests.length; ia2++) {
+                            var aR2 = state.activeRequests[ia2];
+                            if (aR2.id === carK.assignedTo && aR2.engineerId) {
+                                var empK2 = null;
+                                for (var ie2 = 0; ie2 < state.employees.length; ie2++) {
+                                    if (state.employees[ie2].realId === aR2.engineerId) { empK2 = state.employees[ie2]; break; }
+                                }
+                                if (empK2 && empK2.taskStep === 'in_car' && empK2.lat != null && empK2.lng != null) {
+                                    cLat = empK2.lat;
+                                    cLng = empK2.lng;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (cLat != null && cLng != null) {
+                        mkC.setLatLng([cLat, cLng]);
+                    }
                 }
             }
         })
-        .catch(function(err) { console.error(err); });
+        .catch(function(err) { console.error('[SYNC] refresh transport', err); });
+
+    // Пересчитываем оставшееся время в карточках заявок
+    if (typeof updateActiveRequests === 'function') {
+        updateActiveRequests();
+    }
 }
 
 function clearRouteForEngineer(engineerId) {
@@ -2360,134 +2485,554 @@ function clearRouteForEngineer(engineerId) {
 
 var map;
 
+// ============================================================
+// Симуляция руления самолётов по aircraft_paths.geojson
+// ============================================================
+function taxiDistanceMeters(a, b) {
+    return distanceKm(a[0], a[1], b[0], b[1]) * 1000;
+}
+
+function buildAircraftTaxiGraph(geojson) {
+    var nodes = {}, runwayEnds = [], edgeCount = 0;
+    function nodeFor(coord) {
+        var lat = Number(coord[1]), lng = Number(coord[0]);
+        var key = lat.toFixed(5) + ',' + lng.toFixed(5);
+        if (!nodes[key]) nodes[key] = { key: key, point: [lat, lng], edges: [] };
+        return nodes[key];
+    }
+    (geojson.features || []).forEach(function(feature) {
+        var props = feature.properties || {};
+        var category = String(props.category || '').toLowerCase();
+        var coords = feature.geometry && feature.geometry.coordinates;
+        if (!coords || feature.geometry.type !== 'LineString' ||
+            ['runway', 'taxiway', 'apron'].indexOf(category) === -1 || coords.length < 2) return;
+        var lineNodes = coords.map(nodeFor);
+        for (var i = 1; i < lineNodes.length; i++) {
+            var a = lineNodes[i - 1], b = lineNodes[i];
+            if (a.key === b.key) continue;
+            var weight = taxiDistanceMeters(a.point, b.point);
+            a.edges.push({ to: b.key, weight: weight });
+            b.edges.push({ to: a.key, weight: weight });
+            edgeCount++;
+        }
+        if (category === 'runway') {
+            runwayEnds.push(lineNodes[0].key, lineNodes[lineNodes.length - 1].key);
+        }
+    });
+    state.taxiGraph = { nodes: nodes, runwayEnds: Array.from(new Set(runwayEnds)), edgeCount: edgeCount };
+    state._ambientTaxiAreaNodes = null;
+    console.log('[AIRCRAFT] Сеть руления загружена:', Object.keys(nodes).length, 'узлов,', edgeCount, 'сегментов');
+    syncAircraftFromRequests();
+}
+
+function nearestTaxiNode(target) {
+    var graph = state.taxiGraph, best = null, bestDist = Infinity;
+    Object.keys(graph.nodes).forEach(function(key) {
+        var d = taxiDistanceMeters(graph.nodes[key].point, target);
+        if (d < bestDist) { bestDist = d; best = key; }
+    });
+    return best;
+}
+
+function shortestTaxiPath(startKey, endKey) {
+    var graph = state.taxiGraph, dist = {}, prev = {}, queue = [];
+    Object.keys(graph.nodes).forEach(function(k) { dist[k] = Infinity; });
+    dist[startKey] = 0; queue.push({ key: startKey, cost: 0 });
+    while (queue.length) {
+        queue.sort(function(a, b) { return a.cost - b.cost; });
+        var current = queue.shift();
+        if (current.cost !== dist[current.key]) continue;
+        if (current.key === endKey) break;
+        var edges = graph.nodes[current.key].edges;
+        for (var i = 0; i < edges.length; i++) {
+            var next = edges[i].to, candidate = current.cost + edges[i].weight;
+            if (candidate < dist[next]) {
+                dist[next] = candidate; prev[next] = current.key;
+                queue.push({ key: next, cost: candidate });
+            }
+        }
+    }
+    if (!isFinite(dist[endKey])) return null;
+    var path = [], cursor = endKey;
+    while (cursor) { path.unshift(graph.nodes[cursor].point); if (cursor === startKey) break; cursor = prev[cursor]; }
+    return path.length && path[0] ? path : null;
+}
+
+function createAircraftTaxiRoute(parkingId) {
+    if (!state.taxiGraph || !window.CONFIG || !CONFIG.MAP_POINTS[parkingId]) return null;
+    var target = [CONFIG.MAP_POINTS[parkingId].lat, CONFIG.MAP_POINTS[parkingId].lng];
+    var endKey = nearestTaxiNode(target);
+    if (!endKey) return null;
+    var bestPath = null, bestCost = Infinity;
+    var starts = state.taxiGraph.runwayEnds;
+    for (var i = 0; i < starts.length; i++) {
+        var path = shortestTaxiPath(starts[i], endKey);
+        if (!path) continue;
+        var cost = 0;
+        for (var j = 1; j < path.length; j++) cost += taxiDistanceMeters(path[j - 1], path[j]);
+        cost += taxiDistanceMeters(path[path.length - 1], target);
+        if (cost < bestCost) { bestCost = cost; bestPath = path; }
+    }
+    if (!bestPath) return null;
+    if (taxiDistanceMeters(bestPath[bestPath.length - 1], target) > 10) bestPath.push(target);
+    return bestPath;
+}
+
+// Фоновая симуляция использует случайные узлы сети в районе B/C,
+// а не всегда начинает движение с торца ВПП.
+function ambientTaxiAreaNodes() {
+    if (state._ambientTaxiAreaNodes) return state._ambientTaxiAreaNodes;
+    var refs = ((CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || [])).map(String);
+    var parkings = _allParkingsCache.filter(function(p) {
+        return p && refs.indexOf(String(p.ref)) !== -1 && p.lat != null && p.lng != null;
+    });
+    var nodes = Object.keys(state.taxiGraph.nodes).filter(function(key) {
+        var point = state.taxiGraph.nodes[key].point;
+        return parkings.some(function(p) { return taxiDistanceMeters(point, [p.lat, p.lng]) <= 850; });
+    });
+    state._ambientTaxiAreaNodes = nodes;
+    return nodes;
+}
+
+function createAmbientTaxiRoute(startPoint, parkingId) {
+    var graph = state.taxiGraph;
+    var areaNodes = ambientTaxiAreaNodes();
+    if (!areaNodes || areaNodes.length < 2) return null;
+    var startKey = startPoint ? nearestTaxiNode(startPoint) : areaNodes[Math.floor(Math.random() * areaNodes.length)];
+    if (areaNodes.indexOf(startKey) === -1) startKey = areaNodes[Math.floor(Math.random() * areaNodes.length)];
+    var endKey = null, target = null;
+    if (parkingId != null && CONFIG.MAP_POINTS[parkingId]) {
+        target = [CONFIG.MAP_POINTS[parkingId].lat, CONFIG.MAP_POINTS[parkingId].lng];
+        endKey = nearestTaxiNode(target);
+    } else {
+        var choices = areaNodes.filter(function(k) {
+            return k !== startKey && taxiDistanceMeters(graph.nodes[startKey].point, graph.nodes[k].point) > 140;
+        });
+        if (!choices.length) return null;
+        endKey = choices[Math.floor(Math.random() * choices.length)];
+    }
+    if (!endKey || endKey === startKey) return null;
+    var route = shortestTaxiPath(startKey, endKey);
+    if (!route || route.length < 2) return null;
+    if (target && taxiDistanceMeters(route[route.length - 1], target) > 10) route.push(target);
+    return route;
+}
+
+function aircraftIcon() {
+    return L.divIcon({ className: 'moving-aircraft-marker',
+        html: '<div style="font-size:25px;line-height:28px;filter:drop-shadow(0 1px 2px #111);">✈️</div>',
+        iconSize: [30, 30], iconAnchor: [15, 15] });
+}
+
+function isGroundUnitNearAircraft(position) {
+    var safeMeters = 45;
+    for (var i = 0; i < (state.employees || []).length; i++) {
+        var emp = state.employees[i];
+        if (emp.lat != null && emp.lng != null && taxiDistanceMeters(position, [emp.lat, emp.lng]) < safeMeters) return true;
+    }
+    for (var j = 0; j < (state.transport || []).length; j++) {
+        var car = state.transport[j];
+        if (car.lat != null && car.lng != null && taxiDistanceMeters(position, [car.lat, car.lng]) < safeMeters) return true;
+    }
+    return false;
+}
+
+function animateAircraftTaxi(sim) {
+    if (sim.animationFrame) cancelAnimationFrame(sim.animationFrame);
+    var total = 0; sim.cumulative = [0];
+    for (var i = 1; i < sim.route.length; i++) {
+        total += taxiDistanceMeters(sim.route[i - 1], sim.route[i]);
+        sim.cumulative.push(total);
+    }
+    sim.totalMeters = total;
+    var duration = Math.max(6500, Math.min(18000, total / 48 * 1000));
+    sim.startedAt = performance.now(); sim.duration = duration; sim.moving = true;
+    function frame(now) {
+        var progress = Math.min(1, (now - sim.startedAt) / sim.duration);
+        var distance = sim.totalMeters * progress, idx = 1;
+        while (idx < sim.cumulative.length - 1 && sim.cumulative[idx] < distance) idx++;
+        var from = sim.route[Math.max(0, idx - 1)], to = sim.route[Math.min(idx, sim.route.length - 1)];
+        var segmentStart = sim.cumulative[Math.max(0, idx - 1)], segmentLen = Math.max(0.001, sim.cumulative[Math.min(idx, sim.cumulative.length - 1)] - segmentStart);
+        var part = Math.max(0, Math.min(1, (distance - segmentStart) / segmentLen));
+        var pos = [from[0] + (to[0] - from[0]) * part, from[1] + (to[1] - from[1]) * part];
+        // Самолёт ждёт, если на его пути находится инженер или спецтранспорт.
+        if (isGroundUnitNearAircraft(pos)) {
+            sim.startedAt += 32;
+            sim.animationFrame = requestAnimationFrame(frame);
+            return;
+        }
+        sim.marker.setLatLng(pos);
+        if (progress < 1) sim.animationFrame = requestAnimationFrame(frame);
+        else {
+            sim.marker.setLatLng(sim.route[sim.route.length - 1]);
+            sim.moving = false; sim.arrived = true;
+            syncAircraftSafetyReservations();
+            if (sim.requestDeparture) {
+                // После подписи пилота борт покидает стоянку и исчезает с карты.
+                if (sim.marker) map.removeLayer(sim.marker);
+                delete state.aircraftSimulations[sim.id];
+                syncAircraftSafetyReservations();
+            } else if (sim.ambient) {
+                if (sim.ambientMode === 'parking' && !sim.departing) {
+                    // Часть бортов действительно заезжает на стоянку и ждёт.
+                    sim.departureTimer = setTimeout(function() {
+                        if (!state.aircraftSimulations[sim.id]) return;
+                        sim.route = sim.route.slice().reverse();
+                        sim.departing = true; sim.arrived = false;
+                        animateAircraftTaxi(sim);
+                    }, 9000 + Math.random() * 22000);
+                } else if (sim.departing) {
+                    // После выезда самолёт исчезает, а новый появляется из другого места.
+                    if (sim.marker) map.removeLayer(sim.marker);
+                    delete state.aircraftSimulations[sim.id];
+                    syncAircraftSafetyReservations();
+                    scheduleAmbientAircraft(1800 + Math.random() * 8500);
+                } else {
+                    // Остальные продолжают рулить по перрону: несколько случайных участков,
+                    // иногда с заездом на стоянку, иногда без остановки на ней.
+                    sim.ambientLegs = (sim.ambientLegs || 0) + 1;
+                    sim.departureTimer = setTimeout(function() {
+                        if (!state.aircraftSimulations[sim.id]) return;
+                        if (sim.ambientLegs >= sim.ambientMaxLegs) {
+                            if (sim.marker) map.removeLayer(sim.marker);
+                            delete state.aircraftSimulations[sim.id];
+                            syncAircraftSafetyReservations();
+                            scheduleAmbientAircraft(1200 + Math.random() * 7000);
+                            return;
+                        }
+                        var current = sim.route[sim.route.length - 1];
+                        var goToParking = Math.random() < 0.38;
+                        var nextParking = null;
+                        if (goToParking) {
+                            var refs = (CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || []).map(String);
+                            var freeParkings = _allParkingsCache.filter(function(p) {
+                                return p && refs.indexOf(String(p.ref)) !== -1 && p.ref != null && CONFIG.MAP_POINTS[p.ref] &&
+                                    !Object.keys(state.aircraftSimulations).some(function(otherId) {
+                                        var other = state.aircraftSimulations[otherId];
+                                        return other && other.id !== sim.id && String(other.parkingId) === String(p.ref) && other.ambientMode === 'parking';
+                                    });
+                            });
+                            if (freeParkings.length) nextParking = String(freeParkings[Math.floor(Math.random() * freeParkings.length)].ref);
+                        }
+                        var nextRoute = createAmbientTaxiRoute(current, nextParking);
+                        if (!nextRoute || nextRoute.length < 2) {
+                            sim.ambientLegs = sim.ambientMaxLegs;
+                            sim.departureTimer = setTimeout(function() {
+                                if (sim.marker) map.removeLayer(sim.marker);
+                                delete state.aircraftSimulations[sim.id];
+                                syncAircraftSafetyReservations();
+                                scheduleAmbientAircraft(1500 + Math.random() * 7000);
+                            }, 1000);
+                            return;
+                        }
+                        sim.route = nextRoute;
+                        sim.parkingId = nextParking || null;
+                        sim.ambientMode = nextParking ? 'parking' : 'roaming';
+                        sim.departing = false;
+                        sim.arrived = false;
+                        sim.marker.setTooltipContent(sim.aircraft + (nextParking ? ' — руление к стоянке ' + nextParking : ' — руление по перрону B/C'));
+                        animateAircraftTaxi(sim);
+                    }, 1800 + Math.random() * 6500);
+                }
+            }
+        }
+    }
+    sim.animationFrame = requestAnimationFrame(frame);
+    syncAircraftSafetyReservations();
+}
+
+function syncAircraftSafetyReservations() {
+    var reservations = [];
+    Object.keys(state.aircraftSimulations || {}).forEach(function(id) {
+        var sim = state.aircraftSimulations[id];
+        if (sim && sim.moving && sim.route && sim.route.length > 1) {
+            reservations.push({ id: id, aircraft: sim.aircraft, route: sim.route });
+        }
+    });
+    if (state.aircraftSafetyTimer) clearTimeout(state.aircraftSafetyTimer);
+    state.aircraftSafetyTimer = setTimeout(function() {
+        fetch(API_URL + '/aircraft/taxi-reservations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aircraft: reservations })
+        }).catch(function(err) { console.warn('[AIRCRAFT] safety sync failed', err); });
+    }, 100);
+}
+
+function syncAircraftFromRequests() {
+    if (!map || !state.taxiGraph || !state.tickets) return;
+    var live = {};
+    (state.tickets || []).forEach(function(ticket) {
+        if (ticket.source !== 'pilot' || !ticket.parking_id ||
+            ['draft', 'deleted', 'cancelled', 'flight_cancelled'].indexOf(ticket.status) !== -1 ||
+            ticket.flight_cancelled) return;
+        var id = String(ticket.id);
+        live[id] = true;
+        var existing = state.aircraftSimulations[id];
+        var isSigned = !!(ticket.crs_signed_at || ticket.crs_signed);
+
+        // Если борт уже стоит по заявке, держим его на стоянке до подписи.
+        if (existing) {
+            if (isSigned && existing.waitingForSignature && !existing.requestDeparture) {
+                existing.waitingForSignature = false;
+                existing.requestDeparture = true;
+                existing.departing = true;
+                existing.route = existing.route.slice().reverse();
+                existing.arrived = false;
+                existing.marker.setTooltipContent((existing.aircraft || 'Самолёт') + ' — подпись получена, выезд со стоянки ' + existing.parkingId);
+                animateAircraftTaxi(existing);
+            }
+            return;
+        }
+
+        var route = createAircraftTaxiRoute(String(ticket.parking_id));
+        if (!route || route.length < 1) {
+            console.warn('[AIRCRAFT] Не удалось определить стоянку', ticket.parking_id, ticket.id);
+            return;
+        }
+        var parkingPoint = [CONFIG.MAP_POINTS[ticket.parking_id].lat, CONFIG.MAP_POINTS[ticket.parking_id].lng];
+        // Заявочный самолёт появляется сразу на стоянке — руление к ней не проигрывается.
+        var marker = L.marker(parkingPoint, { icon: aircraftIcon(), zIndexOffset: 1700, interactive: true })
+            .addTo(map).bindTooltip((ticket.aircraft || 'Самолёт') + (isSigned ? ' — подпись получена' : ' — ожидает подпись пилота'));
+        var sim = state.aircraftSimulations[id] = {
+            id: id, aircraft: ticket.aircraft || 'Самолёт', parkingId: String(ticket.parking_id),
+            marker: marker, route: route, moving: false, arrived: true, ambient: false,
+            waitingForSignature: !isSigned, requestDeparture: false
+        };
+
+        // Если подпись уже была сохранена до загрузки карты, сразу запускаем выезд.
+        if (isSigned) {
+            sim.waitingForSignature = false;
+            sim.requestDeparture = true;
+            sim.departing = true;
+            sim.route = route.slice().reverse();
+            sim.arrived = false;
+            marker.setTooltipContent((sim.aircraft || 'Самолёт') + ' — подпись получена, выезд со стоянки ' + sim.parkingId);
+            animateAircraftTaxi(sim);
+        }
+    });
+    Object.keys(state.aircraftSimulations).forEach(function(id) {
+        if (!live[id] && !state.aircraftSimulations[id].ambient) {
+            var sim = state.aircraftSimulations[id];
+            if (sim.animationFrame) cancelAnimationFrame(sim.animationFrame);
+            if (sim.departureTimer) clearTimeout(sim.departureTimer);
+            if (sim.marker) map.removeLayer(sim.marker);
+            delete state.aircraftSimulations[id];
+        }
+    });
+    syncAircraftSafetyReservations();
+}
+
+// Фоновое движение воздушных судов: только терминалы B/C.
+// Поддерживаем переменное количество 3–7 одновременно видимых фоновых бортов.
+function scheduleAmbientAircraft(delay) {
+    if (state.ambientAircraftTimer) clearTimeout(state.ambientAircraftTimer);
+    state.ambientAircraftTimer = setTimeout(spawnAmbientAircraft, delay == null ? 3500 : delay);
+}
+
+function scheduleAmbientAircraftTargetChange() {
+    if (state.ambientAircraftTargetTimer) clearTimeout(state.ambientAircraftTargetTimer);
+    state.ambientAircraftTargetTimer = setTimeout(function() {
+        state.ambientAircraftTarget = 3 + Math.floor(Math.random() * 5);
+        scheduleAmbientAircraft(500);
+        scheduleAmbientAircraftTargetChange();
+    }, 35000 + Math.random() * 30000);
+}
+
+function spawnAmbientAircraft() {
+    if (!map || !state.taxiGraph || !_allParkingsCache || !_allParkingsCache.length) {
+        scheduleAmbientAircraft(3000); return;
+    }
+    var ambientCount = Object.keys(state.aircraftSimulations || {}).filter(function(id) {
+        return state.aircraftSimulations[id] && state.aircraftSimulations[id].ambient;
+    }).length;
+    var targetCount = Math.max(3, Math.min(7, Number(state.ambientAircraftTarget) || 5));
+    if (ambientCount >= targetCount || ambientCount >= 7) {
+        scheduleAmbientAircraft(4500 + Math.random() * 3500); return;
+    }
+
+    // Фоновый трафик только в районе терминалов B/C.
+    var refs = (CONFIG.PARKING_BY_TERMINAL.B || []).concat(CONFIG.PARKING_BY_TERMINAL.C || []).map(String);
+    var candidates = _allParkingsCache.filter(function(p) {
+        return p && p.ref != null && p.lat != null && p.lng != null &&
+            refs.indexOf(String(p.ref)) !== -1 && CONFIG.MAP_POINTS[p.ref];
+    });
+    var areaNodes = ambientTaxiAreaNodes();
+    if (!candidates.length || !areaNodes || areaNodes.length < 2) {
+        console.warn('[AIRCRAFT] Недостаточно узлов сети для симуляции B/C');
+        scheduleAmbientAircraft(5000); return;
+    }
+
+    // Выбираем случайный тип поведения: большинство просто рулит по перрону,
+    // часть направляется к свободной стоянке.
+    var parkingMode = Math.random() < 0.38;
+    var used = {};
+    Object.keys(state.aircraftSimulations).forEach(function(id) {
+        var x = state.aircraftSimulations[id];
+        if (x && x.parkingId && x.ambientMode === 'parking') used[String(x.parkingId)] = true;
+    });
+    var free = candidates.filter(function(p) { return !used[String(p.ref)]; });
+    if (!free.length) parkingMode = false;
+    var parking = parkingMode ? free[Math.floor(Math.random() * free.length)] : null;
+    var route = createAmbientTaxiRoute(null, parking ? String(parking.ref) : null);
+    if (!route || route.length < 2) { scheduleAmbientAircraft(3500); return; }
+
+    var id = 'ambient_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+    var callsigns = ['SU 1452', 'DP 602', 'FV 318', 'UT 721', 'N4 205', 'SU 218', 'DP 814', 'FV 407', 'U6 331', 'S7 426', 'DP 910', 'FV 552', 'SU 807'];
+    var aircraft = callsigns[Math.floor(Math.random() * callsigns.length)];
+    var marker = L.marker(route[0], { icon: aircraftIcon(), zIndexOffset: 1600, interactive: true })
+        .addTo(map).bindTooltip(aircraft + (parking ? ' — терминал B/C, стоянка ' + parking.ref : ' — руление по перрону B/C'));
+    var sim = state.aircraftSimulations[id] = {
+        id: id, aircraft: aircraft, parkingId: parking ? String(parking.ref) : null, marker: marker,
+        route: route, moving: false, arrived: false, ambient: true,
+        ambientMode: parking ? 'parking' : 'roaming', departing: false,
+        ambientLegs: 0, ambientMaxLegs: 2 + Math.floor(Math.random() * 3)
+    };
+    animateAircraftTaxi(sim);
+
+    // Несинхронные появления из разных точек: интервалы каждый раз случайные.
+    scheduleAmbientAircraft(1800 + Math.random() * 6500);
+}
+
 function initMap() {
     map = L.map('map', {
         center: [55.981349, 37.388359],
         zoom: 14,
-        minZoom: 13,
         zoomControl: true,
         attributionControl: false,
         preferCanvas: true
     });
     state.map = map;
 
-    // Внешнюю подложку OSM не подключаем: на площадке интернет может быть
-    // закрыт, а схема аэродрома рисуется локальным GeoJSON в AirportSim.
-    map.getContainer().style.background = '#e9eef5';
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
+    // ── Слой объектов (полигоны) — под маркерами ──
+    state.objectsLayer = L.layerGroup().addTo(map);
+
+    // ── Слой стоянок ──
+    state.parkingLayer = L.layerGroup().addTo(map);
+
+    // ── Roads (невидимый, для маршрутов) ──
     fetch('/static/roads.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('roads.geojson не найден'); return res.json(); })
+        .then(function(res) { if (!res.ok) throw new Error('roads.geojson'); return res.json(); })
         .then(function(data) {
             state.roadsLayer = L.geoJSON(data);
-            console.log('[GRAPH] roads.geojson загружен (' + data.features.length + ' фич, скрыт)');
+            console.log('[MAP] roads.geojson загружен (скрыт для расчётов)');
         })
-        .catch(function(e) { console.warn('[GRAPH] roads.geojson не загружен:', e.message); });
+        .catch(function(e) { console.warn('[MAP] roads.geojson:', e.message); });
 
-    // Движок карты: схема аэродрома, стоянки и демо-движение ВС
-    if (window.AirportSim) {
-        window.AirportSim.init(map, {
-            pathsUrl: '/static/aircraft_paths.geojson',
-            stands: CONFIG.MAP_POINTS,
-            onStandClick: function(ref) {
-                var parkingSel = document.getElementById('parkingSelect');
-                if (!parkingSel) return;
-                for (var i = 0; i < parkingSel.options.length; i++) {
-                    if (parkingSel.options[i].value === String(ref)) {
-                        parkingSel.selectedIndex = i;
-                        showToast('Выбрана стоянка ' + ref, 'info');
-                        break;
-                    }
-                }
-            },
-            onStatus: function(text) {
-                var el = document.getElementById('simStatus');
-                if (el) el.textContent = text;
+    // ── Объекты (все Polygon/MultiPolygon из svo_all.geojson) ──
+    fetch(API_URL + '/map-objects')
+        .then(function(r) { return r.json(); })
+        .then(function(objects) {
+            if (!Array.isArray(objects) || objects.length === 0) {
+                console.warn('[MAP] /api/map-objects вернул пусто');
+                return;
             }
-        }).then(function() {
-            bindSimulationControls();
-            updateSimAircraftPool();
-        }).catch(function(err) {
-            console.warn('[AirportSim]', err);
-        });
-    } else {
-        console.warn('[AirportSim] airport-map.js не загружен');
-    }
+            for (var i = 0; i < objects.length; i++) {
+                var o = objects[i];
+                if (!o.latlngs || o.latlngs.length < 3) continue;
+                var poly = L.polygon(o.latlngs, {
+                    color: o.color || '#1e40af',
+                    weight: o.weight != null ? o.weight : 1.5,
+                    opacity: o.opacity != null ? o.opacity : 0.9,
+                    fillColor: o.color || '#1e40af',
+                    fillOpacity: o.fillOpacity != null ? o.fillOpacity : 0.35,
+                    interactive: true
+                });
+                poly.bindTooltip(o.name || 'Объект', { sticky: true });
+                poly.addTo(state.objectsLayer);
+            }
+            console.log('[MAP] Объектов отрисовано:', objects.length);
+        })
+        .catch(function(err) { console.error('[MAP] objects load', err); });
+
+    fetch(API_URL + '/parking')
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            if (!Array.isArray(list) || list.length === 0) {
+                console.warn('[MAP] /api/parking вернул пусто');
+                return;
+            }
+
+            for (var i = 0; i < list.length; i++) {
+                var p = list[i];
+                if (!p.ref || p.lat == null || p.lng == null) continue;
+
+                // Заполняем MAP_POINTS для расчётов маршрутов
+                CONFIG.MAP_POINTS[p.ref] = { lat: p.lat, lng: p.lng };
+
+                // Видимый маркер стоянки
+                var parkingIcon = L.divIcon({
+                    className: 'aircraft-parking-marker',
+                    html:
+                        '<div style="' +
+                            'color:#f59e0b;' +
+                            'font-family:Inter,sans-serif;' +
+                            'font-size:11px;' +
+                            'font-weight:700;' +
+                            'text-shadow:0 1px 3px rgba(0,0,0,0.65),0 0 6px rgba(255,255,255,0.9);' +
+                            'line-height:1;' +
+                            'white-space:nowrap;' +
+                            'pointer-events:auto;' +
+                            'user-select:none;' +
+                        '">' + p.ref + '</div>',
+                    iconSize: [30, 16],
+                    iconAnchor: [15, 8]
+                });
+
+                (function(parkingRef, parkingName) {
+                    var marker = L.marker([p.lat, p.lng], {
+                        icon: parkingIcon,
+                        interactive: true,
+                        riseOnHover: true
+                    });
+                    marker.bindTooltip(parkingName || ('Стоянка ' + parkingRef), {
+                        direction: 'top',
+                        offset: [0, -12]
+                    });
+                    marker.on('click', function() {
+                        var parkingSel = document.getElementById('parkingSelect');
+                        if (!parkingSel) return;
+                        for (var k = 0; k < parkingSel.options.length; k++) {
+                            if (parkingSel.options[k].value === String(parkingRef)) {
+                                parkingSel.selectedIndex = k;
+                                showToast('Выбрана стоянка ' + parkingRef, 'info');
+                                break;
+                            }
+                        }
+                    });
+                    marker.addTo(state.parkingLayer);
+                })(p.ref, p.name);
+            }
+
+            // Кэшируем список стоянок для выпадающего списка
+            _allParkingsCache = list;
+            updateParkingList();
+            syncAircraftFromRequests();
+            // Parking coordinates may arrive after the requests/engineers API.
+            // Retry active accepted engineers now that MAP_POINTS is complete.
+            for (var ri = 0; ri < state.employees.length; ri++) {
+                if (!state.employees[ri].isFree()) updateRouteForEngineer(state.employees[ri].realId);
+            }
+            console.log('[MAP] Стоянок отрисовано:', list.length);
+        })
+        .catch(function(err) { console.error('[MAP] parking load', err); });
+
+    // ── Paths ВС (если файл есть) — для отображения контуров ВС ──
+    fetch('/static/aircraft_paths.geojson')
+        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson'); return res.json(); })
+        .then(function(data) {
+            // GeoJSON используется только как невидимая навигационная сеть.
+            // На карте показываем исключительно движущиеся метки самолётов.
+            state.aircraftLayer = null;
+            buildAircraftTaxiGraph(data);
+            scheduleAmbientAircraft(700);
+            scheduleAmbientAircraftTargetChange();
+            console.log('[MAP] Скрытая сеть руления загружена; фоновая симуляция 3–7 самолётов в терминалах B/C');
+        })
+        .catch(function(e) { console.warn('[MAP] aircraft_paths.geojson:', e.message); });
 
     if (state.dataLoaded) renderMapMarkers();
-}
-
-/* ---------------- демо-симуляция ВС ---------------- */
-var simUiBound = false;
-
-function readSimParams() {
-    function num(id, def) {
-        var el = document.getElementById(id);
-        var v = el ? parseInt(el.value, 10) : NaN;
-        return isNaN(v) ? def : v;
-    }
-    var layout = document.getElementById('simLayout');
-    var labels = document.getElementById('simLabels');
-    return {
-        count: Math.max(1, Math.min(12, num('simCount', 4))),
-        speed: Math.max(5, Math.min(80, num('simSpeed', 25))),
-        dwell: Math.max(2, Math.min(120, num('simDwell', 12))),
-        interval: Math.max(1, Math.min(60, num('simInterval', 4))),
-        timeScale: Math.max(1, Math.min(60, num('simScale', 20))),
-        showLayout: layout ? layout.checked : true,
-        showLabels: labels ? labels.checked : true
-    };
-}
-
-function setSimRunningUi(running) {
-    var start = document.getElementById('simStartBtn');
-    var pause = document.getElementById('simPauseBtn');
-    if (start) start.disabled = !!running;
-    if (pause) pause.disabled = !running;
-}
-
-function bindSimulationControls() {
-    if (simUiBound || !window.AirportSim) return;
-    simUiBound = true;
-    ['simCount', 'simSpeed', 'simDwell', 'simInterval', 'simScale', 'simLayout', 'simLabels']
-        .forEach(function(id) {
-            var el = document.getElementById(id);
-            if (el) el.addEventListener('change', function() {
-                window.AirportSim.setParams(readSimParams());
-            });
-        });
-    var start = document.getElementById('simStartBtn');
-    var pause = document.getElementById('simPauseBtn');
-    var reset = document.getElementById('simResetBtn');
-    if (start) start.addEventListener('click', function() {
-        window.AirportSim.setParams(readSimParams());
-        window.AirportSim.start();
-        setSimRunningUi(true);
-    });
-    if (pause) pause.addEventListener('click', function() {
-        window.AirportSim.pause();
-        setSimRunningUi(false);
-    });
-    if (reset) reset.addEventListener('click', function() {
-        window.AirportSim.reset();
-        setSimRunningUi(false);
-    });
-}
-
-function updateSimAircraftPool() {
-    if (!window.AirportSim) return;
-    var seen = {};
-    var labels = [];
-    var grounded = [];
-    var flights = state.flights || [];
-    for (var i = 0; i < flights.length; i++) {
-        var a = flights[i].aircraft;
-        if (!a || a === '—' || a === 'ВС' || seen[a]) continue;
-        seen[a] = true;
-        labels.push(a);
-        if (effectiveFlightStatus(flights[i]).code === 'aog') grounded.push(a);
-    }
-    window.AirportSim.setAircraftPool(labels);
-    window.AirportSim.setGrounded(grounded);
 }
 
 function renderMapMarkers() {
@@ -2523,19 +3068,65 @@ function renderMapMarkers() {
             className: 'employee-marker status-' + statusClass,
             html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18]
         });
-        var marker = L.marker([lat, lng], { icon: icon }).addTo(map).bindPopup(createEmployeePopup(emp));
-        enableDragging(marker, emp.realId, 'employee');
-        state.mapMarkers['emp_' + emp.realId] = marker;
+        (function(employee) {
+            var marker = L.marker([lat, lng], {icon: icon, draggable: true, autoPan: true})
+            .on('dragstart', function() { state.isDragging = true; })
+            .on('dragend', function(e) {
+                state.isDragging = false;
+                var pos = e.target.getLatLng();
+                var previousPosition = { lat: employee.lat, lng: employee.lng };
+                employee.lat = pos.lat; employee.lng = pos.lng;
+                persistEngineerCoords(employee, previousPosition);
+                if (!employee.isFree()) updateRouteForEngineer(employee.realId, true);
+                saveStateToLocalStorage();
+                showToast(employee.name + ' перемещён и сохранён', 'success');
+            })
+            .addTo(map).bindPopup(createEmployeePopup(employee));
+            state.mapMarkers['emp_' + employee.realId] = marker;
+        })(emp);
     }
 
     for (var iC = 0; iC < state.transport.length; iC++) {
         var car = state.transport[iC];
+        var carLat = car.lat;
+        var carLng = car.lng;
+        if (car.assignedTo) {
+            for (var ia = 0; ia < state.activeRequests.length; ia++) {
+                var aR = state.activeRequests[ia];
+                if (aR.id === car.assignedTo && aR.engineerId) {
+                    var empC = null;
+                    for (var ie = 0; ie < state.employees.length; ie++) {
+                        if (state.employees[ie].realId === aR.engineerId) { empC = state.employees[ie]; break; }
+                    }
+                    if (empC && empC.taskStep === 'in_car' && empC.lat != null && empC.lng != null) {
+                        carLat = empC.lat;
+                        carLng = empC.lng;
+                    }
+                    break;
+                }
+            }
+        }
         var iconHtmlC = '<span class="car-icon"><i class="fas fa-car"></i></span><span class="car-id">' + car.deviceId +
                         '</span><span class="car-speed">' + car.speed + ' км/ч</span>';
         var iconC = L.divIcon({ className: 'car-marker', html: iconHtmlC, iconSize: [44, 44], iconAnchor: [22, 22] });
-        var markerC = L.marker([car.lat, car.lng], { icon: iconC }).addTo(map).bindPopup(createCarPopup(car));
-        enableDragging(markerC, car.id, 'transport');
-        state.mapMarkers['car_' + car.id] = markerC;
+        (function(vehicle) {
+            var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true})
+            .on('dragstart', function() { state.isDragging = true; })
+            .on('dragend', function(e) {
+                state.isDragging = false;
+                var pos = e.target.getLatLng();
+                var previousPosition = { lat: vehicle.lat, lng: vehicle.lng };
+                vehicle.lat = pos.lat; vehicle.lng = pos.lng;
+                persistTransportCoords(vehicle, previousPosition);
+                for (var k = 0; k < state.employees.length; k++) {
+                    if (!state.employees[k].isFree()) updateRouteForEngineer(state.employees[k].realId, true);
+                }
+                saveStateToLocalStorage();
+                showToast(vehicle.deviceId + ' перемещён и сохранён', 'success');
+            })
+            .addTo(map).bindPopup(createCarPopup(vehicle));
+            state.mapMarkers['car_' + vehicle.id] = markerC;
+        })(car);
     }
 
     for (var routeKey in state.routeData) {
@@ -2579,7 +3170,8 @@ function calculateOptimalRoute(emp, targetLat, targetLng) {
         var carSpeed = car.speed && car.speed > 0 ? Math.min(car.speed, 20) : 20;
         var driveDist = distanceKm(car.lat, car.lng, targetLat, targetLng);
         var driveTime = driveDist / carSpeed * 60;
-        var totalTime = walkToCar + 1.5 + driveTime + 1.0;
+        // Сумма без «посадочных» коэффициентов — чтобы совпадала с бэкендом.
+        var totalTime = walkToCar + driveTime;
         if (totalTime < bestTotalTime) {
             bestTotalTime = totalTime;
             bestCar = car;
@@ -2587,12 +3179,17 @@ function calculateOptimalRoute(emp, targetLat, targetLng) {
             bestWalkToCar = walkToCar;
         }
     }
-
     return {
-        totalTime: round1(bestTotalTime), walkTime: round1(walkTime),
-        bestCar: bestCar, bestCarTime: round1(bestCarTime), walkToCar: round1(bestWalkToCar),
+        totalTime: round1(bestTotalTime),
+        walkTime: round1(walkTime),
+        bestCar: bestCar,
+        bestCarTime: round1(bestCarTime),
+        walkToCar: round1(bestWalkToCar),
+        bestCarTimeExact: bestCarTime,
+        walkToCarExact: bestWalkToCar,
         usingCar: bestCar !== null && bestTotalTime < walkTime,
-        from: { lat: emp.lat, lng: emp.lng }, to: { lat: targetLat, lng: targetLng },
+        from: { lat: emp.lat, lng: emp.lng },
+        to: { lat: targetLat, lng: targetLng },
         empId: emp.realId
     };
 }
@@ -2623,19 +3220,107 @@ function fetchExactPath(routeData) {
     });
 }
 
-function updateRouteForEngineer(engineerId) {
+function updateRouteForEngineer(engineerId, force) {
     var emp = null;
-    for (var i = 0; i < state.employees.length; i++) if (state.employees[i].realId === engineerId) { emp = state.employees[i]; break; }
+    for (var i = 0; i < state.employees.length; i++) if (String(state.employees[i].realId) === String(engineerId)) { emp = state.employees[i]; break; }
     if (!emp) return;
 
     var activeRequest = null;
     for (var i2 = 0; i2 < state.activeRequests.length; i2++) {
-        if (state.activeRequests[i2].engineerId === engineerId) { activeRequest = state.activeRequests[i2]; break; }
+        if (String(state.activeRequests[i2].engineerId) === String(engineerId)) { activeRequest = state.activeRequests[i2]; break; }
     }
 
     var routeKey = 'route_' + engineerId;
     if (!activeRequest) { clearRouteForEngineer(engineerId); return; }
+    if (activeRequest.engineerStatus !== 'busy') { clearRouteForEngineer(engineerId); return; }
+    if (['completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted'].indexOf(activeRequest.status) !== -1) { clearRouteForEngineer(engineerId); return; }
+    if (['pending', 'accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(activeRequest.engineerTaskStep) === -1) {
+        clearRouteForEngineer(engineerId);
+        return;
+    }
 
+    // Если маршрут уже зафиксирован и НЕ пришло указание пересчитать (force)
+    // — берём ROUTE: из engineer_comment и только рисуем.
+    if (!force) {
+        var ticket = null;
+        for (var it = 0; it < state.tickets.length; it++) {
+            if (String(state.tickets[it].id) === String(activeRequest.id)) { ticket = state.tickets[it]; break; }
+        }
+        if (ticket) {
+            var serverRoute = parseRouteFromComment(ticket.engineer_comment || '');
+            if (serverRoute && serverRoute.from && serverRoute.to && serverRoute.totalTime >= 0) {
+                if (!state.routeData[routeKey] ||
+                    state.routeData[routeKey].requestId !== activeRequest.id ||
+                    Number(state.routeData[routeKey].totalTime) !== Number(serverRoute.totalTime)) {
+                    state.routeData[routeKey] = {
+                        from: serverRoute.from,
+                        to: serverRoute.to,
+                        empId: engineerId,
+                        requestId: activeRequest.id,
+                        parkingId: serverRoute.parkingId || activeRequest.parking,
+                        totalTime: Number(serverRoute.totalTime) || Number(activeRequest.time) || 0,
+                        walkTime: Number(serverRoute.totalTime) || Number(activeRequest.time) || 0,
+                        bestCar: serverRoute.bestCar,
+                        bestCarTime: serverRoute.bestCarTime,
+                        walkToCar: serverRoute.walkToCar,
+                        bestCarTimeExact: serverRoute.bestCarTimeExact,
+                        walkToCarExact: serverRoute.walkToCarExact,
+                        usingCar: serverRoute.usingCar,
+                        path: serverRoute.path || null
+                    };
+                    activeRequest.time = Number(serverRoute.totalTime) || Number(activeRequest.time) || 0;
+                    saveStateToLocalStorage();
+                }
+                // routeData may already be cached while its Leaflet layer was recreated.
+                // Draw unconditionally so the dispatcher always sees the route.
+                drawRoute(state.routeData[routeKey]);
+                return;
+            }
+        }
+    }
+
+    // Если ROUTE: ещё не попал в общий polling-ответ, запрашиваем маршрут
+    // напрямую у backend. Это закрывает гонку между принятием задания и
+    // обновлением диспетчерской карты. Повторный запрос не запускается,
+    // пока предыдущий не завершён.
+    if (!state.routeFetchPending[activeRequest.id]) {
+        state.routeFetchPending[activeRequest.id] = true;
+        fetch(API_URL + '/dispatcher/requests/' + encodeURIComponent(activeRequest.id) + '/route')
+            .then(function(res) { return res.json().then(function(data) { return {ok: res.ok, data: data}; }); })
+            .then(function(result) {
+                var payload = result.data || {};
+                if (!result.ok || !payload.success || !payload.route) return;
+                var r = payload.route;
+                var serverData = {
+                    from: {lat: Number(r.flat), lng: Number(r.flng)},
+                    to: {lat: Number(r.tlat), lng: Number(r.tlng)},
+                    empId: engineerId,
+                    requestId: activeRequest.id,
+                    parkingId: r.pid || activeRequest.parking,
+                    totalTime: Number(r.tt) || 0,
+                    walkTime: Number(r.tt) || 0,
+                    bestCar: r.bc ? {deviceId: r.bc, lat: r.bclat, lng: r.bclng} : null,
+                    bestCarTime: Number(r.ct) || 0,
+                    walkToCar: Number(r.wc) || 0,
+                    bestCarTimeExact: r.ct_exact != null ? Number(r.ct_exact) : null,
+                    walkToCarExact: r.wc_exact != null ? Number(r.wc_exact) : null,
+                    usingCar: r.uc === true || r.uc === 1,
+                    path: Array.isArray(r.path) ? r.path : null
+                };
+                if (isFinite(serverData.from.lat) && isFinite(serverData.from.lng) &&
+                    isFinite(serverData.to.lat) && isFinite(serverData.to.lng)) {
+                    state.routeData[routeKey] = serverData;
+                    drawRoute(serverData);
+                    saveStateToLocalStorage();
+                    activeRequest.time = serverData.totalTime;
+                    updateActiveRequests();
+                }
+            })
+            .catch(function(err) { console.warn('[ROUTE] Не удалось получить маршрут с сервера:', err); })
+            .then(function() { delete state.routeFetchPending[activeRequest.id]; });
+    }
+
+    // Пересчитываем (force=true или маршрута ещё нет)
     var parkingCoords = CONFIG.MAP_POINTS[activeRequest.parking];
     if (!parkingCoords) return;
 
@@ -2644,11 +3329,15 @@ function updateRouteForEngineer(engineerId) {
         from: { lat: emp.lat, lng: emp.lng },
         to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
         empId: engineerId,
+        requestId: activeRequest.id,
+        parkingId: activeRequest.parking,
         totalTime: route.totalTime,
         walkTime: route.walkTime,
         bestCar: route.bestCar,
         bestCarTime: route.bestCarTime,
         walkToCar: route.walkToCar,
+        bestCarTimeExact: route.bestCarTimeExact,
+        walkToCarExact: route.walkToCarExact,
         usingCar: route.usingCar,
         path: null
     };
@@ -2662,10 +3351,14 @@ function updateRouteForEngineer(engineerId) {
             state.routeData[routeKey] = routeData;
             drawRoute(routeData);
         }
+        persistRouteToServer(activeRequest.id, routeData);
     });
 
     for (var i3 = 0; i3 < state.activeRequests.length; i3++) {
-        if (state.activeRequests[i3].engineerId === engineerId) { state.activeRequests[i3].time = route.totalTime; break; }
+        if (state.activeRequests[i3].engineerId === engineerId) {
+            state.activeRequests[i3].time = route.totalTime;
+            break;
+        }
     }
     updateActiveRequests();
 }
@@ -2694,7 +3387,11 @@ function drawRoute(route) {
 
     var labelText;
     if (route.usingCar && route.bestCar) {
-        labelText = route.walkToCar + ' мин пешком → ' + route.bestCarTime + ' мин на машине = ' + route.totalTime + ' мин';
+        // Сумму считаем из точных слагаемых, чтобы не было 6.6 + 1.7 = 10.8
+        var wExact = (route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar;
+        var cExact = (route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime;
+        var sum = round1(wExact + cExact);
+        labelText = round1(wExact) + ' мин пешком → ' + round1(cExact) + ' мин на машине = ' + sum + ' мин';
     } else {
         labelText = route.totalTime + ' мин пешком';
     }
@@ -2811,41 +3508,72 @@ function enableDragging(marker, id, type) {
     });
 }
 
+var _allParkingsCache = null;  // кэш списка стоянок из /api/parking
+
 function updateParkingList() {
-    var terminal = document.getElementById('terminalSelect').value;
     var parkingSelect = document.getElementById('parkingSelect');
-    var parkings = CONFIG.PARKING_BY_TERMINAL[terminal] || [];
+    if (!parkingSelect) return;
+
+    // Если кэш пуст — грузим с сервера
+    if (!_allParkingsCache) {
+        fetch(API_URL + '/parking')
+            .then(function(r) { return r.json(); })
+            .then(function(list) {
+                _allParkingsCache = Array.isArray(list) ? list : [];
+                _fillParkingSelect(_allParkingsCache);
+            })
+            .catch(function(err) {
+                console.error('[PARKING] load failed', err);
+                parkingSelect.innerHTML = '<option value="">— нет данных —</option>';
+            });
+        return;
+    }
+    _fillParkingSelect(_allParkingsCache);
+}
+
+function _fillParkingSelect(list) {
+    var parkingSelect = document.getElementById('parkingSelect');
+    if (!parkingSelect) return;
+    var current = parkingSelect.value;
     parkingSelect.innerHTML = '';
-    for (var i = 0; i < parkings.length; i++) {
+    // Сортируем: числовые ref по возрастанию, затем буквенные
+    var sorted = list.slice().sort(function(a, b) {
+        var na = parseInt(a.ref, 10), nb = parseInt(b.ref, 10);
+        var aNum = !isNaN(na), bNum = !isNaN(nb);
+        if (aNum && bNum) return na - nb || String(a.ref).localeCompare(String(b.ref));
+        if (aNum) return -1;
+        if (bNum) return 1;
+        return String(a.ref).localeCompare(String(b.ref));
+    });
+    for (var i = 0; i < sorted.length; i++) {
+        var p = sorted[i];
+        if (!p.ref) continue;
         var option = document.createElement('option');
-        option.value = parkings[i];
-        option.textContent = 'Выход ' + parkings[i];
+        option.value = p.ref;
+        option.textContent = 'Стоянка ' + p.ref;
+        if (String(current) === String(p.ref)) option.selected = true;
         parkingSelect.appendChild(option);
+    }
+    if (!parkingSelect.options.length) {
+        parkingSelect.innerHTML = '<option value="">— нет стоянок —</option>';
     }
 }
 
-function showNotification(engineer, route, flightNumber) {
+function showNotification(engineer, flightNumber) {
     var container = document.getElementById('notificationContainer');
-    var routeInfo = '';
-    if (route && route.usingCar && route.bestCar) {
-        routeInfo = route.walkToCar + ' мин пешком до ' + route.bestCar.deviceId + ' + ' + route.bestCarTime + ' мин на машине';
-    } else {
-        routeInfo = 'Пешком: ' + (route ? route.totalTime : 0) + ' мин';
-    }
     container.innerHTML = '<div class="notification">' +
         '<div class="notif-icon"><i class="fas fa-circle-check"></i></div>' +
         '<div class="notif-content">' +
         '<div class="notif-title">Инженер назначен</div>' +
-        '<div class="notif-text">' + engineer.name + ' → рейс ' + flightNumber + ' • ' + routeInfo + '</div>' +
+        '<div class="notif-text">' + engineer.name + ' → рейс ' + flightNumber + ' • ожидает принятия инженером</div>' +
         '</div>' +
-        '<div class="notif-time">' + (route ? route.totalTime : 0) + ' мин</div>' +
+        '<div class="notif-time">Ожидание</div>' +
         '</div>';
     setTimeout(function() { container.innerHTML = ''; }, 8000);
 }
 
 function createRequest(e) {
     e.preventDefault();
-    var terminal = document.getElementById('terminalSelect').value;
     var parking = document.getElementById('parkingSelect').value;
     var fault = document.getElementById('faultType').value;
     var severity = document.getElementById('faultSeverity').value;
@@ -2869,7 +3597,7 @@ function createRequest(e) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             aircraft: flightNumber, fault_type: fault, severity: severity,
-            terminal: terminal, parking_id: parking
+            parking_id: parking
         })
     })
     .then(function(res) { return res.json(); })
@@ -2882,64 +3610,17 @@ function createRequest(e) {
 
         var engineer = result.selected.engineer;
         var engineerId = engineer.id;
-        var requestId = result.request_id || result.requestId || result.id || null;
-
         for (var i = 0; i < state.employees.length; i++) {
             if (state.employees[i].realId === engineerId) {
                 state.employees[i].busy = true;
                 state.employees[i].status = 'busy';
                 state.employees[i].task = 'ВС ' + flightNumber;
+                state.employees[i].taskStep = 'pending';
                 break;
             }
         }
-
-        var routeData = {
-            from: { lat: engineer.coords_lat || 55.975, lng: engineer.coords_lng || 37.410 },
-            to: { lat: parkingCoords.lat, lng: parkingCoords.lng },
-            empId: engineerId,
-            totalTime: result.selected.travel_time || 0,
-            walkTime: result.selected.walk_time || 0,
-            bestCar: result.selected.best_car_obj || null,
-            bestCarTime: result.selected.car_time || 0,
-            walkToCar: result.selected.walk_to_car || 0,
-            usingCar: result.selected.using_car || false,
-            path: result.selected.path || null
-        };
-
-        state.routeData['route_' + engineerId] = routeData;
-        drawRoute(routeData);
-        showNotification(engineer, routeData, flightNumber);
-
-        if (!routeData.path) {
-            fetchExactPath(routeData).then(function(path) {
-                if (path && path.length > 0) {
-                    routeData.path = path;
-                    state.routeData['route_' + engineerId] = routeData;
-                    drawRoute(routeData);
-                }
-            });
-        }
-
-        if (requestId) {
-            var routeJSON = JSON.stringify({
-                tt: routeData.totalTime, uc: routeData.usingCar,
-                wc: routeData.walkToCar, ct: routeData.bestCarTime,
-                bc: routeData.bestCar ? routeData.bestCar.deviceId : null,
-                bclat: routeData.bestCar ? routeData.bestCar.lat : null,
-                bclng: routeData.bestCar ? routeData.bestCar.lng : null,
-                flat: routeData.from.lat, flng: routeData.from.lng,
-                tlat: routeData.to.lat, tlng: routeData.to.lng, pid: parking
-            });
-            fetch(API_URL + '/requests/' + requestId, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    status: 'assigned',
-                    criticality: severity === 'high' ? 'high' : (severity === 'low' ? 'low' : 'medium'),
-                    engineer_comment: 'ROUTE:' + routeJSON
-                })
-            }).catch(function(err) { console.warn('Не удалось сохранить маршрут:', err); });
-        }
-
+        clearRouteForEngineer(engineerId);
+        showNotification(engineer, flightNumber);
         loadRequestsOnly();
         setTimeout(function() { renderAll(); updateStats(); saveStateToLocalStorage(); }, 500);
         document.getElementById('flightNumber').value = '';
@@ -2977,10 +3658,106 @@ function clearAllRequests() {
         .catch(function() { showToast('Ошибка соединения', 'error'); });
 }
 
+function deleteDispatcherRequest(id) {
+    // Находим заявку в локальном кэше
+    var req = null;
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        if (state.activeRequests[i].id === id) { req = state.activeRequests[i]; break; }
+    }
+
+    var msg = 'Удалить заявку?';
+    if (req) {
+        msg += '\n\nБорт: ' + (req.aircraft || '—') +
+               '\nДефект: ' + (req.fault || '—') +
+               '\nСтоянка: ' + (req.parking || '—') +
+               (req.engineer && req.engineer !== '—' ? '\nИнженер: ' + req.engineer : '');
+    }
+    msg += '\n\nДействие необратимо. Инженер будет освобождён, заявка удалена из БД.';
+
+    if (!confirm(msg)) return;
+
+    fetch(API_URL + '/requests/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Заявка удалена', 'success');
+
+                // Убираем маршрут с карты и из state.routeData
+                if (req && req.engineerId) {
+                    clearRouteForEngineer(req.engineerId);
+                }
+                // На всякий случай чистим по requestId все записи routeData,
+                // если инженер в кэше не нашёлся
+                for (var rk in state.routeData) {
+                    if (state.routeData.hasOwnProperty(rk) && state.routeData[rk].requestId === id) {
+                        var empId = state.routeData[rk].empId;
+                        if (empId) clearRouteForEngineer(empId);
+                        else {
+                            if (state.mapMarkers[rk]) { try { map.removeLayer(state.mapMarkers[rk]); } catch(e) {} delete state.mapMarkers[rk]; }
+                            if (state.mapMarkers[rk + '_label']) { try { map.removeLayer(state.mapMarkers[rk + '_label']); } catch(e) {} delete state.mapMarkers[rk + '_label']; }
+                            delete state.routeData[rk];
+                        }
+                    }
+                }
+                saveStateToLocalStorage();
+
+                // Перезагружаем данные
+                loadRequestsOnly();
+                setTimeout(function() {
+                    renderMapMarkers();
+                    updateStats();
+                }, 300);
+            } else {
+                showToast('Ошибка: ' + (res.error || ''), 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('Ошибка: ' + err.message, 'error');
+        });
+}
+window.deleteDispatcherRequest = deleteDispatcherRequest;
+var dispatcherReportRelayBusy = false;
+
+// Отчёт сначала фиксируется на этапе диспетчера, затем автоматически
+// подтверждается и передаётся в ЦПУ. Отдельная ручная очередь не нужна.
+function relayDispatcherReportsToCpu() {
+    if (dispatcherReportRelayBusy) return;
+    dispatcherReportRelayBusy = true;
+    fetch(API_URL + '/dispatcher/report_queue')
+        .then(function(r) { if (!r.ok) throw new Error('Не удалось получить отчёты'); return r.json(); })
+        .then(function(reports) {
+            reports = Array.isArray(reports) ? reports : [];
+            if (!reports.length) return false;
+            return reports.reduce(function(chain, report) {
+                return chain.then(function() {
+                    return fetch(API_URL + '/dispatcher/forward_report_to_cpu', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({
+                            request_id: report.id,
+                            comment: 'Отчёт инженера получен диспетчером и автоматически передан в ЦПУ.'
+                        })
+                    }).then(function(r) {
+                        return r.json().then(function(data) {
+                            if (!r.ok || !data.success) throw new Error(data.error || 'Передача отчёта не выполнена');
+                            return true;
+                        });
+                    });
+                });
+            }, Promise.resolve(false));
+        })
+        .then(function(forwarded) {
+            if (forwarded) loadRequestsOnly();
+        })
+        .catch(function(err) { console.warn('[Dispatcher report relay]', err); })
+        .finally(function() { dispatcherReportRelayBusy = false; });
+}
+
 function updateActiveRequests() {
     var list = document.getElementById('activeRequests');
     var badge = document.getElementById('activeBadge');
 
+    if (!list || !badge) return;
     if (state.activeRequests.length === 0) {
         list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Нет активных заявок</p></div>';
         badge.textContent = '0';
@@ -2993,31 +3770,31 @@ function updateActiveRequests() {
         var critIcon = req.criticality === 'high' ? '<i class="fas fa-circle" style="color:#dc2626;font-size:8px;"></i>' :
                        req.criticality === 'medium' ? '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i>' :
                        '<i class="fas fa-circle" style="color:#16a34a;font-size:8px;"></i>';
-        var st = effectiveFlightStatus(req);
-        var statusText = st.label;
-        var statusColor = st.code === 'aog' ? 'var(--aero-red)' :
-                          st.code === 'deferred' ? '#c2410c' :
-                          st.code === 'completed' ? 'var(--aero-green)' : 'var(--aero-orange)';
-
-        var routeInfo = '';
         var routeKey = 'route_' + req.engineerId;
-        if (state.routeData[routeKey]) {
-            var route = state.routeData[routeKey];
-            if (route.usingCar && route.bestCar) routeInfo = route.walkToCar + ' + ' + route.bestCarTime + ' мин';
-            else routeInfo = route.totalTime + ' мин';
+        var route = state.routeData[routeKey] || null;
+        var empForReq = null;
+        for (var ie0 = 0; ie0 < state.employees.length; ie0++) {
+            if (state.employees[ie0].realId === req.engineerId) { empForReq = state.employees[ie0]; break; }
         }
 
+        // В активной карточке показываем только факт назначения.
+        // Длительность маршрута отображается на карте рядом с линией маршрута.
+        var statusText = req.engineerId ? 'Назначен' : 'Автоподбор инженера';
+        var statusColor = req.engineerId ? 'var(--aero-blue)' : 'var(--aero-orange)';
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
         var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
+        var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : req.engineer);
 
         html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
             '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
             '<div class="req-detail">' + req.fault + ' • Стоянка ' + req.parking + '</div>' +
             '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
-            '<div style="font-weight:600;font-size:13px;">' + req.engineer + '</div>' +
-            '<div class="req-status" style="color:' + statusColor + ';">' + statusText + ' • ' + req.time + ' мин</div>' +
-            '<div style="font-size:10px;color:var(--aero-gray);margin-top:2px;">' + routeInfo + '</div>' +
+            '<div style="font-weight:600;font-size:13px;">' + assignedEngineerText + '</div>' +
+            '<div class="req-status" style="color:' + statusColor + ';">' + statusText + '</div>' +
+            '</div>' +
+            '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
             '</div></div>';
     }
     list.innerHTML = html;
@@ -3090,7 +3867,6 @@ function openRequestModal(ticketId) {
         '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
         '<option value="arriving" ' + (ticket.status === 'arriving' ? 'selected' : '') + '>В пути</option>' +
         '<option value="in_progress" ' + (ticket.status === 'in_progress' ? 'selected' : '') + '>В работе</option>' +
-        '<option value="completed" ' + (ticket.status === 'completed' ? 'selected' : '') + '>Завершён</option>' +
         '</select></div>' +
         '<div class="form-group"><label>Критичность</label><select id="criticalitySelect">' +
         '<option value="low" ' + (ticket.criticality === 'low' ? 'selected' : '') + '>Низкая</option>' +
@@ -3349,7 +4125,7 @@ function applyFlightsFilters() {
         var f = state.flights[i];
         if (statusFilter) {
             if (statusFilter === 'all_rejected') { if (!f.allRejected) continue; }
-            else if (effectiveFlightStatus(f).code !== statusFilter) continue;
+            else if (f.status !== statusFilter) continue;
         }
         if (search) {
             var hay = ((f.aircraft || '') + ' ' + (f.faultName || '') + ' ' + (f.parking || '') + ' ' + (f.engineer || '')).toLowerCase();
@@ -3359,66 +4135,32 @@ function applyFlightsFilters() {
     }
     return filtered;
 }
-function effectiveFlightStatus(f) {
-    var status = String(f.status || 'assigned').toLowerCase();
-    var mcc = String(f.mccStatus || '').toUpperCase();
-    var verdict = String(f.engineerVerdict || '').toUpperCase();
-    var stage = String(f.chainStage || '');
-
-    if (f.allRejected) return {code: 'all_rejected', label: 'Все отказались', cls: 'queued-all-rejected'};
-    if (status === 'cancelled') return {code: 'cancelled', label: 'Отменён', cls: 'cancelled'};
-    if (status === 'completed' || status === 'repaired' || mcc === 'REPAIRED') {
-        return {code: 'completed', label: 'Исправлено', cls: 'completed'};
-    }
-    if (status === 'aog_waiting' || mcc === 'AOG_CONFIRMED' || f.aogSince) {
-        return {code: 'aog', label: 'AOG — лететь нельзя', cls: 'aog'};
-    }
-    if (status === 'deferred' || mcc === 'MEL') {
-        return {code: 'deferred', label: 'MEL — отложено', cls: 'deferred'};
-    }
-    if (verdict === 'AOG') return {code: 'aog', label: 'Инженер: AOG', cls: 'aog'};
-    if (verdict === 'REPAIR') return {code: 'repair', label: 'Ремонт', cls: 'repair'};
-    if (verdict === 'MEL') return {code: 'deferred', label: 'MEL (инженер)', cls: 'deferred'};
-    if (status === 'inspection' || stage === 'tech') {
-        return {code: 'inspection', label: 'Осмотр', cls: 'inspection'};
-    }
-    if (status === 'queued') return {code: 'queued', label: 'В очереди', cls: 'queued'};
-    if (status === 'assigned') return {code: 'assigned', label: 'Назначен', cls: 'assigned'};
-    if (status === 'new') {
-        if (stage === 'cpu') return {code: 'new', label: 'В ЦПУ', cls: 'new'};
-        if (stage === 'shift') return {code: 'new', label: 'У нач. смены', cls: 'new'};
-        if (stage === 'foreman') return {code: 'new', label: 'У бригадира', cls: 'new'};
-        return {code: 'new', label: 'Новая', cls: 'new'};
-    }
-    return {code: status, label: status, cls: 'assigned'};
-}
-
 function getFlightRowClass(f) {
-    var st = effectiveFlightStatus(f);
     if (f.allRejected) return 'row-all-rejected';
-    if (st.code === 'aog') return 'row-aog';
-    if (st.code === 'deferred') return 'row-deferred';
-    if (st.code === 'completed') return 'row-completed';
-    if (st.code === 'cancelled') return 'row-cancelled';
-    if (st.code === 'queued' && f.delayElapsedMin > 0) {
+    if (f.status === 'completed') return 'row-completed';
+    if (f.status === 'cancelled') return 'row-cancelled';
+    if (f.status === 'queued' && f.delayElapsedMin > 0) {
         var cls = delayClass(f.delayElapsedMin);
         if (cls === 'short') return 'row-delay-short';
         if (cls === 'medium') return 'row-delay-medium';
         return 'row-delay-critical';
     }
-    if (st.code === 'queued') return 'row-queued';
+    if (f.status === 'queued') return 'row-queued';
     return '';
 }
 function getFlightStatusHtml(f) {
-    var st = effectiveFlightStatus(f);
-    if (st.code === 'queued') {
+    if (f.status === 'completed') return '<span class="flight-status completed">Выполнен</span>';
+    if (f.status === 'cancelled') return '<span class="flight-status cancelled">Отменён</span>';
+    if (f.status === 'queued') {
         if (f.allRejected) return '<span class="flight-status queued-all-rejected">Все отказались</span>';
         var cls = delayClass(f.delayElapsedMin);
         if (cls === 'short') return '<span class="flight-status queued-short">Задержка &lt; 1 ч</span>';
         if (cls === 'medium') return '<span class="flight-status queued-medium">Задержка 1–4 ч</span>';
         return '<span class="flight-status queued-critical">КРИТИЧЕСКАЯ</span>';
     }
-    return '<span class="flight-status ' + st.cls + '">' + escapeHtml(st.label) + '</span>';
+    if (f.status === 'assigned') return '<span class="flight-status assigned">Назначен</span>';
+    if (f.status === 'new') return '<span class="flight-status new">Новая</span>';
+    return '<span class="flight-status assigned">' + escapeHtml(f.status) + '</span>';
 }
 function getFlightTimeHtml(f) {
     if (f.status === 'queued' && f.delayElapsedMin > 0) {
@@ -3431,20 +4173,17 @@ function getFlightTimeHtml(f) {
 function renderFlights() {
     var tbody = document.getElementById('flightsTableBody');
     if (!tbody) return;
-    var total = state.flights.length, delayed = 0, completed = 0, allRejected = 0, aog = 0;
+    var total = state.flights.length, delayed = 0, completed = 0, allRejected = 0;
     for (var i = 0; i < state.flights.length; i++) {
         var f = state.flights[i];
-        var st = effectiveFlightStatus(f);
         if (f.allRejected) allRejected++;
-        else if (st.code === 'queued' && f.delayElapsedMin > 0) delayed++;
-        else if (st.code === 'completed') completed++;
-        if (st.code === 'aog') aog++;
+        else if (f.status === 'queued' && f.delayElapsedMin > 0) delayed++;
+        else if (f.status === 'completed') completed++;
     }
     if (document.getElementById('flightsTotal')) document.getElementById('flightsTotal').textContent = total;
     if (document.getElementById('flightsDelayed')) document.getElementById('flightsDelayed').textContent = delayed;
     if (document.getElementById('flightsCompleted')) document.getElementById('flightsCompleted').textContent = completed;
     if (document.getElementById('flightsAllRejected')) document.getElementById('flightsAllRejected').textContent = allRejected;
-    if (document.getElementById('flightsAOG')) document.getElementById('flightsAOG').textContent = aog;
 
     var filtered = applyFlightsFilters();
     if (filtered.length === 0) {
@@ -3530,7 +4269,7 @@ function applyReportsFilters() {
     for (var i = 0; i < state.reports.length; i++) {
         var r = state.reports[i];
         if (search) {
-            var hs = ((r.aircraft || '') + ' ' + (r.engineer || '') + ' ' + (r.faultName || '') + ' ' + (r.parkingId || '') + ' ' + (r.findings || '') + ' ' + (r.actions || '') + ' ' + (r.comment || '') + ' ' + (r.conditionLabel || '') + ' ' + (r.categoryLabel || '')).toLowerCase();
+            var hs = ((r.aircraft || '') + ' ' + (r.engineer || '') + ' ' + (r.faultName || '') + ' ' + (r.parkingId || '') + ' ' + (r.findings || '') + ' ' + (r.actions || '') + ' ' + (r.comment || '') + ' ' + (r.melRef || '') + ' ' + (r.melAta || '') + ' ' + (r.melCategory || '') + ' ' + (r.melRevision || '') + ' ' + (r.melIntervalLimit || '') + ' ' + (r.conditionLabel || '') + ' ' + (r.categoryLabel || '')).toLowerCase();
             if (hs.indexOf(search) === -1) continue;
         }
         if (engFilter && r.engineer !== engFilter) continue;
@@ -3635,7 +4374,14 @@ function openReportModal(reportId) {
         (r.findings ? '<div class="report-detail-section"><h4><i class="fas fa-search"></i> Обнаружено</h4><div class="detail-content">' + escapeHtml(r.findings) + '</div></div>' : '') +
         (r.actions ? '<div class="report-detail-section"><h4><i class="fas fa-tools"></i> Работы</h4><div class="detail-content">' + escapeHtml(r.actions) + '</div></div>' : '') +
         (r.materials ? '<div class="report-detail-section"><h4><i class="fas fa-box"></i> Материалы</h4><div class="detail-content">' + escapeHtml(r.materials) + '</div></div>' : '') +
+        '<div class="report-detail-section"><h4><i class="fas fa-cubes"></i> Нужны детали</h4><div class="detail-content">' + (r.needParts ? 'Да' : 'Нет') + '</div></div>' +
         (r.comment ? '<div class="report-detail-section"><h4><i class="fas fa-comment"></i> Комментарий</h4><div class="detail-content">' + escapeHtml(r.comment) + '</div></div>' : '') +
+        (r.melRef || r.melAta || r.melCategory || r.melRevision || r.melIntervalLimit ? '<div class="report-detail-section" style="background:#fffbeb;border:1px solid #f2d28a;border-radius:12px;"><h4><i class="fas fa-book-open"></i> Техническая оценка MEL</h4><div class="report-detail-grid">' +
+          '<div class="report-detail-item"><div class="label">Пункт MEL</div><div class="value">' + escapeHtml(r.melRef || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">ATA</div><div class="value">' + escapeHtml(r.melAta || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">Категория MEL</div><div class="value">' + escapeHtml(r.melCategory || '—') + '</div></div>' +
+          '<div class="report-detail-item"><div class="label">Редакция MEL</div><div class="value">' + escapeHtml(r.melRevision || '—') + '</div></div>' +
+          '<div class="report-detail-item" style="grid-column:1/-1;"><div class="label">Интервал / лимит</div><div class="value">' + escapeHtml(r.melIntervalLimit || '—') + '</div></div></div></div>' : '') +
         '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeReportModal()">Закрыть</button></div>';
     document.getElementById('reportModalContent').innerHTML = html;
     document.getElementById('reportModal').classList.add('show');
@@ -3656,7 +4402,7 @@ function moveToClick(id, type) {
                         body: JSON.stringify({ lat: lat, lng: lng })
                     }).then(function() {
                         state.isUpdating = false;
-                        renderMapMarkers(); updateRouteForEngineer(id); saveStateToLocalStorage();
+                        renderMapMarkers(); updateRouteForEngineer(id, true); saveStateToLocalStorage();
                     });
                     break;
                 }
@@ -3872,22 +4618,26 @@ function renderPilotRequests() {
             '<option value="electrical"' + (currentFault === 'electrical' ? ' selected' : '') + '>Электрика</option>' +
             '</optgroup>';
 
-        var terminalOptions = '<option value="">— выберите —</option>';
-        ['B','C','D','E','F'].forEach(function(t) {
-            terminalOptions += '<option value="' + t + '"' + (currentTerminal === t ? ' selected' : '') + '>' + t + '</option>';
-        });
-        var parkings = [];
-        if (currentTerminal && CONFIG.PARKING_BY_TERMINAL[currentTerminal]) parkings = CONFIG.PARKING_BY_TERMINAL[currentTerminal];
         var parkingOptions = '<option value="">— выберите —</option>';
-        for (var pi = 0; pi < parkings.length; pi++) {
-            parkingOptions += '<option value="' + parkings[pi] + '"' + (currentParking === String(parkings[pi]) ? ' selected' : '') + '>' + parkings[pi] + '</option>';
+        var allP = _allParkingsCache || [];
+        var sortedP = allP.slice().sort(function(a, b) {
+            var na = parseInt(a.ref, 10), nb = parseInt(b.ref, 10);
+            var aNum = !isNaN(na), bNum = !isNaN(nb);
+            if (aNum && bNum) return na - nb || String(a.ref).localeCompare(String(b.ref));
+            if (aNum) return -1;
+            if (bNum) return 1;
+            return String(a.ref).localeCompare(String(b.ref));
+        });
+        for (var pi = 0; pi < sortedP.length; pi++) {
+            var pref = sortedP[pi].ref;
+            if (!pref) continue;
+            parkingOptions += '<option value="' + pref + '"' + (currentParking === String(pref) ? ' selected' : '') + '>' + pref + '</option>';
         }
 
         var formBlock = '<div class="pilot-details-section"><h4><i class="fas fa-clipboard-list"></i> Параметры заявки</h4>' +
-            '<div class="pilot-params-grid">' +
+            '<div class="pilot-params-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">' +
             '<div class="pilot-param"><label>Судно (борт)</label><input type="text" class="pilot-input" id="pAircraft_' + escapeHtml(r.id) + '" value="' + escapeHtml(currentAircraft) + '" placeholder="SU-1234"></div>' +
             '<div class="pilot-param"><label>Тип поломки</label><select class="pilot-input" id="pFault_' + escapeHtml(r.id) + '">' + faultOptions + '</select></div>' +
-            '<div class="pilot-param"><label>Терминал</label><select class="pilot-input" id="pTerminal_' + escapeHtml(r.id) + '" onchange="onPilotTerminalChange(\'' + escapeHtml(r.id) + '\')">' + terminalOptions + '</select></div>' +
             '<div class="pilot-param"><label>Стоянка</label><select class="pilot-input" id="pParking_' + escapeHtml(r.id) + '">' + parkingOptions + '</select></div>' +
             '<div class="pilot-param-actions"><button class="btn btn-success btn-sm" onclick="savePilotParams(\'' + escapeHtml(r.id) + '\')"><i class="fas fa-save"></i> Сохранить</button></div>' +
             '</div></div>';
@@ -3928,20 +4678,14 @@ function clearAllPilotRequests() {
     showToast('Все заявки КВС удалены', 'success');
 }
 function exportPilotRequests() {
-    if (state.pilotRequests.length === 0) { showToast('Нет данных для экспорта', 'info'); return; }
     try {
-        var exportData = state.pilotRequests.map(function(r) {
-            return { id: r.id, requestId: r.requestId, pilotName: r.pilotName, pilotRank: r.pilotRank, aircraft: r.aircraft, faultType: r.faultType, terminal: r.terminal, parkingId: r.parkingId, duration: r.duration, sentAt: r.sentAt, status: r.status, audioText: r.audioText || '', hasAudio: !!r.audioBase64 };
-        });
-        var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'pilot_requests_' + new Date().toISOString().slice(0,10) + '.json';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Экспорт готов', 'success');
-    } catch(e) { console.error(e); showToast('Не удалось экспортировать', 'error'); }
+        // Сервер формирует единый Excel из текущих заявок, архива, журналов и отчётов.
+        window.location.href = API_URL + '/reports/export.xlsx';
+        showToast('Подготовка Excel-выгрузки…', 'info');
+    } catch(e) {
+        console.error(e);
+        showToast('Не удалось подготовить Excel-выгрузку', 'error');
+    }
 }
 
 function updateCancelledBadge() {
@@ -4039,8 +4783,9 @@ function clearAllCancelled() {
 function logout() {
     if (state.loadInterval) clearInterval(state.loadInterval);
     if (state.coordsInterval) clearInterval(state.coordsInterval);
+    if (workflowQueueInterval) clearInterval(workflowQueueInterval);
     saveStateToLocalStorage();
-    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
+    sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
 }
 

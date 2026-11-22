@@ -31,13 +31,7 @@
         .sidebar-brand .brand-text .brand-avia { color: #D52B1E; font-weight: 800; }
 
         .sidebar-user { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 14px; }
-        .sidebar-user .avatar {
-            width: 44px; height: 44px; border-radius: 50%;
-            background: rgba(201, 168, 76, 0.15);
-            border: 2px solid rgba(201, 168, 76, 0.4);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 18px; color: #c9a84c; flex-shrink: 0;
-        }
+        .sidebar-user .avatar { width: 44px; height: 44px; border-radius: 50%; background: rgba(201, 168, 76, 0.15); border: 2px solid rgba(201, 168, 76, 0.4); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #c9a84c; flex-shrink: 0; }
         .sidebar-user .user-info { flex: 1; min-width: 0; }
         .sidebar-user .user-info .name { font-size: 13px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sidebar-user .user-info .role { font-size: 11px; color: #8899aa; margin-top: 2px; }
@@ -105,8 +99,6 @@
 
         .data-input { width: 100%; padding: 8px 10px; border: 1px solid var(--aero-gray-light); border-radius: 6px; font-family: inherit; font-size: 13px; background: #fff; }
         .data-input:focus { outline: none; border-color: var(--aero-blue); }
-        .data-textarea { min-height: 60px; resize: vertical; }
-        select.data-input { cursor: pointer; }
         .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
         .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
 
@@ -152,8 +144,8 @@
         .defect-card .defect-num { font-size: 12px; font-weight: 700; color: var(--aero-blue); text-transform: uppercase; letter-spacing: 0.3px; }
         .defect-card .btn-remove-defect { width: 26px; height: 26px; border-radius: 50%; border: none; background: var(--aero-blue-pale); color: var(--aero-blue); cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; font-family: inherit; transition: background 0.15s; }
         .defect-card .btn-remove-defect:hover { background: var(--aero-blue); color: white; }
-        .defect-card .defect-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 10px; }
-        .defect-card .defect-desc-wrap { margin-top: 0; }
+        /* Изменено: одно поле на всю ширину (поле «Серьёзность» удалено) */
+        .defect-card .defect-fields { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 10px; }
         .btn-add-defect { width: 100%; padding: 12px 16px; background: #fff; border: 1px dashed var(--aero-gray-light); border-radius: 8px; color: var(--aero-blue); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; margin-bottom: 16px; transition: all 0.15s; }
         .btn-add-defect:hover { background: var(--aero-blue-pale); border-color: var(--aero-blue); }
 
@@ -329,23 +321,17 @@
         <div class="card" id="reviewCard" style="display: none;">
             <div class="card-header"><h3>Проверка данных</h3></div>
             <p style="font-size: 13px; color: var(--aero-text-light); margin-bottom: 16px;">
-                Нейросеть распознала вашу речь. Проверьте данные.
+                Нейросеть обработала ваше сообщение и выделила дефекты. Проверьте и при необходимости отредактируйте данные.
             </p>
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr><th>Борт</th><th>Стоянка</th><th>Неисправность</th><th>Текст заявки</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><input type="text" class="data-input" id="reviewAircraft" placeholder="RA-73701"></td>
-                            <td><input type="text" class="data-input" id="reviewParking" placeholder="101"></td>
-                            <td><input type="text" class="data-input" id="reviewFault" placeholder="Например: вибрация двигателя"></td>
-                            <td><textarea class="data-input data-textarea" id="reviewDesc" placeholder="Описание..."></textarea></td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="form-grid-3">
+                <div><label class="form-label">Борт</label><input type="text" class="data-input" id="reviewAircraft" placeholder="RA-73701"></div>
+                <div><label class="form-label">Номер рейса</label><input type="text" class="data-input" id="reviewFlight" placeholder="SU-101"></div>
+                <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="reviewParking" placeholder="101"></div>
             </div>
+            <div class="defects-list" id="reviewDefectsList"></div>
+            <button type="button" class="btn-add-defect" onclick="addReviewDefectRow()">
+                <i class="fas fa-plus"></i> Добавить ещё дефект
+            </button>
             <button class="btn btn-success btn-full" id="confirmBtn" onclick="confirmRequest()" style="margin-top: 20px;">
                 <i class="fas fa-check"></i> Подтвердить и отправить в MCC
             </button>
@@ -366,7 +352,7 @@
         <div class="card">
             <div class="card-header"><h3>Текстовая заявка о дефекте</h3></div>
             <p style="font-size: 13px; color: var(--aero-text-light); margin-bottom: 20px;">
-                Опишите дефекты — можно добавить несколько. Заявка уйдёт в MCC, а каждая запись появится в ATLB.
+                Опишите неисправности — можно добавить несколько. Заявка уйдёт в MCC.
             </p>
             <div class="form-grid-3">
                 <div><label class="form-label">Борт</label><input type="text" class="data-input" id="textAircraft" placeholder="RA-73701"></div>
@@ -388,8 +374,8 @@
             <div class="card-header">
                 <h3>ATLB · Aircraft Technical Log Book</h3>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px;" onclick="addManualDefect()">
-                        <i class="fas fa-plus"></i> MEL
+                    <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px;" onclick="loadATLB()">
+                        <i class="fas fa-sync"></i> Обновить
                     </button>
                     <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px;" onclick="exportATLB()">
                         <i class="fas fa-file-export"></i> Экспорт
@@ -413,7 +399,7 @@
                             <th>Дефект</th>
                             <th style="width:90px;">MEL</th>
                             <th style="width:200px;">Статус</th>
-                            <th style="width:120px;">CRS</th>
+                            <th style="width:120px;">Подпись</th>
                             <th style="width:110px;"></th>
                         </tr>
                     </thead>
@@ -445,21 +431,6 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="manualDefectModal">
-    <div class="modal">
-        <div class="modal-header"><h2>Отложенный дефект (MEL)</h2><button class="modal-close" onclick="closeManualDefectModal()">×</button></div>
-        <div class="modal-body">
-            <div class="form-group"><label>Описание дефекта *</label><textarea id="manualDefectDesc" placeholder="Например: Неисправен указатель давления в гидросистеме №1"></textarea></div>
-            <div class="form-group"><label>MEL reference *</label><input type="text" id="manualDefectMel" placeholder="MEL 29-10"></div>
-            <div class="form-group"><label>Стоянка / борт</label><input type="text" id="manualDefectParking" placeholder="Стоянка 101, борт RA-73701"></div>
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="saveManualDefect()">Добавить в ATLB</button>
-                <button class="btn btn-secondary" onclick="closeManualDefectModal()">Отмена</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <div class="modal-overlay" id="atlbDetailModal">
     <div class="modal modal-lg">
         <div class="modal-header">
@@ -475,165 +446,130 @@
 
 <script>
 /* ============================================================
-   InTrAvia Pilot — v2026-11-12-fix-escapeHtml
-   ВСЕ утилитарные функции объявлены в самом начале + window bindings.
-   Записи НЕ продвигаются автоматически — статусы двигает только MCC.
+   InTrAvia Pilot — v2026-11-16 (без поля «Серьёзность»)
+   - Убрано поле «Серьёзность» из форм создания дефектов
+   - Backend сам ставит severity='medium' для source='pilot'
+   - ATLB читается с /api/requests?source=pilot&pilot_name=...
+   - Подпись CRS — POST /api/pilot/sign_crs/<id>
    ============================================================ */
-console.log('[InTrAvia Pilot] Script loading, version 2026-11-12-fix-escapeHtml');
+console.log('[InTrAvia Pilot] v2026-11-16 (no severity)');
 
-/* ============================================================
-   УТИЛИТЫ (объявлены первыми, чтобы точно были доступны)
-   ============================================================ */
+/* ============ UTILS ============ */
 function escapeHtml(s) {
     if (s === null || s === undefined) return '';
-    try {
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    } catch (e) {
-        console.error('[escapeHtml] error:', e);
-        return String(s);
-    }
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 window.escapeHtml = escapeHtml;
 
 function showToast(message, type) {
     type = type || 'info';
-    try {
-        var existing = document.querySelector('.toast');
-        if (existing) existing.remove();
-        var toast = document.createElement('div');
-        toast.className = 'toast ' + type;
-        toast.textContent = message;
-        document.body.appendChild(toast);
-        setTimeout(function() {
-            toast.style.opacity = '0';
-            toast.style.transition = 'opacity 0.3s';
-            setTimeout(function() { toast.remove(); }, 300);
-        }, 5000);
-    } catch (e) {
-        console.error('[showToast] error:', e);
-    }
+    var existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(function() {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(function() { toast.remove(); }, 300);
+    }, 5000);
 }
 window.showToast = showToast;
 
 function formatTime(seconds) {
-    var min = Math.floor(seconds / 60);
-    var sec = Math.floor(seconds % 60);
-    return (min < 10 ? '0' : '') + min + ':' + (sec < 10 ? '0' : '') + sec;
+    var min = Math.floor(seconds / 60), sec = Math.floor(seconds % 60);
+    return (min<10?'0':'')+min+':'+(sec<10?'0':'')+sec;
 }
 window.formatTime = formatTime;
 
 function isSecureContext() {
-    if (location.protocol === 'https:') return true;
-    if (location.hostname === 'localhost') return true;
-    if (location.hostname === '127.0.0.1') return true;
-    if (location.hostname === '[::1]') return true;
-    return false;
+    return location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1' || location.hostname==='[::1]';
 }
 window.isSecureContext = isSecureContext;
 
 function hasGetUserMedia() {
-    return !!((navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia);
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 window.hasGetUserMedia = hasGetUserMedia;
 
-/* ============================================================
-   State
-   ============================================================ */
+/* ============ STATE ============ */
 var API_URL = '/api';
+var mediaRecorder=null, audioChunks=[], audioBlob=null, audioUrl=null;
+var recordingStartTime=0, recordingTimerInterval=null;
+var audioContext=null, analyserNode=null, vizAnimationId=null;
+var isRecording=false, isPlaying=false;
+var records=[], finalDuration=0;
+var selectedMicId=null, availableMics=[];
+var currentDraftId=null;
+var atlbEntries=[], currentDetailId=null, atlbPollInterval=null;
 
-var mediaRecorder = null;
-var audioChunks = [];
-var audioBlob = null;
-var audioUrl = null;
-var recordingStartTime = 0;
-var recordingTimerInterval = null;
-var audioContext = null;
-var analyserNode = null;
-var vizAnimationId = null;
-var isRecording = false;
-var isPlaying = false;
-var records = [];
-var finalDuration = 0;
-var selectedMicId = null;
-var availableMics = [];
-var currentDraftId = null;
-var atlbEntries = [];
-var currentDetailId = null;
+var signatureCtx=null, signatureDrawing=false, signatureHasStroke=false, signatureLastPos=null;
+var defectCounter=0, reviewDefectCounter=0;
 
-var signatureCtx = null;
-var signatureDrawing = false;
-var signatureHasStroke = false;
-var signatureLastPos = null;
-
-var defectCounter = 0;
-
-var STORAGE_KEY = 'pilotRecords_v4';
-var MIC_STORAGE_KEY = 'pilotSelectedMic';
-var ATLB_KEY = 'pilotATLB_v4';
+var STORAGE_KEY='pilotRecords_v4';
+var MIC_STORAGE_KEY='pilotSelectedMic';
 
 var ATLB_STATUSES = {
-    'open':            { label: 'Передан в MCC', icon: 'fa-paper-plane', color: '#003366', bg: '#e8f0fe', role: 'Экипаж', hint: 'Ожидает решения MCC', pilotAction: false },
-    'assigned':        { label: 'Инженер назначен', icon: 'fa-user-check', color: '#003366', bg: '#dbeafe', role: 'MCC', hint: 'Инженер выехал к ВС', pilotAction: false },
-    'in_work':         { label: 'Инженер работает', icon: 'fa-wrench', color: '#0055aa', bg: '#dbeafe', role: 'Инженер', hint: 'Диагностика и устранение', pilotAction: false },
-    'aog_verdict':     { label: 'Инженер: AOG — лететь нельзя', icon: 'fa-exclamation-triangle', color: '#b91c1c', bg: '#fee2e2', role: 'Инженер → MCC', hint: 'Окончательное решение принимает MCC', pilotAction: false },
-    'aog':             { label: 'AOG — ВС лететь не может', icon: 'fa-plane-slash', color: '#b91c1c', bg: '#fee2e2', role: 'MCC', hint: 'Идёт AOG Recovery: детали, OEM, ETR', pilotAction: false },
-    'repair_verdict':  { label: 'Инженер: ремонт выполнен', icon: 'fa-tools', color: '#0369a1', bg: '#e0f2fe', role: 'Инженер → MCC', hint: 'MCC подтвердит выпуск ВС', pilotAction: false },
-    'mel_verdict':     { label: 'Инженер: можно отложить по MEL', icon: 'fa-clock', color: '#c2410c', bg: '#ffedd5', role: 'Инженер → MCC', hint: 'MCC оформит MEL', pilotAction: false },
-    'awaiting_parts':  { label: 'Ожидает деталей', icon: 'fa-box', color: '#0055aa', bg: '#e8f0fe', role: 'Инженер', hint: 'Требуется поставка деталей', pilotAction: false },
-    'repaired':        { label: 'Устранено — ждёт вашей подписи', icon: 'fa-check', color: '#b45309', bg: '#fef3c7', role: 'Инженер → Пилот', hint: 'Проверьте работы и подпишите CRS', pilotAction: true },
-    'deferred':        { label: 'Отложено по MEL — ждёт вашей подписи', icon: 'fa-clock', color: '#b45309', bg: '#fef3c7', role: 'MCC → Пилот', hint: 'MEL согласован, подпишите CRS', pilotAction: true },
-    'released':        { label: 'Выпущено (CRS подписан)', icon: 'fa-check-double', color: '#6b7280', bg: '#f3f4f6', role: 'Пилот', hint: 'ВС готово к вылету', pilotAction: false }
+    'open':      { label:'Передан в MCC', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fef2f2', hint:'Ожидается итоговое решение MCC', pilotAction:false },
+    'no_go':     { label:'Технический запрет', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Ожидается решение / допуск MCC', pilotAction:false },
+    'assigned':  { label:'Инженер назначен', icon:'fa-user-check', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер выполняет диагностику', pilotAction:false },
+    'in_work':   { label:'AOG Recovery', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Восстановление ВС', pilotAction:false },
+    'aog':       { label:'AOG', icon:'fa-plane-slash', color:'#b91c1c', bg:'#fee2e2', hint:'Инженер установил AOG. Ожидается отдельное решение и допуск MCC.', pilotAction:false },
+    'repaired':  { label:'Ремонт выполнен', icon:'fa-check', color:'#b45309', bg:'#fef3c7', hint:'Само по себе завершение ремонта не означает допуск к полёту', pilotAction:false },
+    'mel_review': { label:'MEL проверяется', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'ЦПУ / MCC проверяют применимость MEL и предусмотренные процедуры', pilotAction:false },
+    'deferred':  { label:'MEL проверен · ожидает активации', icon:'fa-clock', color:'#b45309', bg:'#fef3c7', hint:'До отдельной активации MEL уполномоченным сотрудником MCC эксплуатация не разрешена', pilotAction:false },
+    'mel_active': { label:'MEL АКТИВЕН · УСЛОВНАЯ ЭКСПЛУАТАЦИЯ', icon:'fa-clipboard-check', color:'#166534', bg:'#dcfce7', hint:'Эксплуатация только в пределах условий и ограничений утверждённого MEL', pilotAction:false },
+    'mel_expired': { label:'MEL — срок истёк', icon:'fa-triangle-exclamation', color:'#b91c1c', bg:'#fee2e2', hint:'Срок пункта MEL истёк; требуется решение MCC', pilotAction:false },
+    'released':  { label:'Допуск оформлен MCC', icon:'fa-check-double', color:'#15803d', bg:'#dcfce7', hint:'Система получила отдельное решение MCC о снятии ограничения', pilotAction:false },
+    'mcc':'', 'cpu':'', 'dispatcher':'', 'technician':'', 'dispatcher_report':'', 'cpu_report':'', 'mcc_finalize':'', 'pilot_notice':''
 };
+ATLB_STATUSES.mcc = { label:'MCC', icon:'fa-headset', color:'#003366', bg:'#e8f0fe', hint:'Обработка в MCC', pilotAction:false };
+ATLB_STATUSES.cpu = { label:'ЦПУ', icon:'fa-tower-broadcast', color:'#003366', bg:'#e8f0fe', hint:'Передано в ЦПУ', pilotAction:false };
+ATLB_STATUSES.dispatcher = { label:'Диспетчер назначает инженера', icon:'fa-users', color:'#003366', bg:'#e8f0fe', hint:'Заявка у диспетчера', pilotAction:false };
+ATLB_STATUSES.technician = { label:'Инженер на задании', icon:'fa-wrench', color:'#b91c1c', bg:'#fee2e2', hint:'Диагностика / ремонт', pilotAction:false };
+ATLB_STATUSES.dispatcher_report = { label:'Отчёт у диспетчера', icon:'fa-clipboard-check', color:'#b45309', bg:'#fef3c7', hint:'Отчёт инженера проверяется диспетчером', pilotAction:false };
+ATLB_STATUSES.cpu_report = { label:'Отчёт у ЦПУ', icon:'fa-tower-broadcast', color:'#b45309', bg:'#fef3c7', hint:'Отчёт передан в ЦПУ', pilotAction:false };
+ATLB_STATUSES.mcc_finalize = { label:'Отчёт вернулся в MCC', icon:'fa-clipboard-check', color:'#b45309', bg:'#fef3c7', hint:'MCC рассматривает результаты диагностики', pilotAction:false };
+ATLB_STATUSES.pilot_notice = { label:'Уведомление MCC', icon:'fa-ban', color:'#b91c1c', bg:'#fee2e2', hint:'Информация передана экипажу', pilotAction:false };
 
 var FAULT_LABELS = {
-    'engine_failure': 'Отказ двигателя', 'engine_oil': 'Утечка масла',
-    'engine_overheat': 'Перегрев двигателя', 'engine_vibration': 'Вибрация двигателя',
-    'engine_start': 'Проблема с запуском', 'fuel_leak': 'Утечка топлива',
-    'fuel_system': 'Топливная система', 'avionics_nav': 'Навигация',
-    'avionics_radio': 'Радиосвязь', 'avionics_autopilot': 'Автопилот',
-    'avionics_transponder': 'Транспондер', 'avionics_display': 'Дисплей',
-    'avionics_gps': 'GPS', 'hydraulic': 'Гидравлика',
-    'hydraulic_leak': 'Утечка гидравлики', 'hydraulic_pressure': 'Давление гидравлики',
-    'electrical': 'Электрика', 'electrical_generator': 'Генератор',
-    'electrical_battery': 'Аккумулятор', 'electrical_short': 'Короткое замыкание',
-    'electrical_lighting': 'Освещение', 'landing_gear': 'Шасси',
-    'pneumatic': 'Пневматика', 'brake_system': 'Тормозная система',
-    'flap_issue': 'Закрылки', 'aileron_issue': 'Элероны',
-    'rudder_issue': 'Руль направления', 'wing_damage': 'Повреждение крыла',
-    'fuselage_damage': 'Повреждение фюзеляжа', 'door_issue': 'Дверь',
-    'air_condition': 'Кондиционирование', 'pressurization': 'Разгерметизация',
-    'oxygen_system': 'Кислородная система', 'fire_system': 'Пожарная система',
-    'deicing_system': 'Противообледенительная', 'pilot_voice': 'Голосовое сообщение'
+    'engine_failure':'Отказ двигателя','engine_oil':'Утечка масла',
+    'engine_overheat':'Перегрев двигателя','engine_vibration':'Вибрация двигателя',
+    'engine_start':'Проблема с запуском','fuel_leak':'Утечка топлива',
+    'fuel_system':'Топливная система','avionics_nav':'Навигация',
+    'avionics_radio':'Радиосвязь','avionics_autopilot':'Автопилот',
+    'avionics_transponder':'Транспондер','avionics_display':'Дисплей',
+    'avionics_gps':'GPS','hydraulic':'Гидравлика',
+    'hydraulic_leak':'Утечка гидравлики','hydraulic_pressure':'Давление гидравлики',
+    'electrical':'Электрика','electrical_generator':'Генератор',
+    'electrical_battery':'Аккумулятор','electrical_short':'Короткое замыкание',
+    'electrical_lighting':'Освещение','landing_gear':'Шасси',
+    'pneumatic':'Пневматика','brake_system':'Тормозная система',
+    'flap_issue':'Закрылки','aileron_issue':'Элероны',
+    'rudder_issue':'Руль направления','wing_damage':'Повреждение крыла',
+    'fuselage_damage':'Повреждение фюзеляжа','door_issue':'Дверь',
+    'air_condition':'Кондиционирование','pressurization':'Разгерметизация',
+    'oxygen_system':'Кислородная система','fire_system':'Пожарная система',
+    'deicing_system':'Противообледенительная','pilot_voice':'Голосовое сообщение',
+    'other':'Прочее'
 };
-
-function codeToLabel(code) {
-    if (!code) return '';
-    return FAULT_LABELS[code] || code;
-}
-function labelToCode(label) {
-    if (!label) return '';
-    if (FAULT_LABELS[label]) return label;
-    var lower = label.toLowerCase().trim();
-    for (var key in FAULT_LABELS) {
-        if (FAULT_LABELS.hasOwnProperty(key) && FAULT_LABELS[key].toLowerCase() === lower) return key;
-    }
-    return label;
+function codeToLabel(c) { return !c ? '' : (FAULT_LABELS[c] || c); }
+function labelToCode(l) {
+    if (!l) return '';
+    if (FAULT_LABELS[l]) return l;
+    var lower = l.toLowerCase().trim();
+    for (var k in FAULT_LABELS) if (FAULT_LABELS.hasOwnProperty(k) && FAULT_LABELS[k].toLowerCase() === lower) return k;
+    return l;
 }
 
-/* Session init */
+/* ============ SESSION ============ */
 (function() {
     var session = sessionStorage.getItem('userSession');
-    if (!session) { window.location.href = '/login.html'; return; }
+    if (!session) { window.location.href='/login.html'; return; }
     var user;
-    try {
-        user = JSON.parse(session);
-        if (user.role !== 'pilot') { window.location.href = '/login.html'; return; }
-    } catch (_) { window.location.href = '/login.html'; return; }
+    try { user = JSON.parse(session); if (user.role !== 'pilot') { window.location.href='/login.html'; return; } }
+    catch(_) { window.location.href='/login.html'; return; }
     document.getElementById('userName').textContent = user.name || 'Пилот';
     document.getElementById('userAvatar').innerHTML = '<i class="fas fa-user-tie"></i>';
     document.getElementById('userRole').textContent = user.rank || 'КВС';
@@ -642,8 +578,12 @@ function labelToCode(label) {
 (function() {
     var now = new Date();
     var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-    document.getElementById('currentDate').textContent = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+    document.getElementById('currentDate').textContent = now.getDate()+' '+months[now.getMonth()]+' '+now.getFullYear();
 })();
+
+function getCurrentUser() {
+    try { return JSON.parse(sessionStorage.getItem('userSession') || '{}'); } catch(_) { return {}; }
+}
 
 function showTab(tabName) {
     document.querySelectorAll('.section-content').forEach(function(el) { el.classList.remove('active'); });
@@ -654,12 +594,12 @@ function showTab(tabName) {
     if (tabName === 'text') document.getElementById('pageTitle').textContent = 'Текстовая заявка';
     if (tabName === 'logbook') {
         document.getElementById('pageTitle').textContent = 'ATLB · Aircraft Technical Log Book';
-        renderATLB();
+        loadATLB();
     }
 }
 window.showTab = showTab;
 
-/* Dynamic defect rows */
+/* ============ TEXT FORM ============ */
 function initDefectsForm() {
     defectCounter = 0;
     var list = document.getElementById('defectsList');
@@ -668,32 +608,16 @@ function initDefectsForm() {
     addDefectRow();
 }
 
+// Изменено: убрано поле «Серьёзность» — теперь только название неисправности
 function addDefectRow() {
     defectCounter++;
     var id = defectCounter;
     var list = document.getElementById('defectsList');
-    var html = '<div class="defect-card" data-defect-id="' + id + '">' +
-        '<div class="defect-head">' +
-            '<span class="defect-num">Дефект ' + id + '</span>' +
-            '<button type="button" class="btn-remove-defect" onclick="removeDefectRow(' + id + ')" title="Удалить">×</button>' +
-        '</div>' +
+    var html = '<div class="defect-card" data-defect-id="'+id+'">' +
+        '<div class="defect-head"><span class="defect-num">Дефект '+id+'</span>' +
+        '<button type="button" class="btn-remove-defect" onclick="removeDefectRow('+id+')" title="Удалить">×</button></div>' +
         '<div class="defect-fields">' +
-            '<div>' +
-                '<label class="form-label">Неисправность *</label>' +
-                '<input type="text" class="data-input" id="defectName_' + id + '" placeholder="Например: вибрация двигателя №2">' +
-            '</div>' +
-            '<div>' +
-                '<label class="form-label">Серьёзность</label>' +
-                '<select class="data-input" id="defectSeverity_' + id + '">' +
-                    '<option value="low">Низкая</option>' +
-                    '<option value="medium" selected>Средняя</option>' +
-                    '<option value="high">Высокая</option>' +
-                '</select>' +
-            '</div>' +
-        '</div>' +
-        '<div class="defect-desc-wrap">' +
-            '<label class="form-label">Описание дефекта *</label>' +
-            '<textarea class="data-input data-textarea" id="defectDesc_' + id + '" placeholder="Подробности..." style="min-height:70px;"></textarea>' +
+            '<div><label class="form-label">Неисправность *</label><input type="text" class="data-input" id="defectName_'+id+'" placeholder="Например: вибрация двигателя №2"></div>' +
         '</div>' +
     '</div>';
     list.insertAdjacentHTML('beforeend', html);
@@ -703,7 +627,7 @@ function addDefectRow() {
 window.addDefectRow = addDefectRow;
 
 function removeDefectRow(id) {
-    var card = document.querySelector('.defect-card[data-defect-id="' + id + '"]');
+    var card = document.querySelector('#defectsList .defect-card[data-defect-id="'+id+'"]');
     if (card) card.remove();
     updateDefectNumbers();
     updateRemoveButtons();
@@ -711,313 +635,373 @@ function removeDefectRow(id) {
 window.removeDefectRow = removeDefectRow;
 
 function updateDefectNumbers() {
-    var cards = document.querySelectorAll('.defect-card');
-    for (var i = 0; i < cards.length; i++) {
-        var numEl = cards[i].querySelector('.defect-num');
-        if (numEl) numEl.textContent = 'Дефект ' + (i + 1);
-    }
+    var cards = document.querySelectorAll('#defectsList .defect-card');
+    for (var i=0;i<cards.length;i++) { var n=cards[i].querySelector('.defect-num'); if (n) n.textContent='Дефект '+(i+1); }
 }
-
 function updateRemoveButtons() {
-    var cards = document.querySelectorAll('.defect-card');
-    for (var i = 0; i < cards.length; i++) {
-        var btn = cards[i].querySelector('.btn-remove-defect');
-        if (btn) btn.style.display = cards.length > 1 ? 'flex' : 'none';
-    }
+    var cards = document.querySelectorAll('#defectsList .defect-card');
+    for (var i=0;i<cards.length;i++) { var b=cards[i].querySelector('.btn-remove-defect'); if (b) b.style.display=cards.length>1?'flex':'none'; }
 }
 
+// Изменено: возвращает только name
 function collectDefects() {
     var result = [];
-    var cards = document.querySelectorAll('.defect-card');
-    for (var i = 0; i < cards.length; i++) {
+    var cards = document.querySelectorAll('#defectsList .defect-card');
+    for (var i=0;i<cards.length;i++) {
         var id = cards[i].getAttribute('data-defect-id');
-        var nameEl = document.getElementById('defectName_' + id);
-        var descEl = document.getElementById('defectDesc_' + id);
-        var sevEl = document.getElementById('defectSeverity_' + id);
         result.push({
-            name: nameEl ? nameEl.value.trim() : '',
-            desc: descEl ? descEl.value.trim() : '',
-            severity: sevEl ? sevEl.value : 'medium'
+            name: ((document.getElementById('defectName_'+id)||{}).value||'').trim()
         });
     }
     return result;
 }
 
-/* ============================================================
-   ATLB
-   ============================================================ */
-/* ATLB пилота хранится на сервере: те же заявки, что видит МЦЦ.
-   localStorage оставлен только как кэш текущей сессии. */
-function loadATLB() {
-    return atlbEntries;
+/* ============ REVIEW FORM ============ */
+// Изменено: убран параметр severity и select
+function addReviewDefectRow(name) {
+    reviewDefectCounter++;
+    var id = reviewDefectCounter;
+    var list = document.getElementById('reviewDefectsList');
+    if (!list) return;
+    var html = '<div class="defect-card" data-review-defect-id="'+id+'">' +
+        '<div class="defect-head"><span class="defect-num">Дефект '+id+'</span>' +
+        '<button type="button" class="btn-remove-defect" onclick="removeReviewDefectRow('+id+')" title="Удалить">×</button></div>' +
+        '<div class="defect-fields">' +
+            '<div><label class="form-label">Неисправность *</label><input type="text" class="data-input" id="reviewDefectName_'+id+'" placeholder="Например: вибрация двигателя" value="'+escapeHtml(name||'')+'"></div>' +
+        '</div>' +
+    '</div>';
+    list.insertAdjacentHTML('beforeend', html);
+    updateReviewDefectNumbers();
+    updateReviewRemoveButtons();
+}
+window.addReviewDefectRow = addReviewDefectRow;
+
+function removeReviewDefectRow(id) {
+    var card = document.querySelector('#reviewDefectsList .defect-card[data-review-defect-id="'+id+'"]');
+    if (card) card.remove();
+    updateReviewDefectNumbers();
+    updateReviewRemoveButtons();
+}
+window.removeReviewDefectRow = removeReviewDefectRow;
+
+function updateReviewDefectNumbers() {
+    var cards = document.querySelectorAll('#reviewDefectsList .defect-card');
+    for (var i=0;i<cards.length;i++) { var n=cards[i].querySelector('.defect-num'); if (n) n.textContent='Дефект '+(i+1); }
+}
+function updateReviewRemoveButtons() {
+    var cards = document.querySelectorAll('#reviewDefectsList .defect-card');
+    for (var i=0;i<cards.length;i++) { var b=cards[i].querySelector('.btn-remove-defect'); if (b) b.style.display=cards.length>1?'flex':'none'; }
 }
 
-function loadPilotATLB() {
-    var pilotName = getPilotName();
-    var url = '/api/pilot/atlb?pilot=' + encodeURIComponent(pilotName || '');
-    return fetch(url)
+function populateReviewDefects(defects) {
+    reviewDefectCounter = 0;
+    var list = document.getElementById('reviewDefectsList');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!defects || defects.length === 0) { addReviewDefectRow(); return; }
+    for (var i=0;i<defects.length;i++) addReviewDefectRow(defects[i].name);
+}
+window.populateReviewDefects = populateReviewDefects;
+
+// Изменено: возвращает только name
+function collectReviewDefects() {
+    var result = [];
+    var cards = document.querySelectorAll('#reviewDefectsList .defect-card');
+    for (var i=0;i<cards.length;i++) {
+        var id = cards[i].getAttribute('data-review-defect-id');
+        result.push({
+            name: ((document.getElementById('reviewDefectName_'+id)||{}).value||'').trim()
+        });
+    }
+    return result;
+}
+
+// Изменено: больше не парсим severity
+function parseDefectsFromTranscription(parsed) {
+    var defects = [];
+    if (!parsed || !Array.isArray(parsed.defects)) return defects;
+    for (var i=0;i<parsed.defects.length;i++) {
+        var d = parsed.defects[i] || {};
+        if (d.is_defect === false) continue;
+        var name = codeToLabel(d.fault_type || d.code || '') || d.name || '';
+        var desc = d.description || d.desc || d.text || '';
+        if (!name && !desc) continue;
+        defects.push({ name: name || desc });
+    }
+    return defects;
+}
+window.parseDefectsFromTranscription = parseDefectsFromTranscription;
+
+/* ============ ATLB via API ============ */
+// Изменено: убрано поле severity
+function mapServerToLocal(r) {
+    var s = r.mcc_status;
+    var flightStatus = r.flight_status || 'DO_NOT_FLY';
+    var localStatus = 'open';
+    if (s === 'INSPECTION' || s === 'MEL_REVIEW') localStatus = 'assigned';
+    else if (s === 'AOG_CONFIRMED') localStatus = 'in_work';
+    else if (s === 'MEL_REVIEW') localStatus = 'mel_review';
+    else if (['MEL','MEL_READY'].indexOf(s) >= 0) localStatus = 'deferred';
+    else if (s === 'MEL_ACTIVE' || flightStatus === 'MEL_ACTIVE') localStatus = 'mel_active';
+    else if (s === 'MEL_EXPIRED') localStatus = 'mel_expired';
+    else if (s === 'REPAIRED') localStatus = 'repaired';
+    else if (s === 'RELEASED') localStatus = 'released';
+    // MEL_ACTIVE — это отдельный условный статус, а не RELEASED/CRS.
+    if (flightStatus === 'MEL_ACTIVE' || s === 'MEL_ACTIVE') localStatus = 'mel_active';
+    else if (s === 'MEL_EXPIRED') localStatus = 'mel_expired';
+    else if (flightStatus === 'RELEASED') localStatus = 'released';
+    else if (r.engineer_verdict === 'AOG' || r.engineer_condition === 'aog') localStatus = 'aog';
+    else if (s === 'MEL_REVIEW') localStatus = 'mel_review';
+    else if (s === 'MEL' || s === 'MEL_READY') localStatus = 'deferred';
+    else localStatus = 'no_go';
+
+    return {
+        id: r.id,
+        aircraft: r.aircraft || '—',
+        flightNumber: r.flight_number || '',
+        createdAt: r.created_at,
+        defect: codeToLabel(r.fault_type) || r.description || '—',
+        faultType: r.fault_type || '',
+        parking: r.parking_id || '',
+        source: r.source || 'pilot',
+        requestId: r.id,
+        melRef: r.mcc_mel_ref || '',
+        melCategory: r.mcc_mel_category || '',
+        melDueDate: r.mcc_due_date || '',
+        melDueCondition: r.mcc_due_condition || '',
+        melRevision: r.mcc_mel_revision || '',
+        melDescription: r.mcc_mel_description || '',
+        melRestrictions: r.mcc_mel_restrictions || '',
+        deferred: ['MEL','MEL_READY','MEL_ACTIVE','MEL_EXPIRED'].indexOf(s) >= 0,
+        rectification: r.engineer_comment || r.mcc_comment || '',
+        engineerName: r.engineer_name || '',
+        status: localStatus,
+        routingStage: r.routing_stage || 'mcc',
+        mccStatus: r.mcc_status || '',
+        engineerVerdict: r.engineer_verdict || '',
+        engineerReportAt: r.engineer_report_at || null,
+        mccDecision: r.mcc_decision || '',
+        flightStatus: flightStatus,
+        flightStatusReason: r.flight_status_reason || 'Ожидается решение MCC.',
+        engineerCondition: r.engineer_condition || '',
+        crs: {
+            signed: !!r.crs_signed_at,
+            signedAt: r.crs_signed_at || null,
+            signedBy: r.crs_signed_by || '',
+            signature: r.crs_signature || null
+        },
+        history: (Array.isArray(r.routing_history) && r.routing_history.length ? r.routing_history.map(function(h) {
+            return { at: h.at, from: null, to: h.stage || 'open', role: h.actor || 'Система', note: h.note || '' };
+        }) : [{ at: r.created_at, from: null, to: 'open', role: 'Экипаж', note: 'Заявка создана' }])
+    };
+}
+
+function loadATLB() {
+    var user = getCurrentUser();
+    var pilotName = user.name || '';
+    var qs = '?source=pilot' + (pilotName ? '&pilot_name=' + encodeURIComponent(pilotName) : '');
+
+    return fetch(API_URL + '/requests' + qs)
         .then(function(r) { return r.json(); })
-        .then(function(list) {
-            atlbEntries = Array.isArray(list) ? list : [];
-            for (var i = 0; i < atlbEntries.length; i++) {
-                var e = atlbEntries[i];
-                if (!ATLB_STATUSES[e.status]) e.status = 'open';
-                if (!e.crs) e.crs = { signed: false, signedAt: null, signedBy: null, signature: null };
-                if (!e.history) e.history = [];
-            }
+        .then(function(data) {
+            atlbEntries = (data || []).map(mapServerToLocal);
             renderATLB();
             return atlbEntries;
         })
         .catch(function(err) {
-            console.error('[loadPilotATLB]', err);
-            showToast('Не удалось загрузить ATLB', 'error');
-            return atlbEntries;
+            console.error('[loadATLB]', err);
+            showToast('Ошибка загрузки ATLB', 'error');
+            atlbEntries = [];
+            renderATLB();
+            return [];
         });
 }
-window.loadPilotATLB = loadPilotATLB;
-
-function saveATLB() { return true; }
-
-function createATLBEntry(data) {
-    var now = new Date().toISOString();
-    var entry = {
-        id: 'atlb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-        aircraft: data.aircraft || '—',
-        flightNumber: data.flightNumber || '',
-        createdAt: now,
-        defect: data.defect || '',
-        faultType: data.faultType || '',
-        severity: data.severity || 'medium',
-        parking: data.parking || '',
-        source: data.source || 'text',
-        requestId: data.requestId || null,
-        melRef: '', deferred: false, rectification: '',
-        status: 'open',
-        crs: { signed: false, signedAt: null, signedBy: null, signature: null },
-        demo: false,
-        history: [{ at: now, from: null, to: 'open', role: 'Экипаж', note: 'Дефект зарегистрирован в ATLB → очередь MCC' }]
-    };
-    // заявка уже создана на сервере (/api/dispatch) — перечитываем журнал
-    loadPilotATLB();
-    return entry;
-}
+window.loadATLB = loadATLB;
 
 function findATLB(id) {
-    for (var i = 0; i < atlbEntries.length; i++) {
-        if (atlbEntries[i].id === id) return atlbEntries[i];
-    }
+    for (var i=0;i<atlbEntries.length;i++) if (atlbEntries[i].id === id) return atlbEntries[i];
     return null;
 }
 
 function renderATLB() {
     var tbody = document.getElementById('atlbTableBody');
     if (!tbody) return;
-    var inProgress = 0, readyCount = 0, releasedCount = 0, lastAircraft = '—';
-    for (var i = 0; i < atlbEntries.length; i++) {
-        var e = atlbEntries[i];
-        if (e.status === 'repaired' || e.status === 'deferred') readyCount++;
+    var inProgress=0, readyCount=0, releasedCount=0, lastAircraft='—';
+    atlbEntries.forEach(function(e) {
+        if (isPilotVerdictReady(e)) readyCount++;
         else if (e.status !== 'released') inProgress++;
         if (e.status === 'released') releasedCount++;
         if (lastAircraft === '—' && e.aircraft && e.aircraft !== '—') lastAircraft = e.aircraft;
-    }
+    });
     var el;
-    if ((el = document.getElementById('atlbInProgressCount'))) el.textContent = inProgress;
-    if ((el = document.getElementById('atlbReadyCount'))) el.textContent = readyCount;
-    if ((el = document.getElementById('atlbReleasedCount'))) el.textContent = releasedCount;
-    if ((el = document.getElementById('atlbAircraftLabel'))) el.textContent = lastAircraft;
+    if ((el=document.getElementById('atlbInProgressCount'))) el.textContent = inProgress;
+    if ((el=document.getElementById('atlbReadyCount'))) el.textContent = readyCount;
+    if ((el=document.getElementById('atlbReleasedCount'))) el.textContent = releasedCount;
+    if ((el=document.getElementById('atlbAircraftLabel'))) el.textContent = lastAircraft;
 
     if (!atlbEntries.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-book-open"></i><p>ATLB пуст</p></td></tr>';
         return;
     }
-    var html = '';
-    for (var j = 0; j < atlbEntries.length; j++) html += renderATLBRow(atlbEntries[j]);
-    tbody.innerHTML = html;
+    tbody.innerHTML = atlbEntries.map(renderATLBRow).join('');
+}
+
+// Изменено: убрана цветная точка серьёзности
+
+function renderPilotEngineerReport(raw) {
+    var text=String(raw||'');
+    if (text.indexOf('ROUTE:')===0) {
+        var payload=text.substring(6), depth=0, end=-1, inString=false, escaped=false;
+        for(var i=0;i<payload.length;i++){var ch=payload[i];if(inString){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')inString=false;continue;}if(ch==='"')inString=true;else if(ch==='{')depth++;else if(ch==='}'){depth--;if(depth===0){end=i+1;break;}}}
+        if(end>0) text=payload.substring(end).replace(/^\s+/, '');
+    }
+    var labels=['Состояние ВС','Категория','Обнаружено','Выполненные работы','Время диагностики','Материалы','Нужны детали','Комментарий','ПУНКТ MEL','ATA','КАТЕГОРИЯ MEL','РЕДАКЦИЯ MEL','ИНТЕРВАЛ / ЛИМИТ'];
+    var vals={}; labels.forEach(function(label){var escapedLabel=label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');var others=labels.filter(function(x){return x!==label;}).map(function(x){return x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}).join('|');var re=new RegExp('(?:^|\\n)'+escapedLabel+':\\s*([\\s\\S]*?)(?=\\n(?:'+others+'):|\\n─{3,}|$)','i');var m=text.match(re);vals[label]=m?m[1].trim():'';});
+    if(text.indexOf('ОТЧЁТ О ДИАГНОСТИКЕ')===-1) return '<div class="atlb-work-block"><div class="work-label">Информация инженера</div>'+escapeHtml(text)+'</div>';
+    var items=[['Состояние ВС',vals['Состояние ВС']],['Категория',vals['Категория']],['Обнаружено',vals['Обнаружено']],['Выполненные работы',vals['Выполненные работы']],['Время диагностики',vals['Время диагностики']],['Материалы',vals['Материалы']],['Нужны детали',vals['Нужны детали']],['Комментарий',vals['Комментарий']],['Пункт MEL',vals['ПУНКТ MEL']],['ATA',vals['ATA']],['Категория MEL',vals['КАТЕГОРИЯ MEL']],['Редакция MEL',vals['РЕДАКЦИЯ MEL']],['Интервал / лимит',vals['ИНТЕРВАЛ / ЛИМИТ']]];
+    var html='<div style="margin-top:14px;padding:15px;background:linear-gradient(145deg,#f8fbff,#fff);border:1px solid #dce6f1;border-radius:13px;"><div style="font-size:14px;font-weight:850;color:#1e3a5f;margin-bottom:11px;"><i class="fas fa-clipboard-list" style="margin-right:7px;color:#3b82f6;"></i>Отчёт о диагностике</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;">';
+    items.forEach(function(it){if(!it[1])return;html+='<div style="padding:9px 10px;background:#fff;border:1px solid #e8edf3;border-radius:9px;"><div style="font-size:9px;color:#8493a7;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">'+it[0]+'</div><div style="font-size:12px;color:#26384d;font-weight:650;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;">'+escapeHtml(it[1])+'</div></div>';});
+    html+='</div></div>';return html;
+}
+
+function isPilotVerdictReady(e) {
+    // Пилот может подписать любой переданный ему итоговый вердикт:
+    // ремонт, MEL или AOG. Не ограничиваемся отдельными значениями mccStatus.
+    return !!e && e.routingStage === 'pilot_notice' &&
+        !!(e.engineerVerdict || e.engineerCondition || e.engineerReportAt || e.mccDecision);
 }
 
 function renderATLBRow(e) {
     var created = new Date(e.createdAt);
-    var dateStr = created.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    var dateStr = created.toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
-    var isReady = e.status === 'repaired' || e.status === 'deferred';
-
-    var sevColor = e.severity === 'high' ? '#4b5563' : e.severity === 'medium' ? '#9ca3af' : '#d1d5db';
-    var sevDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + sevColor + ';margin-right:6px;flex-shrink:0;"></span>';
-
-    var melHtml = e.melRef ? '<span style="font-family:Consolas;font-size:11px;color:#0055aa;font-weight:600;">' + escapeHtml(e.melRef) + '</span>' : '<span style="color:#8a9bb5;">—</span>';
-
-    var statusHtml = '<span class="status-badge" style="background:' + meta.bg + ';color:' + meta.color + ';">' +
-        '<i class="fas ' + meta.icon + '"></i> ' + meta.label + '</span>';
+    var isReady = isPilotVerdictReady(e);
+    var melHtml = e.melRef ? '<span style="font-family:Consolas;font-size:11px;color:#0055aa;font-weight:600;">'+escapeHtml(e.melRef)+'</span>' : '<span style="color:#8a9bb5;">—</span>';
+    var statusHtml = '<span class="status-badge" style="background:'+meta.bg+';color:'+meta.color+';"><i class="fas '+meta.icon+'"></i> '+meta.label+'</span>';
     if (isReady) statusHtml += '<span class="attention-tag">подпись</span>';
-
     var crsHtml;
-    if (e.crs.signed) {
-        crsHtml = '<div style="font-size:11px;color:#0055aa;font-weight:600;">✓ Подписан</div>' +
-            '<div style="font-size:10px;color:#8a9bb5;">' + new Date(e.crs.signedAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</div>';
-    } else if (isReady) {
-        crsHtml = '<span style="color:#b45309;font-size:11px;">ждёт подписи</span>';
-    } else {
-        crsHtml = '<span style="color:#8a9bb5;">—</span>';
-    }
-
-    var defectCell = '<div style="font-weight:600;font-size:13px;display:flex;align-items:flex-start;">' + sevDot +
-        '<span>' + escapeHtml(e.defect) + '</span></div>' +
-        '<div style="font-size:11px;color:#8a9bb5;margin-top:4px;padding-left:14px;">' +
-        escapeHtml(e.parking ? 'Стоянка ' + e.parking : '') +
-        (e.flightNumber ? ' • ' + escapeHtml(e.flightNumber) : '') +
-        '</div>';
-
-    var openBtn = isReady
-        ? '<button class="atlb-open-btn ready" onclick="event.stopPropagation(); openATLBDetail(\'' + e.id + '\')">Подписать</button>'
-        : '<button class="atlb-open-btn" onclick="event.stopPropagation(); openATLBDetail(\'' + e.id + '\')">Открыть</button>';
-
-    var rowClass = 'atlb-row' + (isReady ? ' ready' : '');
-
-    return '<tr class="' + rowClass + '" onclick="openATLBDetail(\'' + e.id + '\')">' +
-        '<td><div style="font-weight:600;font-size:12px;">' + dateStr + '</div>' +
-        '<div style="font-size:10px;color:#8a9bb5;">' + escapeHtml(e.aircraft) + '</div></td>' +
-        '<td>' + defectCell + '</td>' +
-        '<td>' + melHtml + '</td>' +
-        '<td>' + statusHtml + '</td>' +
-        '<td>' + crsHtml + '</td>' +
-        '<td>' + openBtn + '</td>' +
-    '</tr>';
+    crsHtml = '<div style="font-size:11px;margin-top:4px;font-weight:800;color:' + (e.crs.signed ? '#15803d' : '#64748b') + ';">' + (e.crs.signed ? 'Подпись поставлена' : (isReady ? 'Ожидает подписи пилота' : 'Ожидает вердикта MCC')) + '</div>';
+    var defectCell = '<div style="font-weight:600;font-size:13px;">'+escapeHtml(e.defect)+'</div>' +
+        '<div style="font-size:11px;color:#8a9bb5;margin-top:4px;">' +
+        escapeHtml(e.parking ? 'Стоянка '+e.parking : '') + (e.flightNumber ? ' • '+escapeHtml(e.flightNumber) : '') + '</div>';
+    var openBtn = (isReady && !e.crs.signed)
+        ? '<button class="atlb-open-btn ready" onclick="event.stopPropagation(); openATLBDetail(\''+e.id+'\')">Подписать</button>'
+        : '<button class="atlb-open-btn" onclick="event.stopPropagation(); openATLBDetail(\''+e.id+'\')">Открыть</button>';
+    return '<tr class="atlb-row'+(isReady?' ready':'')+'" onclick="openATLBDetail(\''+e.id+'\')">' +
+        '<td><div style="font-weight:600;font-size:12px;">'+dateStr+'</div>' +
+        '<div style="font-size:10px;color:#8a9bb5;">'+escapeHtml(e.aircraft)+'</div></td>' +
+        '<td>'+defectCell+'</td>' +
+        '<td>'+melHtml+'</td>' +
+        '<td>'+statusHtml+'</td>' +
+        '<td>'+crsHtml+'</td>' +
+        '<td>'+openBtn+'</td></tr>';
 }
 
+// Изменено: убрана строка «Серьёзность» в деталях
 function openATLBDetail(id) {
     var e = findATLB(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
     currentDetailId = id;
-
     var meta = ATLB_STATUSES[e.status] || ATLB_STATUSES['open'];
-    var isReady = e.status === 'repaired' || e.status === 'deferred';
-
-    document.getElementById('atlbDetailTitle').textContent = e.faultType || (e.defect || '').split('.')[0] || 'Дефект';
-    document.getElementById('atlbDetailSub').textContent =
-        e.aircraft + (e.parking ? ' · Стоянка ' + e.parking : '') + (e.flightNumber ? ' · Рейс ' + e.flightNumber : '');
+    var isReady = isPilotVerdictReady(e);
+    document.getElementById('atlbDetailTitle').textContent = e.faultType || (e.defect||'').split('.')[0] || 'Дефект';
+    document.getElementById('atlbDetailSub').textContent = e.aircraft + (e.parking?' · Стоянка '+e.parking:'') + (e.flightNumber?' · Рейс '+e.flightNumber:'');
 
     var html = '';
+    html += '<div class="atlb-status-line" style="color:'+meta.color+';background:'+meta.bg+';">' +
+        '<i class="fas '+meta.icon+'"></i><div><strong>'+meta.label+'</strong></div></div>';
+    if (e.engineerVerdict || e.engineerCondition) {
+        var verdictText = String(e.engineerVerdict || e.engineerCondition);
+        var verdictLabels = { 'REPAIR':'Устранено', 'REPAIRED':'Устранено', 'MEL':'MEL — эксплуатация по условиям', 'AOG':'AOG — требуется восстановление' };
+        verdictText = verdictLabels[verdictText.toUpperCase()] || verdictText;
+        html += '<div style="margin:12px 0;padding:13px 15px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px;"><div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Технический вердикт</div><div style="font-size:15px;font-weight:850;color:#1e40af;">'+escapeHtml(verdictText)+'</div></div>';
+    }
 
-    html += '<div class="atlb-status-line" style="color:' + meta.color + ';background:' + meta.bg + ';">' +
-        '<i class="fas ' + meta.icon + '"></i>' +
-        '<div>' +
-            '<strong>' + meta.label + '</strong>' +
-            '<div style="font-size:12px;color:#4a5a6a;margin-top:2px;">' + meta.hint + '</div>' +
-        '</div>' +
-    '</div>';
+    // В пилотской карточке показываем вердикт и возможность подтвердить ознакомление подписью.
 
     html += '<div class="atlb-info-list">' +
         '<div class="row"><span class="label">Дата регистрации</span><span class="val">' +
-            new Date(e.createdAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) +
-        '</span></div>' +
-        '<div class="row"><span class="label">Серьёзность</span><span class="val">' + severityLabel(e.severity) + '</span></div>' +
-        '<div class="row"><span class="label">Описание</span><span class="val" style="font-weight:400;">' + escapeHtml(e.defect) + '</span></div>' +
-        (e.melRef ? '<div class="row"><span class="label">MEL</span><span class="val" style="font-family:Consolas;color:#0055aa;">' + escapeHtml(e.melRef) + '</span></div>' : '') +
-        (e.engineerName ? '<div class="row"><span class="label">Техник</span><span class="val">' + escapeHtml(e.engineerName) + '</span></div>' : '') +
-    '</div>';
+        new Date(e.createdAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) + '</span></div>' +
+        '<div class="row"><span class="label">Описание</span><span class="val" style="font-weight:400;">'+escapeHtml(e.defect)+'</span></div>' +
+        (e.melRef?'<div class="row"><span class="label">MEL</span><span class="val" style="font-family:Consolas;color:#0055aa;">'+escapeHtml(e.melRef)+'</span></div>':'') +
+        (e.melCategory?'<div class="row"><span class="label">Категория MEL</span><span class="val">Cat '+escapeHtml(e.melCategory)+'</span></div>':'') +
+        (e.melRevision?'<div class="row"><span class="label">Редакция MEL</span><span class="val">'+escapeHtml(e.melRevision)+'</span></div>':'') +
+        (e.melDueDate || e.melDueCondition?'<div class="row"><span class="label">Срок / условие</span><span class="val">'+escapeHtml(e.melDueDate || e.melDueCondition)+'</span></div>':'') +
+        (e.melRestrictions?'<div class="row"><span class="label">Ограничения MEL</span><span class="val" style="font-weight:400;">'+escapeHtml(e.melRestrictions)+'</span></div>':'') +
+        (e.engineerName?'<div class="row"><span class="label">Инженер</span><span class="val">'+escapeHtml(e.engineerName)+'</span></div>':'') +
+        '<div class="row"><span class="label">Этап обработки</span><span class="val">'+escapeHtml(ATLB_STATUSES[e.routingStage] ? ATLB_STATUSES[e.routingStage].label : e.routingStage)+'</span></div>' +
+        '</div>';
 
     if (e.rectification) {
-        html += '<div class="atlb-work-block">' +
-            '<div class="work-label">Работы инженера</div>' +
-            escapeHtml(e.rectification) +
-        '</div>';
+        html += renderPilotEngineerReport(e.rectification);
     }
 
     if (isReady && !e.crs.signed) {
         var pilotName = getPilotName();
-        html += '<div class="sign-block">' +
-            '<div class="sign-label">' +
-                'Поставьте подпись в поле ниже. Вы подтверждаете, что инженер выполнил работы' +
-                (e.melRef ? ' и MEL ' + escapeHtml(e.melRef) + ' согласован' : '') +
-                ', и подписываете CRS.<br>' +
-                '<strong>Подписант:</strong> ' + escapeHtml(pilotName) +
-            '</div>' +
-            '<canvas id="signatureCanvas" class="sign-canvas"></canvas>' +
+        html += '<div class="sign-block"><div class="sign-label">' +
+            'Поставьте подпись, подтверждающую, что вы ознакомились с техническим вердиктом и результатами проверки. Эта подпись не заменяет решение MCC о допуске ВС.<br><strong>Подписант:</strong> '+escapeHtml(pilotName) +
+            '</div><canvas id="signatureCanvas" class="sign-canvas"></canvas>' +
             '<div class="sign-actions">' +
-                '<button class="btn-clear-sign" id="sigClearBtn" onclick="clearSignature()" disabled>' +
-                    '<i class="fas fa-eraser"></i> Очистить' +
-                '</button>' +
-                '<button class="btn-sign-crs" id="crsSignBtn" onclick="pilotSignCRS(\'' + e.id + '\')" disabled>' +
-                    '<i class="fas fa-signature"></i> Подписать CRS' +
-                '</button>' +
-            '</div>' +
-        '</div>';
+            '<button class="btn-clear-sign" id="sigClearBtn" onclick="clearSignature()" disabled><i class="fas fa-eraser"></i> Очистить</button>' +
+            '<button class="btn-sign-crs" id="crsSignBtn" onclick="pilotSignCRS(\''+e.id+'\')" disabled><i class="fas fa-signature"></i> Подписать вердикт</button>' +
+            '</div></div>';
     } else if (e.crs.signed) {
-        html += '<div class="crs-signed">' +
-            '<div class="crs-head">' +
-                '<i class="fas fa-check-circle"></i>' +
-                '<div>' +
-                    '<div class="txt">CRS подписан</div>' +
-                    '<div class="meta">' + escapeHtml(e.crs.signedBy || '') + ' · ' + new Date(e.crs.signedAt).toLocaleString('ru-RU') + '</div>' +
-                '</div>' +
-            '</div>';
-        if (e.crs.signature) {
-            html += '<img src="' + e.crs.signature + '" alt="Подпись КВС">';
-        }
+        html += '<div class="crs-signed"><div class="crs-head"><i class="fas fa-check-circle"></i><div>' +
+            '<div class="txt">Подтверждение вердикта подписано</div>' +
+            '<div class="meta">'+escapeHtml(e.crs.signedBy||'')+' · '+new Date(e.crs.signedAt).toLocaleString('ru-RU')+'</div>' +
+            '</div></div>';
+        if (e.crs.signature) html += '<img src="'+e.crs.signature+'" alt="Подпись КВС">';
         html += '</div>';
     } else {
         html += '<div style="padding:12px 14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#4a5a6a;text-align:center;">' +
-            'Действий пока не требуется — ждём завершения работ инженером.' +
-        '</div>';
+            'Действий пока не требуется — ждём завершения работ инженером.</div>';
     }
 
-    html += '<div style="margin-top:20px;">' +
-        '<div class="hist-title">История</div>';
+    html += '<div style="margin-top:20px;"><div class="hist-title">История</div>';
     var history = e.history || [];
-    for (var i = 0; i < history.length; i++) {
+    for (var i=0;i<history.length;i++) {
         var h = history[i];
         var toMeta = ATLB_STATUSES[h.to] || ATLB_STATUSES['open'];
-        html += '<div class="hist-item">' +
-            '<div class="hist-dot" style="background:' + toMeta.color + ';"></div>' +
-            '<div class="hist-body">' +
-                '<div class="hist-line">' +
-                    '<span class="hist-status" style="color:' + toMeta.color + ';">' + toMeta.label + '</span>' +
-                    '<span class="hist-date">' + new Date(h.at).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>' +
-                '</div>' +
-                '<div class="hist-note">' + escapeHtml(h.role || '—') + (h.note ? ' · ' + escapeHtml(h.note) : '') + '</div>' +
-            '</div>' +
-        '</div>';
+        html += '<div class="hist-item"><div class="hist-dot" style="background:'+toMeta.color+';"></div>' +
+            '<div class="hist-body"><div class="hist-line">' +
+            '<span class="hist-status" style="color:'+toMeta.color+';">'+toMeta.label+'</span>' +
+            '<span class="hist-date">'+new Date(h.at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</span>' +
+            '</div><div class="hist-note">'+escapeHtml(h.role||'—')+(h.note?' · '+escapeHtml(h.note):'')+'</div></div></div>';
     }
     html += '</div>';
 
     html += '<div class="modal-actions" style="margin-top:20px;">';
-    if (e.status === 'released' || e.source === 'manual') {
-        html += '<button class="btn btn-secondary" onclick="deleteFromDetail(\'' + e.id + '\')"><i class="fas fa-trash"></i> Удалить</button>';
+    if (e.status === 'released') {
+        html += '<button class="btn btn-secondary" onclick="deleteFromDetail(\''+e.id+'\')"><i class="fas fa-trash"></i> Удалить</button>';
     }
-    html += '<button class="btn btn-secondary" onclick="closeATLBDetail()">Закрыть</button>';
-    html += '</div>';
+    html += '<button class="btn btn-secondary" onclick="closeATLBDetail()">Закрыть</button></div>';
 
     document.getElementById('atlbDetailContent').innerHTML = html;
     document.getElementById('atlbDetailModal').classList.add('show');
-
-    if (isReady && !e.crs.signed) {
-        setTimeout(function() { initSignaturePad(); }, 50);
-    }
+    if (isReady && !e.crs.signed) setTimeout(initSignaturePad, 50);
 }
 window.openATLBDetail = openATLBDetail;
-
-function severityLabel(s) {
-    if (s === 'high') return 'Высокая';
-    if (s === 'low') return 'Низкая';
-    return 'Средняя';
-}
 
 function closeATLBDetail() {
     document.getElementById('atlbDetailModal').classList.remove('show');
     currentDetailId = null;
-    signatureCtx = null;
-    signatureHasStroke = false;
-    signatureDrawing = false;
-    signatureLastPos = null;
+    signatureCtx = null; signatureHasStroke = false; signatureDrawing = false; signatureLastPos = null;
 }
 window.closeATLBDetail = closeATLBDetail;
 
 function deleteFromDetail(id) {
-    deleteATLBEntry(id);
+    if (!confirm('Удалить запись из ATLB?')) return;
+    fetch(API_URL + '/requests/' + id, { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) { closeATLBDetail(); showToast('Запись удалена', 'success'); loadATLB(); }
+            else showToast('Ошибка удаления', 'error');
+        })
+        .catch(function() { showToast('Ошибка соединения', 'error'); });
 }
 window.deleteFromDetail = deleteFromDetail;
 
-/* Signature pad */
+/* ============ SIGNATURE PAD ============ */
 function initSignaturePad() {
     var canvas = document.getElementById('signatureCanvas');
     if (!canvas) return;
@@ -1028,244 +1012,120 @@ function initSignaturePad() {
     canvas.height = rect.height * ratio;
     var ctx = canvas.getContext('2d');
     ctx.scale(ratio, ratio);
-    ctx.strokeStyle = '#001f4d';
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#001f4d'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     signatureCtx = ctx;
-    signatureHasStroke = false;
-    signatureDrawing = false;
-    signatureLastPos = null;
-    if (canvas.setPointerCapture) canvas.style.touchAction = 'none';
+    signatureHasStroke = false; signatureDrawing = false; signatureLastPos = null;
+    canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', onSigPointerDown);
     canvas.addEventListener('pointermove', onSigPointerMove);
     canvas.addEventListener('pointerup', onSigPointerUp);
     canvas.addEventListener('pointercancel', onSigPointerUp);
 }
 
-function getSigPos(ev, canvas) {
-    var rect = canvas.getBoundingClientRect();
-    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
-}
-
+function getSigPos(ev, canvas) { var r = canvas.getBoundingClientRect(); return { x: ev.clientX-r.left, y: ev.clientY-r.top }; }
 function onSigPointerDown(ev) {
     if (!signatureCtx) return;
     ev.preventDefault();
-    var canvas = ev.target;
-    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    try { ev.target.setPointerCapture(ev.pointerId); } catch(_) {}
     signatureDrawing = true;
-    var pos = getSigPos(ev, canvas);
-    signatureCtx.beginPath();
-    signatureCtx.moveTo(pos.x, pos.y);
-    signatureCtx.lineTo(pos.x + 0.1, pos.y + 0.1);
-    signatureCtx.stroke();
-    signatureLastPos = pos;
-    markSignatureStarted();
+    var pos = getSigPos(ev, ev.target);
+    signatureCtx.beginPath(); signatureCtx.moveTo(pos.x, pos.y); signatureCtx.lineTo(pos.x+0.1, pos.y+0.1); signatureCtx.stroke();
+    signatureLastPos = pos; markSignatureStarted();
 }
-
 function onSigPointerMove(ev) {
     if (!signatureDrawing || !signatureCtx) return;
     ev.preventDefault();
-    var canvas = ev.target;
-    var pos = getSigPos(ev, canvas);
-    signatureCtx.beginPath();
-    signatureCtx.moveTo(signatureLastPos.x, signatureLastPos.y);
-    signatureCtx.lineTo(pos.x, pos.y);
-    signatureCtx.stroke();
-    signatureLastPos = pos;
-    markSignatureStarted();
+    var pos = getSigPos(ev, ev.target);
+    signatureCtx.beginPath(); signatureCtx.moveTo(signatureLastPos.x, signatureLastPos.y); signatureCtx.lineTo(pos.x, pos.y); signatureCtx.stroke();
+    signatureLastPos = pos; markSignatureStarted();
 }
-
-function onSigPointerUp(ev) {
-    if (!signatureDrawing) return;
-    ev.preventDefault();
-    signatureDrawing = false;
-    signatureLastPos = null;
-    try { ev.target.releasePointerCapture(ev.pointerId); } catch (_) {}
-}
-
+function onSigPointerUp(ev) { if (!signatureDrawing) return; ev.preventDefault(); signatureDrawing = false; signatureLastPos = null; try { ev.target.releasePointerCapture(ev.pointerId); } catch(_) {} }
 function markSignatureStarted() {
     if (signatureHasStroke) return;
     signatureHasStroke = true;
-    var canvas = document.getElementById('signatureCanvas');
-    if (canvas) canvas.classList.add('filled');
-    var signBtn = document.getElementById('crsSignBtn');
-    if (signBtn) signBtn.disabled = false;
-    var clearBtn = document.getElementById('sigClearBtn');
-    if (clearBtn) clearBtn.disabled = false;
+    var canvas = document.getElementById('signatureCanvas'); if (canvas) canvas.classList.add('filled');
+    var signBtn = document.getElementById('crsSignBtn'); if (signBtn) signBtn.disabled = false;
+    var clearBtn = document.getElementById('sigClearBtn'); if (clearBtn) clearBtn.disabled = false;
 }
-
 function clearSignature() {
-    var canvas = document.getElementById('signatureCanvas');
-    if (!canvas || !signatureCtx) return;
+    var canvas = document.getElementById('signatureCanvas'); if (!canvas || !signatureCtx) return;
     var rect = canvas.getBoundingClientRect();
     signatureCtx.clearRect(0, 0, rect.width, rect.height);
-    signatureHasStroke = false;
-    canvas.classList.remove('filled');
-    var signBtn = document.getElementById('crsSignBtn');
-    if (signBtn) signBtn.disabled = true;
-    var clearBtn = document.getElementById('sigClearBtn');
-    if (clearBtn) clearBtn.disabled = true;
+    signatureHasStroke = false; canvas.classList.remove('filled');
+    var signBtn = document.getElementById('crsSignBtn'); if (signBtn) signBtn.disabled = true;
+    var clearBtn = document.getElementById('sigClearBtn'); if (clearBtn) clearBtn.disabled = true;
 }
 window.clearSignature = clearSignature;
 
 function getSignatureDataUrl() {
     var canvas = document.getElementById('signatureCanvas');
     if (!canvas || !signatureHasStroke) return null;
-    try { return canvas.toDataURL('image/png'); }
-    catch (e) { return null; }
+    try { return canvas.toDataURL('image/png'); } catch(_) { return null; }
 }
-
 function getPilotName() {
-    try {
-        var s = sessionStorage.getItem('userSession');
-        if (s) { var u = JSON.parse(s); return u.name || 'Пилот'; }
-    } catch (_) {}
+    try { var s = sessionStorage.getItem('userSession'); if (s) return JSON.parse(s).name || 'Пилот'; } catch(_) {}
     return 'Пилот';
 }
 
+/* ============ SIGN CRS — через сервер ============ */
 function pilotSignCRS(id) {
     var e = findATLB(id);
     if (!e) { showToast('Запись не найдена', 'error'); return; }
-    if (e.status !== 'repaired' && e.status !== 'deferred') {
-        showToast('CRS можно подписать только после завершения работ', 'warning'); return;
-    }
-    if (e.crs.signed) { showToast('CRS уже подписан', 'warning'); return; }
-
+    if (!isPilotVerdictReady(e)) { showToast('Подпись доступна после получения решения MCC', 'warning'); return; }
+    if (e.crs.signed) { showToast('Подтверждение уже подписано', 'warning'); return; }
     var signatureData = getSignatureDataUrl();
-    if (!signatureData) { showToast('Поставьте подпись в поле', 'error'); return; }
-
+    if (!signatureData) { showToast('Поставьте подпись', 'error'); return; }
     var pilotName = getPilotName();
-    var msg = 'Подписать CRS (Certificate of Release to Service)?\n\n' +
-        'Борт: ' + (e.aircraft || '—') + '\n' +
-        'Дефект: ' + (e.defect || '—') + '\n' +
-        (e.rectification ? 'Работы: ' + e.rectification + '\n' : '') +
-        (e.melRef ? 'MEL: ' + e.melRef + '\n' : '') +
-        '\nПодписант: ' + pilotName;
-
-    if (!confirm(msg)) return;
-
-    fetch('/api/pilot/atlb/sign_crs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            request_id: e.requestId || e.id,
-            pilot_name: pilotName,
-            signature: signatureData
-        })
+    fetch(API_URL + '/requests/' + id + '/pilot-signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature: signatureData, signed_by: pilotName })
     })
-    .then(function(r) {
-        return r.json().then(function(d) {
-            if (!r.ok || d.success === false) throw new Error(d.error || ('HTTP ' + r.status));
-            return d;
-        });
+    .then(async function(r) {
+        var payload = await r.json().catch(function(){ return {}; });
+        if (!r.ok && !payload.error) payload.error = 'HTTP ' + r.status;
+        return payload;
     })
-    .then(function() {
-        closeATLBDetail();
-        showToast('CRS подписан. ВС готово к вылету.', 'success');
-        loadPilotATLB();
+    .then(function(res) {
+        if (res.success) {
+            showToast(res.already_signed ? 'Подпись уже сохранена.' : 'Подпись сохранена в системе.', 'success');
+            closeATLBDetail();
+            loadATLB();
+        } else {
+            showToast('Ошибка подписи: ' + (res.error || 'unknown'), 'error');
+        }
     })
-    .catch(function(err) { showToast('Ошибка подписи: ' + err.message, 'error'); });
+    .catch(function() { showToast('Ошибка соединения', 'error'); });
 }
 window.pilotSignCRS = pilotSignCRS;
 
-function deleteATLBEntry(id) {
-    if (!confirm('Отменить заявку? Запись останется в журнале со статусом «отменена».')) return;
-    var e = findATLB(id);
-    var rid = (e && (e.requestId || e.id)) || id;
-    fetch('/api/requests/' + encodeURIComponent(rid) + '/cancel', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Отменено пилотом', by: getPilotName() })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function() {
-        showToast('Заявка отменена', 'success');
-        closeATLBDetail();
-        loadPilotATLB();
-    })
-    .catch(function() { showToast('Не удалось отменить заявку', 'error'); });
-}
-window.deleteATLBEntry = deleteATLBEntry;
-
+/* ============ EXPORT ============ */
 function exportATLB() {
-    if (!atlbEntries.length) { showToast('ATLB пуст', 'info'); return; }
-    var blob = new Blob([JSON.stringify(atlbEntries, null, 2)], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'ATLB_' + new Date().toISOString().slice(0,10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('ATLB экспортирован', 'success');
+    window.location.href = '/api/reports/export.xlsx?role=pilot';
 }
 window.exportATLB = exportATLB;
 
-function addManualDefect() {
-    document.getElementById('manualDefectDesc').value = '';
-    document.getElementById('manualDefectMel').value = '';
-    document.getElementById('manualDefectParking').value = '';
-    document.getElementById('manualDefectModal').classList.add('show');
-    setTimeout(function() { document.getElementById('manualDefectDesc').focus(); }, 100);
-}
-window.addManualDefect = addManualDefect;
-
-function closeManualDefectModal() { document.getElementById('manualDefectModal').classList.remove('show'); }
-window.closeManualDefectModal = closeManualDefectModal;
-
-function saveManualDefect() {
-    var desc = document.getElementById('manualDefectDesc').value.trim();
-    var mel = document.getElementById('manualDefectMel').value.trim();
-    var parking = document.getElementById('manualDefectParking').value.trim();
-    if (!desc) { showToast('Введите описание дефекта', 'error'); return; }
-    if (!mel) { showToast('Укажите MEL reference', 'error'); return; }
-
-    var entry = createATLBEntry({
-        aircraft: '—', flightNumber: '',
-        defect: desc, faultType: '',
-        severity: 'low', parking: parking,
-        source: 'manual', requestId: null
-    });
-    entry.melRef = mel;
-    entry.deferred = true;
-    entry.status = 'deferred';
-    entry.rectification = 'Отложено по ' + mel;
-    entry.history.push({ at: new Date().toISOString(), from: 'open', to: 'deferred', role: 'MCC', note: 'Согласованный MEL: ' + mel + ' — ожидает подписи КВС' });
-    saveATLB();
-    renderATLB();
-    closeManualDefectModal();
-    showToast('MEL добавлен. Откройте запись, чтобы поставить подпись.', 'success');
-}
-window.saveManualDefect = saveManualDefect;
-
-/* Text request */
+/* ============ TEXT REQUEST ============ */
+// Изменено: не отправляем severity в payload (backend форсит 'medium' для pilot)
 function submitTextRequest(event) {
     var aircraft = document.getElementById('textAircraft').value.trim();
     var flight = document.getElementById('textFlight').value.trim();
     var parking = document.getElementById('textParking').value.trim();
-
     if (!parking) { showToast('Укажите стоянку', 'error'); return; }
 
     var defects = collectDefects();
-    if (defects.length === 0) { showToast('Добавьте хотя бы один дефект', 'error'); return; }
-
-    for (var i = 0; i < defects.length; i++) {
-        if (!defects[i].name) { showToast('Укажите неисправность (дефект ' + (i+1) + ')', 'error'); return; }
-        if (!defects[i].desc) { showToast('Опишите дефект ' + (i+1), 'error'); return; }
+    if (!defects.length) { showToast('Добавьте хотя бы один дефект', 'error'); return; }
+    for (var i=0;i<defects.length;i++) {
+        if (!defects[i].name) { showToast('Укажите неисправность #'+(i+1), 'error'); return; }
     }
 
     var btn = event.target.closest('button');
     btn.disabled = true;
     var originalHtml = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка в MCC...';
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка...';
 
-    var session = sessionStorage.getItem('userSession');
-    var user = session ? JSON.parse(session) : {};
-
-    var descLines = [];
-    for (var i = 0; i < defects.length; i++) {
-        descLines.push((i+1) + '. ' + defects[i].name + ' — ' + defects[i].desc);
-    }
+    var user = getCurrentUser();
+    var descLines = defects.map(function(d,i) { return (i+1)+'. '+d.name; });
     var fullDescription = descLines.join('\n');
 
     var payload = {
@@ -1274,72 +1134,37 @@ function submitTextRequest(event) {
         pilot_rank: user.rank || 'КВС',
         aircraft: aircraft || (user.aircraft || 'RA-XXXXX'),
         fault_type: labelToCode(defects[0].name),
-        severity: defects[0].severity,
         parking_id: parking,
-        description: fullDescription,
-        flight_number: flight || null
+        flight_number: flight || null,
+        description: fullDescription
     };
 
-    console.log('[submitTextRequest] POST', API_URL + '/dispatch', payload);
-
     fetch(API_URL + '/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
     })
-    .then(function(r) {
-        return r.text().then(function(txt) {
-            console.log('[submitTextRequest] HTTP ' + r.status + ':', txt);
-            if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + (txt || '(пустое тело)'));
-            try { return JSON.parse(txt); }
-            catch(e) { throw new Error('Не JSON: ' + txt.substring(0, 200)); }
-        });
-    })
-    .then(function(result) {
-        if (!result.success) throw new Error(result.error || 'success=false');
-        var requestId = result.request_id || result.requestId || result.id || null;
-        if (!requestId) return null;
-
-        var commentText = '📝 Заявка от КВС ' + (user.name || '') + (user.rank ? ' (' + user.rank + ')' : '') +
-            (defects.length > 1 ? ' [' + defects.length + ' дефектов]' : '') +
-            ':\n' + fullDescription;
-
-        return fetch(API_URL + '/requests/' + requestId, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (!res.success) throw new Error(res.error || 'dispatch failed');
+        var rid = res.request_id;
+        var commentText = '📝 Заявка от КВС ' + (user.name||'') + (user.rank?' ('+user.rank+')':'') +
+            (defects.length > 1 ? ' ['+defects.length+' дефектов]' : '') + ':\n' + fullDescription;
+        return fetch(API_URL + '/requests/' + rid, {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({ engineer_comment: commentText })
-        })
-        .then(function() {
-            return fetch(API_URL + '/pilot/confirm/' + requestId, { method: 'POST' })
-                .then(function(r) { return r.ok ? r.json() : { success: false }; })
-                .then(function() { return requestId; })
-                .catch(function() { return requestId; });
-        });
+        }).then(function() {
+            return fetch(API_URL + '/pilot/confirm/' + rid, { method: 'POST' }).catch(function() {});
+        }).then(function() { return rid; });
     })
-    .then(function(requestId) {
-        for (var i = 0; i < defects.length; i++) {
-            createATLBEntry({
-                aircraft: aircraft || '—',
-                flightNumber: flight,
-                defect: defects[i].name + '. ' + defects[i].desc,
-                faultType: defects[i].name,
-                severity: defects[i].severity,
-                parking: parking,
-                source: 'text',
-                requestId: requestId
-            });
-        }
-
+    .then(function() {
         document.getElementById('textAircraft').value = '';
         document.getElementById('textFlight').value = '';
         document.getElementById('textParking').value = '';
         initDefectsForm();
-
-        showToast('Заявка отправлена в MCC. Записей: ' + defects.length, 'success');
-        setTimeout(function() { showTab('logbook'); }, 700);
+        showToast('Заявка отправлена. Записей: ' + defects.length, 'success');
+        showTab('logbook');
     })
     .catch(function(err) {
-        console.error('[submitTextRequest] ERROR:', err);
+        console.error(err);
         showToast('Ошибка: ' + err.message, 'error');
     })
     .finally(function() {
@@ -1349,242 +1174,209 @@ function submitTextRequest(event) {
 }
 window.submitTextRequest = submitTextRequest;
 
-/* Voice request */
+/* ============ VOICE REQUEST ============ */
 function analyzeRequest() {
-    if (!audioBlob) { showToast('Сначала запишите сообщение', 'error'); return; }
+    if (!audioBlob) { showToast('Сначала запишите', 'error'); return; }
     var analyzeBtn = document.getElementById('analyzeBtn');
     analyzeBtn.disabled = true;
     analyzeBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Распознавание...';
 
-    var session = sessionStorage.getItem('userSession');
-    var user = session ? JSON.parse(session) : {};
+    var user = getCurrentUser();
     var duration = finalDuration > 0 ? finalDuration : 1;
-
     var reader = new FileReader();
     reader.readAsDataURL(audioBlob);
     reader.onloadend = function() {
-        var base64Audio = reader.result;
         var payload = {
             source: 'pilot', is_draft: true,
-            engineer_id: user.id || null,
             pilot_name: user.name || 'Пилот',
             pilot_rank: user.rank || 'КВС',
             aircraft: user.aircraft || null,
-            pilot_audio: base64Audio,
+            pilot_audio: reader.result,
             pilot_audio_mime: audioBlob.type || 'audio/webm',
             pilot_audio_duration: duration
         };
-
         fetch(API_URL + '/dispatch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
         })
         .then(function(r) { return r.json(); })
-        .then(function(result) {
-            if (!result.success) throw new Error(result.error);
-            currentDraftId = result.request_id;
+        .then(function(res) {
+            if (!res.success) throw new Error(res.error || 'dispatch failed');
+            currentDraftId = res.request_id;
             return fetch(API_URL + '/requests/' + currentDraftId + '/transcribe', { method: 'POST' });
         })
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            if (res.success) {
-                var parsed = res.parsed || {};
-                document.getElementById('reviewAircraft').value = parsed.aircraft || '';
-                document.getElementById('reviewParking').value = parsed.parking_id || '';
-                document.getElementById('reviewFault').value = codeToLabel(parsed.fault_type || '');
-                document.getElementById('reviewDesc').value = res.text || '';
-                document.getElementById('reviewCard').style.display = 'block';
-                document.getElementById('analyzeBtn').style.display = 'none';
-                showToast('Данные распознаны. Проверьте их.', 'success');
+            var parsed = (res && res.parsed) || {};
+            var defects = (res && res.success) ? parseDefectsFromTranscription(parsed) : [];
+            document.getElementById('reviewAircraft').value = parsed.aircraft || '';
+            document.getElementById('reviewParking').value = parsed.parking_id || '';
+            var fe = document.getElementById('reviewFlight'); if (fe) fe.value = parsed.flight_number || '';
+
+            if (res && res.success && defects.length > 0) {
+                populateReviewDefects(defects);
+                showToast(defects.length > 1 ? 'Распознано дефектов: '+defects.length : 'Распознан дефект', 'success');
+            } else if (res && res.success) {
+                populateReviewDefects([]);
+                showToast('Дефектов не найдено. Добавьте вручную.', 'warning');
             } else {
-                showToast('Не удалось распознать речь. Введите данные вручную.', 'warning');
-                document.getElementById('reviewCard').style.display = 'block';
-                document.getElementById('analyzeBtn').style.display = 'none';
+                populateReviewDefects([]);
+                showToast('Не удалось распознать. Введите вручную.', 'warning');
             }
+            document.getElementById('reviewCard').style.display = 'block';
+            document.getElementById('analyzeBtn').style.display = 'none';
         })
         .catch(function(err) {
             console.error(err);
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast('Ошибка: ' + (err.message || 'неизвестная'), 'error');
             analyzeBtn.disabled = false;
-            analyzeBtn.innerHTML = '<i class="fas fa-magic"></i> Проверить данные (распознать)';
+            analyzeBtn.innerHTML = '<i class="fas fa-magic"></i> Проверить данные';
         });
     };
 }
 window.analyzeRequest = analyzeRequest;
 
+// Изменено: не отправляем severity в payload
 function confirmRequest() {
     if (!currentDraftId) return;
     var confirmBtn = document.getElementById('confirmBtn');
+    var originalHtml = confirmBtn.innerHTML;
+    var aircraft = document.getElementById('reviewAircraft').value.trim();
+    var flight = document.getElementById('reviewFlight').value.trim();
+    var parking = document.getElementById('reviewParking').value.trim();
+    if (!parking) { showToast('Укажите стоянку', 'error'); return; }
+
+    var defects = collectReviewDefects();
+    if (!defects.length) { showToast('Нет дефектов', 'error'); return; }
+    for (var i=0;i<defects.length;i++) {
+        if (!defects[i].name) { showToast('Укажите неисправность #'+(i+1), 'error'); return; }
+    }
+
     confirmBtn.disabled = true;
     confirmBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Отправка...';
 
-    var aircraftVal = document.getElementById('reviewAircraft').value.trim();
-    var parkingVal = document.getElementById('reviewParking').value.trim();
-    var faultText = document.getElementById('reviewFault').value.trim();
-    var descVal = document.getElementById('reviewDesc').value.trim();
+    var user = getCurrentUser();
+    var descLines = defects.map(function(d,i) { return (i+1)+'. '+d.name; });
+    var fullDescription = descLines.join('\n');
+    var commentText = '🎙 Заявка от КВС ' + (user.name||'') + (user.rank?' ('+user.rank+')':'') +
+        (defects.length > 1 ? ' ['+defects.length+' дефектов]' : '') + ':\n' + fullDescription;
 
     var data = {
-        aircraft: aircraftVal,
-        parking_id: parkingVal,
-        fault_type: labelToCode(faultText),
-        engineer_comment: descVal
+        aircraft: aircraft, parking_id: parking, flight_number: flight || null,
+        fault_type: labelToCode(defects[0].name),
+        engineer_comment: commentText
     };
 
     fetch(API_URL + '/requests/' + currentDraftId, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
     })
     .then(function() { return fetch(API_URL + '/pilot/confirm/' + currentDraftId, { method: 'POST' }); })
     .then(function(r) { return r.json(); })
-    .then(function(result) {
-        if (result.success) {
-            showToast('Заявка отправлена в MCC', 'success');
-            var record = {
-                id: 'rec_' + Date.now(),
-                audioBase64: URL.createObjectURL(audioBlob),
-                audioMime: audioBlob.type,
-                duration: finalDuration,
-                sentAt: new Date().toISOString(),
-                requestId: currentDraftId
-            };
-            records.unshift(record);
-            saveRecords();
-            renderRecords();
-
-            if (faultText && descVal) {
-                createATLBEntry({
-                    aircraft: aircraftVal || '—', flightNumber: '',
-                    defect: faultText + '. ' + descVal,
-                    faultType: faultText,
-                    severity: 'medium',
-                    parking: parkingVal, source: 'voice',
-                    requestId: currentDraftId
-                });
-            }
-            resetRecording();
-            document.getElementById('reviewCard').style.display = 'none';
-            document.getElementById('analyzeBtn').style.display = 'block';
-            document.getElementById('analyzeBtn').disabled = true;
-            currentDraftId = null;
-        } else {
-            showToast('Ошибка подтверждения', 'error');
-        }
+    .then(function(res) {
+        if (!res || !res.success) throw new Error('confirm failed');
+        showToast('Заявка отправлена в MCC', 'success');
+        var rec = { id:'rec_'+Date.now(), audioBase64: URL.createObjectURL(audioBlob), audioMime: audioBlob.type, duration: finalDuration, sentAt: new Date().toISOString(), requestId: currentDraftId };
+        records.unshift(rec);
+        saveRecords(); renderRecords();
+        resetRecording();
+        document.getElementById('reviewCard').style.display = 'none';
+        document.getElementById('reviewDefectsList').innerHTML = '';
+        reviewDefectCounter = 0;
+        document.getElementById('analyzeBtn').style.display = 'block';
+        document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('analyzeBtn').innerHTML = '<i class="fas fa-magic"></i> Проверить данные (распознать)';
+        currentDraftId = null;
+        showTab('logbook');
     })
     .catch(function(err) {
         console.error(err);
         showToast('Ошибка отправки', 'error');
         confirmBtn.disabled = false;
-        confirmBtn.innerHTML = '<i class="fas fa-check"></i> Подтвердить и отправить в MCC';
+        confirmBtn.innerHTML = originalHtml;
     });
 }
 window.confirmRequest = confirmRequest;
 
-/* Profile */
+/* ============ PROFILE ============ */
 function openProfileModal() {
-    var session = sessionStorage.getItem('userSession');
-    if (!session) return;
-    var user = JSON.parse(session);
+    var s = sessionStorage.getItem('userSession');
+    if (!s) return;
+    var user = JSON.parse(s);
     document.getElementById('profileNameInput').value = user.name || '';
     document.getElementById('profileEmailInput').value = user.email || '';
     document.getElementById('profilePasswordInput').value = '';
     document.getElementById('profileModal').classList.add('show');
 }
 window.openProfileModal = openProfileModal;
-
 function closeProfileModal() { document.getElementById('profileModal').classList.remove('show'); }
 window.closeProfileModal = closeProfileModal;
 
 async function saveProfile() {
-    var session = sessionStorage.getItem('userSession');
-    if (!session) return;
-    var user = JSON.parse(session);
+    var s = sessionStorage.getItem('userSession');
+    if (!s) return;
+    var user = JSON.parse(s);
     var name = document.getElementById('profileNameInput').value.trim();
-    var password = document.getElementById('profilePasswordInput').value.trim();
+    var pwd = document.getElementById('profilePasswordInput').value.trim();
     if (!name) { showToast('Введите имя', 'error'); return; }
-
     var btn = document.getElementById('profileSaveBtn');
-    var originalText = btn.innerHTML;
-    btn.innerHTML = 'Сохранение...';
-    btn.disabled = true;
-
+    var orig = btn.innerHTML;
+    btn.innerHTML = 'Сохранение...'; btn.disabled = true;
     var data = { name: name, status: 'online' };
-    if (password) data.password = password;
-
+    if (pwd) data.password = pwd;
     try {
         var res = await fetch(API_URL + '/users/' + user.id, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
         });
         var result = await res.json();
         if (result.success) {
             user.name = name;
             sessionStorage.setItem('userSession', JSON.stringify(user));
             document.getElementById('userName').textContent = name;
-            showToast('Профиль обновлен', 'success');
+            showToast('Профиль обновлён', 'success');
             closeProfileModal();
-        } else {
-            showToast(result.error || 'Ошибка сохранения', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        showToast('Ошибка соединения', 'error');
-    } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-    }
+        } else showToast(result.error || 'Ошибка', 'error');
+    } catch(e) { showToast('Ошибка соединения', 'error'); }
+    finally { btn.innerHTML = orig; btn.disabled = false; }
 }
 window.saveProfile = saveProfile;
 
-/* Help modals */
+/* ============ HELP / MIC MODALS ============ */
 function showHelpModal(reason) {
     var content = '';
-    if (reason === 'insecure') {
-        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Незащищённый протокол.</strong></div><p style="font-size:13px;line-height:1.7;color:#4a5a6a;">Браузер разрешает доступ к микрофону только на защищённых страницах.</p><ul class="info-list"><li>Откройте <strong>https://…</strong></li><li>Или <strong>http://localhost</strong></li></ul><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
-    } else if (reason === 'no_api') {
-        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Браузер не поддерживает запись.</strong></div><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
-    } else if (reason === 'no_recorder') {
-        content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Нет MediaRecorder.</strong></div><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
-    }
+    if (reason === 'insecure') content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Незащищённый протокол.</strong></div><p style="font-size:13px;line-height:1.7;color:#4a5a6a;">Браузер разрешает микрофон только на защищённых страницах.</p><ul class="info-list"><li>Откройте <strong>https://…</strong></li><li>Или <strong>http://localhost</strong></li></ul><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
+    else content = '<div class="info-box"><i class="fas fa-exclamation-triangle"></i> <strong>Запись недоступна.</strong></div><div class="modal-actions"><button class="btn btn-primary" onclick="closeHelpModal()">Понятно</button></div>';
     document.getElementById('helpModalContent').innerHTML = content;
     document.getElementById('helpModal').classList.add('show');
 }
-
 function closeHelpModal() { document.getElementById('helpModal').classList.remove('show'); }
 window.closeHelpModal = closeHelpModal;
 
 function openMicModal(mics, currentId, onSelect) {
     availableMics = mics;
     var html = '';
-    if (mics.length === 0) {
-        html = '<div class="info-box"><i class="fas fa-info-circle"></i> Нет микрофонов.</div><div style="display:flex;gap:8px;"><button class="btn btn-secondary" onclick="closeMicModal()">Закрыть</button></div>';
+    if (!mics.length) {
+        html = '<div class="info-box">Нет микрофонов.</div><div style="display:flex;gap:8px;"><button class="btn btn-secondary" onclick="closeMicModal()">Закрыть</button></div>';
     } else {
         html += '<p style="font-size:13px;color:#4a5a6a;margin-bottom:12px;">Выберите устройство:</p><div class="mic-list">';
-        for (var i = 0; i < mics.length; i++) {
+        for (var i=0;i<mics.length;i++) {
             var m = mics[i];
-            var isSelected = m.deviceId === currentId;
-            var label = m.label || ('Микрофон ' + (i + 1));
-            var shortId = m.deviceId ? m.deviceId.substring(0, 20) + (m.deviceId.length > 20 ? '…' : '') : '—';
-            html += '<div class="mic-item' + (isSelected ? ' selected' : '') + '" data-mic-id="' + m.deviceId + '"><div class="mic-icon"><i class="fas fa-microphone"></i></div><div class="mic-info"><div class="mic-label">' + escapeHtml(label) + '</div><div class="mic-id">' + escapeHtml(shortId) + '</div></div><div class="mic-check"><i class="fas fa-check-circle"></i></div></div>';
+            var isSel = m.deviceId === currentId;
+            var label = m.label || ('Микрофон ' + (i+1));
+            var shortId = m.deviceId ? m.deviceId.substring(0,20)+(m.deviceId.length>20?'…':'') : '—';
+            html += '<div class="mic-item'+(isSel?' selected':'')+'" data-mic-id="'+m.deviceId+'"><div class="mic-icon"><i class="fas fa-microphone"></i></div><div class="mic-info"><div class="mic-label">'+escapeHtml(label)+'</div><div class="mic-id">'+escapeHtml(shortId)+'</div></div><div class="mic-check"><i class="fas fa-check-circle"></i></div></div>';
         }
-        html += '</div><div style="display:flex;gap:8px;margin-top:16px;"><button class="btn btn-primary" onclick="confirmMicSelection()" style="flex:1;"><i class="fas fa-check"></i> Применить</button><button class="btn btn-secondary" onclick="closeMicModal()" style="flex:1;">Отмена</button></div>';
+        html += '</div><div style="display:flex;gap:8px;margin-top:16px;"><button class="btn btn-primary" onclick="confirmMicSelection()" style="flex:1;">Применить</button><button class="btn btn-secondary" onclick="closeMicModal()" style="flex:1;">Отмена</button></div>';
     }
     document.getElementById('micModalContent').innerHTML = html;
     document.getElementById('micModal').classList.add('show');
-
-    var items = document.querySelectorAll('#micModalContent .mic-item');
-    items.forEach(function(item) {
+    document.querySelectorAll('#micModalContent .mic-item').forEach(function(item) {
         item.addEventListener('click', function() {
-            items.forEach(function(o) { o.classList.remove('selected'); });
+            document.querySelectorAll('#micModalContent .mic-item').forEach(function(o) { o.classList.remove('selected'); });
             this.classList.add('selected');
             selectedMicId = this.getAttribute('data-mic-id');
         });
     });
     window.__micOnSelect = onSelect;
 }
-
 function confirmMicSelection() {
     if (selectedMicId && typeof window.__micOnSelect === 'function') {
         localStorage.setItem(MIC_STORAGE_KEY, selectedMicId);
@@ -1593,11 +1385,10 @@ function confirmMicSelection() {
     closeMicModal();
 }
 window.confirmMicSelection = confirmMicSelection;
-
 function closeMicModal() { document.getElementById('micModal').classList.remove('show'); }
 window.closeMicModal = closeMicModal;
 
-/* Recording */
+/* ============ RECORDING ============ */
 function toggleRecording() { if (isRecording) stopRecording(); else startRecording(); }
 window.toggleRecording = toggleRecording;
 
@@ -1606,27 +1397,21 @@ function startRecording() {
     if (!hasGetUserMedia()) { showHelpModal('no_api'); return; }
     if (typeof MediaRecorder === 'undefined') { showHelpModal('no_recorder'); return; }
 
-    var getUserMedia = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
-        : function(c) { return new Promise(function(res, rej) { var l = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia; if (!l) { rej(new Error('getUserMedia')); return; } l.call(navigator, c, res, rej); }); };
-
-    getUserMedia({ audio: true }).then(function(stream) {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
         stream.getTracks().forEach(function(t) { t.stop(); });
-        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) { startRecordingWithDevice(null); return; }
         navigator.mediaDevices.enumerateDevices().then(function(devices) {
             var mics = devices.filter(function(d) { return d.kind === 'audioinput'; });
             if (mics.length <= 1) { startRecordingWithDevice(mics.length === 1 ? mics[0].deviceId : null); return; }
             var savedMic = localStorage.getItem(MIC_STORAGE_KEY) || null;
-            var hasSaved = false;
-            for (var i = 0; i < mics.length; i++) { if (mics[i].deviceId === savedMic) { hasSaved = true; break; } }
+            var hasSaved = mics.some(function(m) { return m.deviceId === savedMic; });
             openMicModal(mics, hasSaved ? savedMic : mics[0].deviceId, function(micId) { startRecordingWithDevice(micId); });
         }).catch(function() { startRecordingWithDevice(null); });
     }).catch(function(err) {
         console.error('Ошибка доступа:', err);
-        var msg = 'Не удалось получить доступ к микрофону';
-        if (err && err.name === 'NotAllowedError') msg = 'Доступ запрещён.';
-        else if (err && err.name === 'NotFoundError') msg = 'Микрофон не найден.';
-        else if (err && err.name === 'NotReadableError') msg = 'Микрофон занят.';
+        var msg = 'Не удалось получить микрофон';
+        if (err && err.name === 'NotAllowedError') msg = 'Доступ запрещён';
+        else if (err && err.name === 'NotFoundError') msg = 'Микрофон не найден';
+        else if (err && err.name === 'NotReadableError') msg = 'Микрофон занят';
         else if (err && err.name === 'SecurityError') { showHelpModal('insecure'); return; }
         showToast(msg, 'error');
     });
@@ -1634,59 +1419,49 @@ function startRecording() {
 
 function startRecordingWithDevice(deviceId) {
     var constraints = { audio: true };
-    if (deviceId) { constraints.audio = { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }; }
-    else { constraints.audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }; }
+    if (deviceId) constraints.audio = { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    else constraints.audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
-    var getUserMedia = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
-        : function(c) { return new Promise(function(res, rej) { var l = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia; if (!l) { rej(new Error('getUserMedia')); return; } l.call(navigator, c, res, rej); }); };
-
-    getUserMedia(constraints).then(function(stream) {
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
         var mimeType = '';
         var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mpeg'];
-        if (MediaRecorder.isTypeSupported) { for (var i = 0; i < candidates.length; i++) { if (MediaRecorder.isTypeSupported(candidates[i])) { mimeType = candidates[i]; break; } } }
-
+        if (MediaRecorder.isTypeSupported) for (var i=0;i<candidates.length;i++) { if (MediaRecorder.isTypeSupported(candidates[i])) { mimeType = candidates[i]; break; } }
         try { mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream); }
-        catch (e) { try { mediaRecorder = new MediaRecorder(stream); } catch (e2) { showHelpModal('no_recorder'); return; } }
+        catch(e) { try { mediaRecorder = new MediaRecorder(stream); } catch(e2) { showHelpModal('no_recorder'); return; } }
 
         audioChunks = []; finalDuration = 0;
-
         mediaRecorder.ondataavailable = function(e) { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
-        mediaRecorder.onerror = function(e) { console.error('MediaRecorder error:', e); showToast('Ошибка записи', 'error'); };
-
         mediaRecorder.onstop = function() {
             var timerDuration = Math.round((Date.now() - recordingStartTime) / 1000);
             if (timerDuration < 0) timerDuration = 0;
             setTimeout(function() {
-                if (!audioChunks.length) { showToast('Не удалось записать звук', 'error'); return; }
+                if (!audioChunks.length) { showToast('Не записался звук', 'error'); return; }
                 var finalMime = mediaRecorder.mimeType || mimeType || 'audio/webm';
                 audioBlob = new Blob(audioChunks, { type: finalMime });
-                if (audioBlob.size < 2000) { showToast('Запись слишком короткая', 'warning'); audioBlob = null; return; }
+                if (audioBlob.size < 2000) { showToast('Слишком короткая запись', 'warning'); audioBlob = null; return; }
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
                 audioUrl = URL.createObjectURL(audioBlob);
                 var audioEl = document.getElementById('audioElement');
-                audioEl.src = audioUrl;
-                audioEl.load();
-                var applyDuration = function(seconds) {
-                    if (!seconds || !isFinite(seconds) || seconds <= 0) seconds = timerDuration;
-                    finalDuration = Math.round(seconds);
+                audioEl.src = audioUrl; audioEl.load();
+                var apply = function(sec) {
+                    if (!sec || !isFinite(sec) || sec <= 0) sec = timerDuration;
+                    finalDuration = Math.round(sec);
                     document.getElementById('audioPlayer').classList.remove('hidden');
-                    document.getElementById('audioMeta').textContent = finalDuration + ' сек • Готово к проверке';
+                    document.getElementById('audioMeta').textContent = finalDuration + ' сек • Готово';
                     document.getElementById('recordBtn').style.display = 'none';
                     document.getElementById('resetBtn').style.display = 'inline-flex';
                     document.getElementById('analyzeBtn').disabled = false;
-                    showToast('Запись завершена. Нажмите «Проверить данные».', 'success');
+                    showToast('Запись завершена', 'success');
                 };
-                if (audioEl.readyState >= 1 && audioEl.duration && isFinite(audioEl.duration)) { applyDuration(audioEl.duration); }
+                if (audioEl.readyState >= 1 && audioEl.duration && isFinite(audioEl.duration)) apply(audioEl.duration);
                 else {
                     var handled = false;
-                    var onMeta = function() { if (handled) return; handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); applyDuration(audioEl.duration); };
+                    var onMeta = function() { if (handled) return; handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); apply(audioEl.duration); };
                     audioEl.addEventListener('loadedmetadata', onMeta);
-                    setTimeout(function() { if (!handled) { handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); applyDuration(timerDuration); } }, 800);
+                    setTimeout(function() { if (!handled) { handled = true; audioEl.removeEventListener('loadedmetadata', onMeta); apply(timerDuration); } }, 800);
                 }
             }, 250);
         };
-
         try {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             var source = audioContext.createMediaStreamSource(stream);
@@ -1695,40 +1470,32 @@ function startRecordingWithDevice(deviceId) {
             source.connect(analyserNode);
             var dataArray = new Uint8Array(analyserNode.frequencyBinCount);
             var bars = document.querySelectorAll('#recorderViz .bar');
-            function animateViz() {
+            (function anim() {
                 if (!isRecording) return;
                 analyserNode.getByteFrequencyData(dataArray);
                 var step = Math.floor(dataArray.length / bars.length) || 1;
-                for (var i = 0; i < bars.length; i++) {
+                for (var i=0;i<bars.length;i++) {
                     var sum = 0;
-                    for (var j = 0; j < step; j++) sum += dataArray[i * step + j] || 0;
-                    var avg = sum / step;
-                    bars[i].style.height = Math.max(4, (avg / 255) * 60) + 'px';
+                    for (var j=0;j<step;j++) sum += dataArray[i*step+j] || 0;
+                    bars[i].style.height = Math.max(4, ((sum/step)/255)*60) + 'px';
                 }
-                vizAnimationId = requestAnimationFrame(animateViz);
-            }
-            animateViz();
-        } catch (vizErr) {}
+                vizAnimationId = requestAnimationFrame(anim);
+            })();
+        } catch(_) {}
 
-        try { mediaRecorder.start(250); } catch (e) { showToast('Не удалось запустить запись', 'error'); return; }
-
+        mediaRecorder.start(250);
         isRecording = true;
         recordingStartTime = Date.now();
         document.getElementById('recorderBlock').classList.add('recording');
         document.getElementById('recordBtn').classList.add('recording');
         document.getElementById('recordIcon').className = 'fas fa-stop';
-        document.getElementById('recordBtn').title = 'Остановить запись';
-
         document.getElementById('recorderTimer').textContent = '00:00';
         recordingTimerInterval = setInterval(function() {
             var elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
             document.getElementById('recorderTimer').textContent = formatTime(elapsed);
-            if (elapsed >= 180) { stopRecording(); showToast('Максимальная длительность — 3 минуты', 'warning'); }
+            if (elapsed >= 180) { stopRecording(); showToast('Максимум 3 минуты', 'warning'); }
         }, 250);
-    }).catch(function(err) {
-        console.error('Ошибка запуска:', err);
-        showToast('Не удалось получить доступ к микрофону', 'error');
-    });
+    }).catch(function(err) { console.error(err); showToast('Ошибка доступа к микрофону', 'error'); });
 }
 
 function stopRecording() {
@@ -1738,15 +1505,14 @@ function stopRecording() {
     if (vizAnimationId) { cancelAnimationFrame(vizAnimationId); vizAnimationId = null; }
     if (audioContext) { try { audioContext.close(); } catch(_) {} audioContext = null; }
     if (analyserNode) analyserNode = null;
-    document.querySelectorAll('#recorderViz .bar').forEach(function(bar) { bar.style.height = '10px'; });
+    document.querySelectorAll('#recorderViz .bar').forEach(function(b) { b.style.height = '10px'; });
     document.getElementById('recorderBlock').classList.remove('recording');
     document.getElementById('recordBtn').classList.remove('recording');
     document.getElementById('recordIcon').className = 'fas fa-microphone';
-    document.getElementById('recordBtn').title = 'Начать запись';
-    try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch (e) {}
+    try { if (mediaRecorder.state === 'recording') mediaRecorder.requestData(); } catch(_) {}
     setTimeout(function() {
-        try { mediaRecorder.stop(); } catch (e) {}
-        try { mediaRecorder.stream.getTracks().forEach(function(track) { track.stop(); }); } catch (_) {}
+        try { mediaRecorder.stop(); } catch(_) {}
+        try { mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); }); } catch(_) {}
     }, 50);
 }
 
@@ -1770,75 +1536,74 @@ function togglePlayback() {
     var fill = document.getElementById('progressFill');
     if (isPlaying) { audio.pause(); isPlaying = false; icon.className = 'fas fa-play'; }
     else { audio.play(); isPlaying = true; icon.className = 'fas fa-pause'; }
-    audio.ontimeupdate = function() { if (audio.duration) { fill.style.width = (audio.currentTime / audio.duration) * 100 + '%'; } };
+    audio.ontimeupdate = function() { if (audio.duration) fill.style.width = (audio.currentTime / audio.duration) * 100 + '%'; };
     audio.onended = function() { isPlaying = false; icon.className = 'fas fa-play'; fill.style.width = '0%'; };
 }
 window.togglePlayback = togglePlayback;
 
-/* Local records */
-function saveRecords() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch (e) {} }
-function loadRecords() { try { var s = localStorage.getItem(STORAGE_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; } catch (e) { return []; } }
+/* ============ LOCAL RECORDS (только история прослушивания) ============ */
+function saveRecords() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch(_) {} }
+function loadRecords() { try { var s = localStorage.getItem(STORAGE_KEY); if (!s) return []; var d = JSON.parse(s); return Array.isArray(d) ? d : []; } catch(_) { return []; } }
 
 function renderRecords() {
     var list = document.getElementById('recordsList');
-    if (records.length === 0) { list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Пока нет отправленных заявок</p></div>'; return; }
-    var html = '';
-    for (var i = 0; i < records.length; i++) {
-        var r = records[i];
-        var dateStr = new Date(r.sentAt).toLocaleString('ru-RU');
-        html += '<div class="record-item"><div class="record-icon"><i class="fas fa-check"></i></div><div class="record-info"><div class="record-title">🎤 Голосовая заявка</div><div class="record-meta">' + escapeHtml(dateStr) + ' • ' + (r.duration || 0) + ' сек</div></div><div class="record-actions"><button onclick="playRecordFromList(\'' + r.id + '\')"><i class="fas fa-play"></i></button><button onclick="deleteRecord(\'' + r.id + '\')"><i class="fas fa-trash"></i></button></div></div>';
-    }
-    list.innerHTML = html;
+    if (!records.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>Пока нет отправленных заявок</p></div>'; return; }
+    list.innerHTML = records.map(function(r) {
+        var ds = new Date(r.sentAt).toLocaleString('ru-RU');
+        return '<div class="record-item"><div class="record-icon"><i class="fas fa-check"></i></div>' +
+            '<div class="record-info"><div class="record-title">🎤 Голосовая</div>' +
+            '<div class="record-meta">'+escapeHtml(ds)+' • '+(r.duration||0)+' сек</div></div>' +
+            '<div class="record-actions"><button onclick="playRecordFromList(\''+r.id+'\')"><i class="fas fa-play"></i></button>' +
+            '<button onclick="deleteRecord(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></div>';
+    }).join('');
 }
 
 function playRecordFromList(recordId) {
-    var record = null;
-    for (var i = 0; i < records.length; i++) { if (records[i].id === recordId) { record = records[i]; break; } }
-    if (!record) { showToast('Запись не найдена', 'error'); return; }
-    var dateStr = new Date(record.sentAt).toLocaleString('ru-RU');
-    document.getElementById('playModalTitle').textContent = 'Прослушивание записи';
-    document.getElementById('playModalContent').innerHTML = '<div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Дата отправки</div><div style="font-size:14px;font-weight:600;">' + escapeHtml(dateStr) + '</div></div><div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Длительность: ' + (record.duration || 0) + ' сек</div><audio controls style="width:100%;" src="' + record.audioBase64 + '"></audio></div><div class="modal-actions"><button class="btn btn-primary" onclick="closePlayModal()">Закрыть</button></div>';
+    var record = records.find(function(r) { return r.id === recordId; });
+    if (!record) { showToast('Не найдено', 'error'); return; }
+    var ds = new Date(record.sentAt).toLocaleString('ru-RU');
+    document.getElementById('playModalTitle').textContent = 'Прослушивание';
+    document.getElementById('playModalContent').innerHTML =
+        '<div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Дата</div>' +
+        '<div style="font-size:14px;font-weight:600;">'+escapeHtml(ds)+'</div></div>' +
+        '<div style="margin-bottom:16px;"><div style="font-size:12px;color:#8a9bb5;margin-bottom:4px;">Длительность: '+(record.duration||0)+' сек</div>' +
+        '<audio controls style="width:100%;" src="'+record.audioBase64+'"></audio></div>' +
+        '<div class="modal-actions"><button class="btn btn-primary" onclick="closePlayModal()">Закрыть</button></div>';
     document.getElementById('playModal').classList.add('show');
 }
 window.playRecordFromList = playRecordFromList;
-
 function closePlayModal() { document.getElementById('playModal').classList.remove('show'); }
 window.closePlayModal = closePlayModal;
-
-function deleteRecord(recordId) {
-    if (!confirm('Удалить эту заявку из истории?')) return;
-    records = records.filter(function(r) { return r.id !== recordId; });
+function deleteRecord(id) {
+    if (!confirm('Удалить?')) return;
+    records = records.filter(function(r) { return r.id !== id; });
     saveRecords(); renderRecords();
-    showToast('Заявка удалена', 'success');
+    showToast('Удалено', 'success');
 }
 window.deleteRecord = deleteRecord;
 
+/* ============ LOGOUT ============ */
 function logout() {
     if (recordingTimerInterval) clearInterval(recordingTimerInterval);
+    if (atlbPollInterval) clearInterval(atlbPollInterval);
     if (vizAnimationId) cancelAnimationFrame(vizAnimationId);
     if (audioContext) { try { audioContext.close(); } catch(_) {} }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
-    try { fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {} sessionStorage.removeItem('userSession');
+    sessionStorage.removeItem('userSession');
     window.location.href = '/login.html';
 }
 window.logout = logout;
 
-/* Startup — без авто-продвижения статусов */
+/* ============ INIT ============ */
 document.addEventListener('DOMContentLoaded', function() {
-    // Self-test
-    var required = ['escapeHtml', 'showToast', 'showTab', 'openATLBDetail', 'pilotSignCRS', 'submitTextRequest', 'analyzeRequest'];
-    var missing = required.filter(function(name) { return typeof window[name] !== 'function'; });
-    if (missing.length > 0) {
-        console.error('[SELF-TEST] Отсутствуют функции:', missing);
-    } else {
-        console.log('[SELF-TEST] Все функции на месте');
-    }
-
     initDefectsForm();
     records = loadRecords();
     renderRecords();
-    loadPilotATLB();
-
+    loadATLB();
+    if (atlbPollInterval) clearInterval(atlbPollInterval);
+    atlbPollInterval = setInterval(loadATLB, 5000);
+    var logbookNav = document.getElementById('nav-logbook');
+    if (logbookNav) logbookNav.addEventListener('click', function() { loadATLB(); });
     console.log('[InTrAvia Pilot] Init OK');
 });
 </script>
