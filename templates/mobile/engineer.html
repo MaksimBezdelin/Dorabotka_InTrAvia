@@ -106,6 +106,8 @@
   .badge-obj{position:absolute;left:12px;top:12px;z-index:800;background:rgba(11,37,69,.88);
     color:#fff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700}
   .map-wrap{position:relative}
+  .arrival{background:#e7f7ed;border:1px solid #86efac;color:#166534;border-radius:11px;
+    padding:10px 12px;font-size:12px;font-weight:800;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -182,7 +184,12 @@
     lastGpsSentAt: 0,
     lastGpsPoint: null,
     gpsWatchId: null,
-    gpsOn: localStorage.getItem(LS_GPS) !== '0'
+    gpsOn: localStorage.getItem(LS_GPS) !== '0',
+    location: null,
+    parkings: {},
+    zoneLayers: {},
+    locationLayers: [],
+    arrival: null
   };
 
   var map = null;
@@ -230,9 +237,142 @@
       return;
     }
     map = L.map('map', { zoomControl: false, attributionControl: false })
-      .setView([55.976, 37.406], 15);
+      .setView([0, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+  }
+
+  function loadLocation() {
+    return Promise.all([
+      api('/api/location').catch(function () { return null; }),
+      api('/api/parking').catch(function () { return []; })
+    ]).then(function (results) {
+      var loc = results[0];
+      var parking = results[1];
+      if (!loc) {
+        $('mapLegend').textContent = 'Геоданные ВДНХ недоступны';
+        return;
+      }
+      state.location = loc;
+      var list = Array.isArray(parking) ? parking : (loc.parkings || []);
+      list.forEach(function (item) {
+        if (item && item.id) state.parkings[String(item.id)] = item;
+      });
+      (loc.parkings || []).forEach(function (item) {
+        if (item && item.id) state.parkings[String(item.id)] = item;
+      });
+      if (!map) return;
+      var center = loc.center;
+      if (!center && loc.bbox) {
+        center = { lat: (loc.bbox[1] + loc.bbox[3]) / 2, lon: (loc.bbox[0] + loc.bbox[2]) / 2 };
+      }
+      if (center) map.setView([Number(center.lat), Number(center.lon)], 16);
+      drawLocationLayers(loc);
+      highlightOwnZone(state.request && state.request.parking_id);
+    });
+  }
+
+  function clearLocationLayers() {
+    state.locationLayers.forEach(function (layer) {
+      try { map.removeLayer(layer); } catch (error) { /* уже удалён */ }
+    });
+    state.locationLayers = [];
+  }
+
+  function drawLocationLayers(loc) {
+    if (!map) return;
+    clearLocationLayers();
+    if (loc.boundary && loc.boundary.coordinates) {
+      var boundary = L.geoJSON(loc.boundary, {
+        style: { color: '#0b2545', weight: 2, dashArray: '6,4', fill: false, opacity: 0.7 }
+      }).addTo(map);
+      state.locationLayers.push(boundary);
+      try { map.fitBounds(boundary.getBounds(), { padding: [18, 18] }); } catch (error) { /* пустая граница */ }
+    }
+    var roadStyles = {
+      service: { color: '#94a3b8', weight: 2 },
+      pedestrian: { color: '#3b82f6', weight: 2, dashArray: '4,4' },
+      taxi: { color: '#f59e0b', weight: 2 },
+      runway: { color: '#ef4444', weight: 5 }
+    };
+    var roads = (loc.roads && loc.roads.features) ? loc.roads.features : [];
+    var byType = {};
+    roads.forEach(function (road) {
+      var type = (road.properties && road.properties.type) || 'service';
+      (byType[type] = byType[type] || []).push(road);
+    });
+    Object.keys(byType).forEach(function (type) {
+      if (!roadStyles[type]) return;
+      state.locationLayers.push(L.geoJSON(
+        { type: 'FeatureCollection', features: byType[type] },
+        { style: roadStyles[type], interactive: false }
+      ).addTo(map));
+    });
+    (loc.objects || []).forEach(function (obj) {
+      if (!obj.centroid) return;
+      var marker = L.marker([Number(obj.centroid.lat), Number(obj.centroid.lon)], {
+        icon: markerIcon('#0b2545', '•', 22), interactive: false, zIndexOffset: -100
+      }).addTo(map);
+      marker.bindTooltip(obj.name || obj.id, { direction: 'top' });
+      state.locationLayers.push(marker);
+    });
+    var zones = Array.isArray(loc.parkings) ? loc.parkings : [];
+    zones.forEach(function (zone) {
+      if (!zone.geometry) return;
+      var layer = L.geoJSON(zone.geometry, {
+        style: { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 }
+      }).addTo(map);
+      layer.bindTooltip(zone.label || zone.id, { sticky: true });
+      state.zoneLayers[String(zone.id)] = layer;
+      state.locationLayers.push(layer);
+    });
+  }
+
+  function sameParking(a, b) {
+    if (a == null || b == null) return false;
+    var sa = String(a), sb = String(b);
+    var strip = function (value) { return value.replace(/^SZ-/i, ''); };
+    return sa === sb || strip(sa) === strip(sb);
+  }
+
+  function highlightOwnZone(parkingId) {
+    Object.keys(state.zoneLayers).forEach(function (id) {
+      var layer = state.zoneLayers[id];
+      if (!layer || !layer.setStyle) return;
+      var on = sameParking(id, parkingId);
+      layer.setStyle(on
+        ? { color: '#b45309', weight: 3, fillColor: '#f59e0b', fillOpacity: 0.3 }
+        : { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 });
+      if (on) { try { layer.bringToFront(); } catch (error) { /* нет слоя */ } }
+    });
+  }
+
+  function zonePoint(parkingId) {
+    if (!parkingId) return null;
+    var key = String(parkingId);
+    var zone = state.parkings[key] || state.parkings['SZ-' + key] || null;
+    var centroid = zone && zone.centroid;
+    if (!centroid && state.location) {
+      var list = state.location.parkings || [];
+      for (var i = 0; i < list.length; i++) {
+        if (sameParking(list[i].id, key) || sameParking(list[i].zone_id, key)) {
+          centroid = list[i].centroid;
+          break;
+        }
+      }
+    }
+    if (!centroid) return null;
+    var lon = centroid.lon != null ? centroid.lon : centroid.lng;
+    return { lat: Number(centroid.lat), lng: Number(lon) };
+  }
+
+  function ownPoint() {
+    if (state.engineer && isFinite(Number(state.engineer.coords_lat)) &&
+        isFinite(Number(state.engineer.coords_lng))) {
+      return { lat: Number(state.engineer.coords_lat), lng: Number(state.engineer.coords_lng) };
+    }
+    if (state.lastGpsPoint) return { lat: state.lastGpsPoint.lat, lng: state.lastGpsPoint.lng };
+    return null;
   }
 
   function markerIcon(color, text) {
@@ -305,7 +445,21 @@
     state.route = route;
     var points = route.path.map(function (point) { return [point[0], point[1]]; });
     if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(points, { color: '#1f6feb', weight: 6, opacity: 0.9, lineJoin: 'round' }).addTo(map);
+    var modeColors = { walk: '#3b82f6', transport: '#f59e0b', aircraft: '#ef4444' };
+    var layers = [];
+    if (Array.isArray(route.legs) && route.legs.length) {
+      route.legs.forEach(function (leg) {
+        if (!leg || !Array.isArray(leg.path) || leg.path.length < 2) return;
+        layers.push(L.polyline(leg.path, {
+          color: modeColors[leg.mode] || '#1f6feb', weight: 6, opacity: 0.9,
+          dashArray: leg.mode === 'walk' ? '10,8' : null, lineJoin: 'round'
+        }));
+      });
+    }
+    if (!layers.length) {
+      layers.push(L.polyline(points, { color: '#1f6feb', weight: 6, opacity: 0.9, lineJoin: 'round' }));
+    }
+    routeLine = L.layerGroup(layers).addTo(map);
     if (!targetMarker) {
       targetMarker = L.marker(points[points.length - 1],
         { icon: markerIcon('#15803d', 'Ц'), zIndexOffset: 700 }).addTo(map);
@@ -360,7 +514,11 @@
         : (Math.round(Number(state.route.tt || 0)) + ' мин пешком');
     }
 
+    var arrived = (state.arrival && String(state.arrival.request_id) === String(request.id)) ||
+      (state.engineer && state.engineer.task_step === 'arrived');
     card.innerHTML =
+      (arrived ? '<div class="arrival">✅ Прибытие зафиксировано · зона ' +
+        esc((state.arrival && state.arrival.zone) || request.parking_id || '—') + '</div>' : '') +
       '<h2 class="req-title">ВС ' + esc(request.aircraft || '—') + '</h2>' +
       '<p class="req-sub">' + esc(request.fault_type || 'неисправность') +
         ' · стоянка ' + esc(request.parking_id || '—') +
@@ -386,6 +544,7 @@
     if (arrive) arrive.onclick = function () { reportStep('arrived'); };
     var diagnose = $('diagnoseBtn');
     if (diagnose) diagnose.onclick = function () { reportStep('diagnosing'); };
+    highlightOwnZone(request.parking_id);
   }
 
   function activeRequests() {
@@ -410,14 +569,38 @@
       var request = state.request;
       var routePromise = Promise.resolve();
       if (['assigned', 'arriving', 'in_progress', 'working'].indexOf(request.status) >= 0) {
-        routePromise = api('/api/dispatcher/requests/' + encodeURIComponent(request.id) + '/route')
-          .then(function (payload) { if (payload && payload.route) drawRoute(payload.route); })
-          .catch(function () { /* маршрут ещё не готов */ });
+        routePromise = buildRouteForRequest(request);
       }
       return routePromise.then(renderTask);
     }).catch(function (error) {
       console.warn('[TASK]', error);
     });
+  }
+
+  function buildRouteForRequest(request) {
+    var start = ownPoint();
+    var target = zonePoint(request.parking_id);
+    var waypoints = Array.isArray(request.waypoints) ? request.waypoints : [];
+    if (start && target) {
+      // Основной маршрут — серверный роутер с промежуточными точками.
+      return api('/api/route', {
+        method: 'POST',
+        body: JSON.stringify({
+          agent_type: 'engineer', start: start, waypoints: waypoints, target: target
+        })
+      }).then(function (payload) {
+        if (payload && Array.isArray(payload.path) && payload.path.length > 1) drawRoute(payload);
+      }).catch(function () {
+        return buildRouteFromDispatcher(request);
+      });
+    }
+    return buildRouteFromDispatcher(request);
+  }
+
+  function buildRouteFromDispatcher(request) {
+    return api('/api/dispatcher/requests/' + encodeURIComponent(request.id) + '/route')
+      .then(function (payload) { if (payload && payload.route) drawRoute(payload.route); })
+      .catch(function () { /* маршрут ещё не готов */ });
   }
 
   function refreshEngineer() {
@@ -587,6 +770,13 @@
         }
       } catch (error) { /* ignore malformed */ }
     });
+    source.addEventListener('arrival', function (event) {
+      try {
+        state.arrival = JSON.parse(event.data);
+        toast('Прибытие зафиксировано · ' + (state.arrival.zone || 'зона'), 'ok');
+        scheduleRefresh();
+      } catch (error) { /* ignore malformed */ }
+    });
     ['sync', 'request'].forEach(function (name) {
       source.addEventListener(name, scheduleRefresh);
     });
@@ -603,7 +793,7 @@
       if (state.gpsOn) startGps(); else stopGps();
     };
     if (!state.engineerId) openEngineerSheet();
-    refreshAll().then(function () {
+    loadLocation().then(refreshAll).then(function () {
       if (state.gpsOn) startGps();
     });
     connectStream();

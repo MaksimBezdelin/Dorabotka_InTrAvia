@@ -105,8 +105,8 @@
         <input id="customObj" placeholder="e-01 / CAR-001 / RA-73142" autocomplete="off">
       </div>
       <div class="row">
-        <div class="field"><label for="latInput">Широта</label><input id="latInput" inputmode="decimal" placeholder="55.9755"></div>
-        <div class="field"><label for="lonInput">Долгота</label><input id="lonInput" inputmode="decimal" placeholder="37.4005"></div>
+        <div class="field"><label for="latInput">Широта</label><input id="latInput" inputmode="decimal" placeholder="55.83367"></div>
+        <div class="field"><label for="lonInput">Долгота</label><input id="lonInput" inputmode="decimal" placeholder="37.62709"></div>
       </div>
       <p class="muted" style="margin:-2px 0 10px">Коснитесь карты или перетащите маркер, чтобы задать точку.</p>
       <button class="btn btn-primary" id="sendBtn">Отправить точку</button>
@@ -137,6 +137,10 @@
           <button class="btn btn-red" id="beaconStop" disabled>Остановить</button>
         </div>
         <div class="hint">Режим маяка отправляет позицию выбранного агента на сервер с заданным интервалом. Остальные агенты при этом продолжают отображаться на карте в реальном времени.</div>
+        <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="batchToggle" checked style="width:auto">
+          <span>Пакетная отправка для спецтранспорта и ВС (по 5 точек за запрос)</span>
+        </label>
       </div>
     </div>
   </section>
@@ -164,7 +168,11 @@
     beaconSends: 0,
     gpsWatchId: null,
     gpsPoint: null,
-    sending: false
+    sending: false,
+    location: null,
+    locationLayers: [],
+    batch: [],
+    batchMode: true
   };
 
   var map = null;
@@ -207,11 +215,82 @@
       $('map').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Карта недоступна: нет связи с CDN Leaflet</div>';
       return;
     }
-    map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.976, 37.406], 15);
+    map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     map.on('click', function (event) {
       setPoint(event.latlng.lat, event.latlng.lng, true);
+    });
+  }
+
+  function loadLocation() {
+    return api('/api/location').then(function (loc) {
+      state.location = loc;
+      if (!map) return;
+      var center = loc.center;
+      if (!center && loc.bbox) {
+        center = { lat: (loc.bbox[1] + loc.bbox[3]) / 2, lon: (loc.bbox[0] + loc.bbox[2]) / 2 };
+      }
+      if (center) map.setView([Number(center.lat), Number(center.lon)], 16);
+      drawLocationLayers(loc);
+    }).catch(function () {
+      $('counts').textContent = 'Геоданные ВДНХ недоступны';
+    });
+  }
+
+  function drawLocationLayers(loc) {
+    if (!map) return;
+    state.locationLayers.forEach(function (layer) {
+      try { map.removeLayer(layer); } catch (error) { /* уже удалён */ }
+    });
+    state.locationLayers = [];
+
+    if (loc.boundary && loc.boundary.coordinates) {
+      var boundary = L.geoJSON(loc.boundary, {
+        style: { color: '#0b2545', weight: 2, dashArray: '6,4', fill: false, opacity: 0.65 },
+        interactive: false
+      }).addTo(map);
+      state.locationLayers.push(boundary);
+      try { map.fitBounds(boundary.getBounds(), { padding: [18, 18] }); } catch (error) { /* пустая граница */ }
+    }
+
+    var roadStyles = {
+      service: { color: '#94a3b8', weight: 2 },
+      pedestrian: { color: '#3b82f6', weight: 2, dashArray: '4,4' },
+      taxi: { color: '#f59e0b', weight: 2 },
+      runway: { color: '#ef4444', weight: 5 }
+    };
+    var roads = (loc.roads && loc.roads.features) ? loc.roads.features : [];
+    var byType = {};
+    roads.forEach(function (road) {
+      var type = (road.properties && road.properties.type) || 'service';
+      (byType[type] = byType[type] || []).push(road);
+    });
+    Object.keys(byType).forEach(function (type) {
+      if (!roadStyles[type]) return;
+      state.locationLayers.push(L.geoJSON(
+        { type: 'FeatureCollection', features: byType[type] },
+        { style: roadStyles[type], interactive: false }
+      ).addTo(map));
+    });
+
+    (loc.objects || []).forEach(function (obj) {
+      if (!obj.centroid) return;
+      var marker = L.marker([Number(obj.centroid.lat), Number(obj.centroid.lon)], {
+        icon: markerIcon('#0b2545', '•', 22), interactive: false, zIndexOffset: -100
+      }).addTo(map);
+      marker.bindTooltip(obj.name || obj.id, { direction: 'top' });
+      state.locationLayers.push(marker);
+    });
+
+    (loc.parkings || []).forEach(function (zone) {
+      if (!zone.geometry) return;
+      var layer = L.geoJSON(zone.geometry, {
+        style: { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 },
+        interactive: false
+      }).addTo(map);
+      layer.bindTooltip(zone.label || zone.id, { sticky: true });
+      state.locationLayers.push(layer);
     });
   }
 
@@ -348,12 +427,44 @@
     return null;
   }
 
+  function flushBatch(silent) {
+    if (!state.batch.length) return Promise.resolve();
+    var points = state.batch.splice(0, state.batch.length);
+    var agent = selectedAgent();
+    var started = performance.now();
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: points })
+    }).then(function (rows) {
+      var applied = (rows || []).filter(function (row) { return row && row.applied; }).length;
+      addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
+        { accepted: true, applied: applied > 0 }, Math.round(performance.now() - started));
+      $('beaconMeta').textContent = state.beaconSends + ' отправок · пакет ' + points.length;
+      if (!silent) toast('Пакет: ' + applied + ' из ' + points.length + ' принято', applied ? 'ok' : 'err');
+      return rows;
+    }).catch(function (error) {
+      addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
+        { accepted: false, applied: false, error: error.message }, 0);
+      if (!silent) toast(error.message, 'err');
+    });
+  }
+
   function sendPoint(silent) {
     var agent = selectedAgent();
     var point = currentPoint();
     if (!agent) { if (!silent) toast('Выберите агента или укажите obj', 'err'); return Promise.resolve(); }
     if (!point) { if (!silent) toast('Укажите точку на карте', 'err'); return Promise.resolve(); }
     if (state.sending) return Promise.resolve();
+    if (state.batchMode && (agent.kind === 'transport' || agent.kind === 'aircraft')) {
+      state.batch.push({
+        obj: agent.obj,
+        lat: Number(point.lat.toFixed(7)),
+        lon: Number(point.lng.toFixed(7)),
+        t: new Date().toISOString()
+      });
+      $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
+      return state.batch.length >= 5 ? flushBatch(silent) : Promise.resolve();
+    }
     state.sending = true;
     var started = performance.now();
     return api('/api/v1/track', {
@@ -401,6 +512,7 @@
     if ($('beaconSource').value === 'gps' && !startGps()) return;
     var interval = Number($('beaconInterval').value) || 2000;
     state.beaconSends = 0;
+    state.batch = [];
     $('beaconBox').classList.add('on');
     $('beaconTitle').textContent = 'Маяк: ' + agent.obj;
     $('beaconMeta').textContent = '0 отправок';
@@ -420,6 +532,7 @@
   function stopBeacon() {
     if (state.beaconTimer) clearInterval(state.beaconTimer);
     state.beaconTimer = null;
+    flushBatch(true);
     stopGps();
     $('beaconBox').classList.remove('on');
     $('beaconTitle').textContent = 'Маяк выключен';
@@ -476,7 +589,12 @@
     $('sendBtn').onclick = function () { sendPoint(false); };
     $('beaconStart').onclick = startBeacon;
     $('beaconStop').onclick = stopBeacon;
-    refreshAgents();
+    $('batchToggle').onchange = function () {
+      state.batchMode = this.checked;
+      toast(this.checked ? 'Пакетная отправка включена' : 'Пакетная отправка выключена', 'ok');
+      if (!this.checked) flushBatch(true);
+    };
+    loadLocation().then(refreshAgents);
     connectStream();
     setInterval(refreshAgents, 10000);
   }

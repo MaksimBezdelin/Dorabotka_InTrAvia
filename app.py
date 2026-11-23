@@ -200,6 +200,11 @@ PUBLIC_API_PATHS = {
     '/api/v1/stream',
     '/api/v1/agents',
     '/api/v1/snapshot',
+    # Публичная география и расчёт маршрута нужны мобильным приложениям,
+    # которые открываются без сессии (страницы /m/*).
+    '/api/location',
+    '/api/parking',
+    '/api/route',
 }
 PUBLIC_PAGES = {'/login.html', '/m/engineer', '/m/agents'}
 
