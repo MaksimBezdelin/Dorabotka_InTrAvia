@@ -7,7 +7,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="InTrAvia Агенты"
+        android:label="Агенты"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar"
         android:usesCleartextTraffic="true">

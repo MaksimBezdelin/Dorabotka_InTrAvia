@@ -7,7 +7,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="InTrAvia Инженер"
+        android:label="Инженер"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar"
         android:usesCleartextTraffic="true">
