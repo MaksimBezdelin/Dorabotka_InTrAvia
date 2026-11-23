@@ -422,7 +422,12 @@
   }
 
   function setGpsPoint(position) {
-    state.gpsPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
+    state.gpsPoint = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      acc: position.coords.accuracy != null ? position.coords.accuracy : null,
+      spd: position.coords.speed != null ? position.coords.speed : null
+    };
     setPoint(state.gpsPoint.lat, state.gpsPoint.lng, true);
   }
 
@@ -482,25 +487,31 @@
     if (!point) { if (!silent) toast('Укажите точку на карте', 'err'); return Promise.resolve(); }
     if (state.sending) return Promise.resolve();
     if (state.batchMode && (agent.kind === 'transport' || agent.kind === 'aircraft')) {
-      state.batch.push({
+      var batchPoint = {
         obj: agent.obj,
         lat: Number(point.lat.toFixed(7)),
         lon: Number(point.lng.toFixed(7)),
         t: new Date().toISOString()
-      });
+      };
+      if (point.acc != null) batchPoint.acc = point.acc;
+      if (point.spd != null) batchPoint.spd = point.spd;
+      state.batch.push(batchPoint);
       $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
       return state.batch.length >= 5 ? flushBatch(silent) : Promise.resolve();
     }
     state.sending = true;
     var started = performance.now();
+    var payload = {
+      obj: agent.obj,
+      lat: Number(point.lat.toFixed(7)),
+      lon: Number(point.lng.toFixed(7)),
+      t: new Date().toISOString()
+    };
+    if (point.acc != null) payload.acc = point.acc;
+    if (point.spd != null) payload.spd = point.spd;
     return api('/api/v1/track', {
       method: 'POST',
-      body: JSON.stringify({
-        obj: agent.obj,
-        lat: Number(point.lat.toFixed(7)),
-        lon: Number(point.lng.toFixed(7)),
-        t: new Date().toISOString()
-      })
+      body: JSON.stringify(payload)
     }).then(function (result) {
       var ms = Math.round(performance.now() - started);
       addLog(agent.obj, result, ms);

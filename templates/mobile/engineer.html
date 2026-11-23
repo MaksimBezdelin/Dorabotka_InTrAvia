@@ -202,6 +202,8 @@
     lastGpsSentAt: 0,
     lastGpsPoint: null,
     gpsWatchId: null,
+    pendingGps: null,
+    gpsRetryTimer: null,
     gpsOn: localStorage.getItem(LS_GPS) !== '0',
     location: null,
     parkings: {},
@@ -692,6 +694,31 @@
     }).catch(function (error) { toast(error.message, 'err'); });
   }
 
+  function sendGpsBody(body) {
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }).then(function (result) {
+      if (state.pendingGps && state.pendingGps.t === body.t) state.pendingGps = null;
+      $('gpsText').textContent = result.applied
+        ? ('GPS · ' + Number(body.lat).toFixed(5) + ', ' + Number(body.lon).toFixed(5))
+        : 'GPS: сервер не принял точку';
+      return result;
+    }).catch(function () {
+      // Нет связи: держим последнюю точку и повторяем, когда сеть вернётся.
+      $('gpsText').textContent = 'GPS: нет связи с сервером, повтор…';
+      scheduleGpsRetry();
+    });
+  }
+
+  function scheduleGpsRetry() {
+    if (state.gpsRetryTimer) return;
+    state.gpsRetryTimer = setTimeout(function () {
+      state.gpsRetryTimer = null;
+      if (state.pendingGps && state.gpsOn) sendGpsBody(state.pendingGps);
+    }, 4000);
+  }
+
   function sendGps(position) {
     if (!state.engineerId || !position || !position.coords) return;
     var now = Date.now();
@@ -703,22 +730,15 @@
     state.lastGpsSentAt = now;
     state.lastGpsPoint = { lat: coords.latitude, lng: coords.longitude };
     setOwnPosition(coords.latitude, coords.longitude);
-    api('/api/v1/track', {
-      method: 'POST',
-      body: JSON.stringify({
-        obj: state.engineerId,
-        lat: coords.latitude,
-        lon: coords.longitude,
-        acc: coords.accuracy || null,
-        t: new Date().toISOString()
-      })
-    }).then(function (result) {
-      $('gpsText').textContent = result.applied
-        ? ('GPS · ' + coords.latitude.toFixed(5) + ', ' + coords.longitude.toFixed(5))
-        : 'GPS: сервер не принял точку';
-    }).catch(function (error) {
-      $('gpsText').textContent = 'GPS: ' + error.message;
-    });
+    state.pendingGps = {
+      obj: state.engineerId,
+      lat: coords.latitude,
+      lon: coords.longitude,
+      acc: coords.accuracy != null ? coords.accuracy : null,
+      spd: coords.speed != null ? coords.speed : null,
+      t: new Date().toISOString()
+    };
+    sendGpsBody(state.pendingGps);
   }
 
   function startGps() {
@@ -741,6 +761,8 @@
       navigator.geolocation.clearWatch(state.gpsWatchId);
     }
     state.gpsWatchId = null;
+    if (state.gpsRetryTimer) { clearTimeout(state.gpsRetryTimer); state.gpsRetryTimer = null; }
+    state.pendingGps = null;
     $('gpsBox').classList.remove('on');
     $('gpsText').textContent = 'GPS выключен';
   }
@@ -886,6 +908,9 @@
       refreshTask();
     }, 7000);
   }
+
+  // Точка входа для диагностики GPS и автотестов (не влияет на работу UI).
+  window.__intravia = { state: state, sendGps: sendGps, sendGpsBody: sendGpsBody };
 
   document.addEventListener('DOMContentLoaded', boot);
 })();

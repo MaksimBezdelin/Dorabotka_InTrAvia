@@ -358,14 +358,14 @@
         }
 
         var session = sessionStorage.getItem('userSession');
-        if (!session) { window.location.href = '/login.html'; return; }
+        if (!session) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
 
         var user;
         try {
             user = JSON.parse(session);
-            if (user.role !== 'engineer') { window.location.href = '/login.html'; return; }
+            if (user.role !== 'engineer') { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
             engineerId = user.id || 'eng_1';
-        } catch (_) { window.location.href = '/login.html'; return; }
+        } catch (_) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
 
         document.getElementById('userName').textContent = user.name || 'Инженер';
         document.getElementById('userAvatar').innerHTML = '<i class="fas fa-wrench"></i>';

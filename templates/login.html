@@ -598,16 +598,24 @@
                 'mcc': '/mcc/dashboard.html'
             };
 
-            var session = sessionStorage.getItem('userSession');
-            if (session) {
-                try {
-                    var savedUser = JSON.parse(session);
-                    if (savedUser.role && DASHBOARDS[savedUser.role]) {
-                        window.location.href = DASHBOARDS[savedUser.role];
+            // Источник истины — серверная сессия. Старый sessionStorage мог
+            // остаться от другого пользователя и вызывал петлю редиректов.
+            fetch('/api/auth/session').then(function (response) {
+                return response.json().catch(function () { return {}; })
+                    .then(function (body) { return { ok: response.ok, body: body }; });
+            }).then(function (result) {
+                if (result.ok && result.body && result.body.user) {
+                    var role = result.body.user.role;
+                    if (DASHBOARDS[role]) {
+                        sessionStorage.setItem('userSession', JSON.stringify(result.body.user));
+                        window.location.href = DASHBOARDS[role];
                         return;
                     }
-                } catch (_) {}
-            }
+                }
+                sessionStorage.removeItem('userSession');
+            }).catch(function () {
+                sessionStorage.removeItem('userSession');
+            });
 
             generateBgDots();
 

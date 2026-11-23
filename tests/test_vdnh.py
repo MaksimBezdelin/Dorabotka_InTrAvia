@@ -103,6 +103,48 @@ def test_track_single_batch_unknown_and_bad_coordinates(anon_client, app_module)
     conn.close()
 
 
+def test_track_accepts_and_exposes_acc_spd(anon_client, app_module):
+    conn = connect(app_module)
+    saved = dict(conn.execute(
+        "SELECT coords_lat, coords_lng FROM engineers WHERE id='eng_6'").fetchone())
+    conn.close()
+
+    resp = anon_client.post('/api/v1/track', json={
+        'obj': 'eng_6', 'lat': 55.8343, 'lon': 37.6333,
+        'acc': 5, 'spd': 1.25})
+    assert resp.status_code == 200 and resp.get_json()['applied'] is True
+
+    agents = anon_client.get('/api/v1/agents').get_json()
+    engineer = next(e for e in agents['engineers'] if e['obj'] == 'eng_6')
+    assert engineer['acc'] == 5
+    assert engineer['spd'] == 1.25
+    assert engineer['lat'] == pytest.approx(55.8343)
+
+    # Пакет: числовые строки тоже принимаются, отсутствие метрик допустимо.
+    resp = anon_client.post('/api/v1/track', json={'points': [
+        {'obj': 'eng_6', 'lat': 55.8344, 'lon': 37.6334, 'acc': '4.5', 'spd': '0'},
+        {'obj': 'eng_6', 'lat': 55.8345, 'lon': 37.6335},
+    ]})
+    assert resp.status_code == 200
+    assert [row['applied'] for row in resp.get_json()] == [True, True]
+
+    resp = anon_client.post('/api/v1/track', json={
+        'obj': 'eng_6', 'lat': 55.8346, 'lon': 37.6336, 'acc': 'много'})
+    assert resp.status_code == 400
+    assert 'acc' in resp.get_json()['error']
+
+    resp = anon_client.post('/api/v1/track', json={
+        'obj': 'eng_6', 'lat': 55.8346, 'lon': 37.6336, 'spd': -1})
+    assert resp.status_code == 400
+    assert 'spd' in resp.get_json()['error']
+
+    conn = connect(app_module)
+    conn.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id='eng_6'",
+                 (saved['coords_lat'], saved['coords_lng']))
+    conn.commit()
+    conn.close()
+
+
 def test_graphs_do_not_mix_road_types(app_module):
     def types(graph):
         return {data['road_type'] for _, _, data in graph.edges(data=True)}

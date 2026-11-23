@@ -1887,13 +1887,13 @@ function switchTab(tab) {
 
 function init() {
     var session = sessionStorage.getItem('userSession');
-    if (!session) { window.location.href = '/login.html'; return; }
+    if (!session) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
     var user;
     try {
         user = JSON.parse(session);
-        if (user.role !== 'dispatcher') { window.location.href = '/login.html'; return; }
+        if (user.role !== 'dispatcher') { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
         document.getElementById('userName').textContent = user.name || 'Диспетчер';
-    } catch (_) { window.location.href = '/login.html'; return; }
+    } catch (_) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
 
     var now = new Date();
     var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];

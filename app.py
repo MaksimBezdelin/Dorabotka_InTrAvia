@@ -105,6 +105,11 @@ _SSE_LOCK = threading.Lock()
 _SSE_CLIENTS = set()
 _SSE_QUEUE_SIZE = 200
 
+# Последние метрики точки (acc/spd) по агенту. Хранятся в памяти, чтобы не
+# менять схему database.db; нужны для /api/v1/agents и SSE.
+_TRACK_META_LOCK = threading.Lock()
+_TRACK_META = {}
+
 
 def sse_publish(event, data):
     """Публикует событие всем подключённым SSE-клиентам."""
@@ -5910,7 +5915,13 @@ def _stamp_route_arrival(cur, request_id, comment, at, elapsed_min, eta_min, del
     return 'ROUTE:' + json.dumps(payload, ensure_ascii=False) + rest[end:]
 
 
-def _track_apply_position(kind, object_id, lat, lng, when):
+def _remember_track_meta(kind, object_id, acc, spd, when):
+    """Запоминает acc/spd последней точки агента (без изменения схемы БД)."""
+    with _TRACK_META_LOCK:
+        _TRACK_META[(kind, str(object_id))] = {'acc': acc, 'spd': spd, 't': when}
+
+
+def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None):
     conn = get_db()
     arrival_event = None
     active_request_id = None
@@ -6018,8 +6029,10 @@ def _track_apply_position(kind, object_id, lat, lng, when):
         except Exception as exc:
             print(f'[TRACK] route recalc request: {exc}')
 
+    _remember_track_meta(kind, object_id, acc, spd, when)
     sse_publish('position', {'type': kind, 'obj': str(object_id),
-                             'lat': lat, 'lon': lng, 't': when})
+                             'lat': lat, 'lon': lng, 't': when,
+                             'acc': acc, 'spd': spd})
     if arrival_event:
         append_event('arrival', **arrival_event)
         sse_publish('arrival', arrival_event)
@@ -6047,6 +6060,22 @@ def _track_process_point(point):
         result['error'] = 'lat/lon обязательны и должны быть числами'
         return result
 
+    metrics = {}
+    for field in ('acc', 'spd'):
+        raw = point.get(field)
+        if raw is None or raw == '':
+            metrics[field] = None
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = None
+        if value is None or not math.isfinite(value) or value < 0:
+            _log_ingest_error(point, 'invalid ' + field)
+            result['error'] = f'{field} должен быть неотрицательным числом'
+            return result
+        metrics[field] = value
+
     when = point.get('t')
     if not isinstance(when, str) or not when.strip():
         when = _utc_now_iso()
@@ -6059,7 +6088,9 @@ def _track_process_point(point):
         return result
 
     result['applied'] = _track_apply_position(known['type'], known['id'],
-                                              lat, lon, when)
+                                              lat, lon, when,
+                                              acc=metrics['acc'],
+                                              spd=metrics['spd'])
     return result
 
 
@@ -6114,6 +6145,18 @@ def api_v1_stream():
                              'X-Accel-Buffering': 'no'})
 
 
+def _attach_track_meta(item, kind):
+    """Добавляет к агенту последние acc/spd из принятых точек."""
+    with _TRACK_META_LOCK:
+        meta = _TRACK_META.get((kind, str(item.get('obj')))) \
+            or _TRACK_META.get((kind, str(item.get('id'))))
+    item['acc'] = meta.get('acc') if meta else None
+    item['spd'] = meta.get('spd') if meta else None
+    if meta and meta.get('t'):
+        item['t'] = meta['t']
+    return item
+
+
 def _agents_snapshot():
     conn = get_db()
     try:
@@ -6133,7 +6176,7 @@ def _agents_snapshot():
             item['kind'] = 'engineer'
             item['label'] = item.get('device_id') or item.get('name') or item['id']
             item['number'] = get_engineer_number_from_device(item.get('device_id'))
-            engineers.append(item)
+            engineers.append(_attach_track_meta(item, 'engineer'))
 
         cur.execute("""SELECT t.id, t.device_id, t.assigned_to,
                               COALESCE(p.lat, t.lat) AS lat,
@@ -6148,7 +6191,7 @@ def _agents_snapshot():
             item['obj'] = str(item['id'])
             item['kind'] = 'transport'
             item['label'] = item.get('device_id') or ('CAR-' + str(item['id']))
-            transport.append(item)
+            transport.append(_attach_track_meta(item, 'transport'))
 
         cur.execute("SELECT id, callsign, lat, lng, status, heading, speed "
                     "FROM aircraft ORDER BY callsign")
@@ -6158,18 +6201,20 @@ def _agents_snapshot():
             item['obj'] = item.get('callsign') or str(item['id'])
             item['kind'] = 'aircraft'
             item['label'] = item.get('callsign') or str(item['id'])
-            aircraft.append(item)
+            aircraft.append(_attach_track_meta(item, 'aircraft'))
 
         cur.execute("""SELECT object_id, lat, lng, updated_at
                        FROM map_object_positions WHERE object_type='aircraft'""")
         known_aircraft = {str(a.get('obj')) for a in aircraft}
         for row in cur.fetchall():
             if str(row['object_id']) not in known_aircraft:
-                aircraft.append({'id': row['object_id'], 'obj': row['object_id'],
-                                 'kind': 'aircraft', 'label': row['object_id'],
-                                 'callsign': row['object_id'],
-                                 'lat': row['lat'], 'lng': row['lng'],
-                                 'status': 'tracked', 'updated_at': row['updated_at']})
+                aircraft.append(_attach_track_meta({
+                    'id': row['object_id'], 'obj': row['object_id'],
+                    'kind': 'aircraft', 'label': row['object_id'],
+                    'callsign': row['object_id'],
+                    'lat': row['lat'], 'lng': row['lng'],
+                    'status': 'tracked', 'updated_at': row['updated_at']
+                }, 'aircraft'))
 
         return {'server_time': _utc_now_iso(), 'engineers': engineers,
                 'transport': transport, 'aircraft': aircraft}

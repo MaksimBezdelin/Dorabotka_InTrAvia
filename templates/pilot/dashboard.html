@@ -566,10 +566,10 @@ function labelToCode(l) {
 /* ============ SESSION ============ */
 (function() {
     var session = sessionStorage.getItem('userSession');
-    if (!session) { window.location.href='/login.html'; return; }
+    if (!session) { sessionStorage.removeItem('userSession'); window.location.href='/login.html'; return; }
     var user;
-    try { user = JSON.parse(session); if (user.role !== 'pilot') { window.location.href='/login.html'; return; } }
-    catch(_) { window.location.href='/login.html'; return; }
+    try { user = JSON.parse(session); if (user.role !== 'pilot') { sessionStorage.removeItem('userSession'); window.location.href='/login.html'; return; } }
+    catch(_) { sessionStorage.removeItem('userSession'); window.location.href='/login.html'; return; }
     document.getElementById('userName').textContent = user.name || 'Пилот';
     document.getElementById('userAvatar').innerHTML = '<i class="fas fa-user-tie"></i>';
     document.getElementById('userRole').textContent = user.rank || 'КВС';

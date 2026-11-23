@@ -625,16 +625,16 @@
 
         function init() {
             var session = sessionStorage.getItem('userSession');
-            if (!session) { window.location.href = '/login.html'; return; }
+            if (!session) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
 
             var user;
             try {
                 user = JSON.parse(session);
-                if (user.role !== 'admin') { window.location.href = '/login.html'; return; }
+                if (user.role !== 'admin') { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
                 document.getElementById('userName').textContent = user.name || 'Администратор';
                 document.getElementById('userAvatar').textContent = user.avatar || '👨‍💼';
                 document.getElementById('userRole').textContent = 'Администратор системы';
-            } catch (_) { window.location.href = '/login.html'; return; }
+            } catch (_) { sessionStorage.removeItem('userSession'); window.location.href = '/login.html'; return; }
 
             var now = new Date();
             var months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
@@ -1563,12 +1563,17 @@
             var coords = (agent.lat != null && agent.lng != null)
                 ? Number(agent.lat).toFixed(6) + ', ' + Number(agent.lng).toFixed(6)
                 : 'нет координат';
+            var metrics = [];
+            if (agent.acc != null) metrics.push('точность ' + Math.round(Number(agent.acc)) + ' м');
+            if (agent.spd != null) metrics.push('скорость ' + Number(agent.spd).toFixed(1) + ' м/с');
+            var sub = AGENT_KIND_LABELS[agent.kind] + ' · ' + escapeHtml(String(agent.obj)) +
+                ' · ' + escapeHtml(status.text);
+            if (metrics.length) sub += ' · ' + escapeHtml(metrics.join(' · '));
             box.className = 'agentmap-selected';
             box.innerHTML = '<div class="ico" style="background:' + agentColor(agent.kind) + '">' +
                 '<i class="fas ' + AGENT_KIND_ICONS[agent.kind] + '"></i></div>' +
                 '<div style="flex:1;min-width:0;"><div class="label">' + escapeHtml(agent.label || agent.obj) + '</div>' +
-                '<div class="sub">' + AGENT_KIND_LABELS[agent.kind] + ' · ' + escapeHtml(String(agent.obj)) +
-                ' · ' + escapeHtml(status.text) + '</div></div>' +
+                '<div class="sub">' + sub + '</div></div>' +
                 '<span class="coords">' + escapeHtml(coords) + '</span>';
             document.getElementById('mapHintBadge').textContent =
                 'Клик по карте — поставить: ' + (agent.label || agent.obj);
@@ -1741,11 +1746,14 @@
                     var point = JSON.parse(event.data);
                 } catch (_) { return; }
                 var agent = agentMapAgents.filter(function (item) {
-                    return item.kind === point.type && String(item.obj) === String(point.obj);
+                    return item.kind === point.type &&
+                        (String(item.obj) === String(point.obj) || String(item.id) === String(point.obj));
                 })[0];
                 if (!agent) return;
                 agent.lat = point.lat;
                 agent.lng = point.lon;
+                if (point.acc !== undefined) agent.acc = point.acc;
+                if (point.spd !== undefined) agent.spd = point.spd;
                 upsertAgentMarker(agent);
                 if (agentKey(agent) === agentMapSelectedKey) updateSelectedAgent(false);
                 if (!agentBeaconTimer) renderAgentList();
