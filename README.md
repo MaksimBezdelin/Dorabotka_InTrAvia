@@ -1,10 +1,167 @@
-# Чеклист финального этапа «Ит-2026» — Умная диспетчеризация ОТО
+# InTrAvia — умная диспетчеризация инженеров на полигоне ВДНХ
 
-> **Безопасность.** Сервер закрыт сессионной авторизацией (`AUTH_REQUIRED=1`
-> по умолчанию). Файл `database.db` в репозиторий не входит: положите его
-> рядом с `app.py` из резервной копии. Секреты хранятся в `.env`
-> (шаблон — `.env.example`). Подробности и остаточные риски —
-> в `SECURITY_AUDIT.md`.
+Прототип для ИТ-2026: Flask + SQLite + Leaflet + Android WebView. Цепочка
+заявки — **пилот → MCC (ЦПУ) → диспетчер → инженер**. Маршруты строятся по
+трём дорожным графам ВДНХ, спецтранспорт выбирается сравнением времени,
+прибытие в сервисную зону фиксируется автоматически по GPS.
+
+## Быстрый запуск
+
+```powershell
+# 1. Зависимости (Python 3.13+)
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+
+# 2. База: положить database.db рядом с app.py (сервер не создаёт её сам)
+
+# 3. Секреты
+copy .env.example .env
+# в .env задать SECRET_KEY:
+# python -c "import secrets; print(secrets.token_hex(32))"
+
+# 4. Запуск
+.venv\Scripts\python.exe serve.py        # waitress, http://127.0.0.1:8080
+.venv\Scripts\python.exe app.py          # dev-сервер, http://127.0.0.1:5000
+```
+
+Вход: `/login.html`. Учётные записи и роли выдаёт администратор
+(`/admin/dashboard.html`). Демо-пароли не публикуются в репозитории.
+
+### Переменные окружения
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `SECRET_KEY` | случайный | подпись cookie сессии |
+| `APP_PORT` | `8080` | порт waitress |
+| `AUTH_REQUIRED` | `1` | серверная авторизация; `0` — демо-стенд |
+| `CORS_ORIGINS` | пусто | список origin через запятую; пусто — same-origin |
+| `SESSION_COOKIE_SECURE` | `0` | `1` при работе по HTTPS |
+| `INTRAVIA_DB` | `database.db` | путь к БД (тесты и стенды) |
+| `INTRAVIA_EVENTS` | `data/events.jsonl` | журнал событий |
+| `LLM_ENABLED`, `LLM_MODEL` | `1`, `qwen2.5:3b` | Ollama для подсказок |
+| `WHISPER_MODEL` | `small` | распознавание голосовых заявок |
+
+## Полигон ВДНХ
+
+- Центр: `55.83367, 37.62709`; границы, дороги, объекты и зоны — в
+  `static/geodata/vdnh/`, единственный источник географии —
+  `config/location.json`.
+- Три графа NetworkX: пешеходный (`service` + `pedestrian`), транспортный
+  (`service`), авиационный (`taxi` + `runway`). Вес ребра — время в секундах
+  по `spd_kmh`.
+- Стартовые позиции: инженеры — Терминал, машины — Стоянка спецтехники
+  (`tools/apply_vdnh_location.py`, идемпотентно, с резервной копией БД).
+- Стоянки ВС — `SZ-1..SZ-10`; старые числовые id поддерживаются как алиасы.
+
+## Роли
+
+| Роль | Что делает |
+|---|---|
+| `pilot` | создаёт заявку о дефекте, видит свои заявки |
+| `mcc` | MEL/ATA, решение о допуске, очередь ЦПУ (объединена с MCC) |
+| `dispatcher` | принимает заявку из MCC, назначает/переназначает инженера |
+| `engineer` | принимает/отклоняет, едет, диагностирует, отправляет отчёт |
+| `admin` | пользователи, импорт, очистка, выгрузки |
+
+Роль `cpu` удалена: ЦПУ — это тот же MCC, отдельная учётная запись не нужна.
+
+## Мобильные приложения
+
+- Страницы: `/m/engineer` (инженер) и `/m/agents` (ввод данных любых агентов).
+- Маяк: выбранный агент + интервал + GPS или точка на карте; для
+  спецтранспорта и ВС — пакетная отправка по 5 точек.
+- Экранирование данных, SSE-обновления без перезагрузки, вход по сессии.
+- Android-оболочки: `mobile/webview-engineer`, `mobile/webview-agents`.
+
+```bash
+cd mobile/webview-engineer
+export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
+export ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk"
+./gradlew assembleDebug --no-daemon
+# то же для mobile/webview-agents
+```
+
+APK: `app/build/outputs/apk/debug/app-debug.apk`. В приложении задаётся адрес
+сервера (без `/m/...`), затем вход по email и паролю.
+
+## API
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| POST | `/api/v1/track` | точка или `{"points": [...]}`; `obj/lat/lon/t/acc/spd` |
+| GET | `/api/v1/stream` | SSE: `hello`, `position`, `sync`, `warning`, `arrival` |
+| GET | `/api/v1/agents` | текущие позиции агентов |
+| GET | `/api/v1/snapshot` | агенты + активные заявки |
+| GET | `/api/location` | конфиг ВДНХ, объекты, зоны, дороги, граница |
+| GET | `/api/parking` | стоянки `SZ-N` с полигонами |
+| POST | `/api/route` | `agent_type`, `start`, `waypoints`, `target`, `use_transport` |
+| GET | `/api/v1/events?since=` | журнал событий (MCC/диспетчер/админ) |
+| GET | `/api/v1/events/export.xlsx` | выгрузка журнала |
+| GET | `/api/reports/export.xlsx` | общий отчёт, лист «Журнал» |
+
+`POST /api/v1/track` и SSE остаются публичными по контракту организаторов;
+остальные API закрыты сессией.
+
+## Архитектура
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    WEB[Браузеры: admin, MCC, диспетчер, пилот, инженер]
+    APK[Android WebView: инженер и агенты]
+    SIM[Имитатор организаторов]
+  end
+  WEB -->|REST /api/*, SSE| FLASK[Flask + waitress]
+  APK -->|/m/*, /api/v1/track| FLASK
+  SIM -->|POST /api/v1/track| FLASK
+  FLASK --> DB[(SQLite database.db)]
+  FLASK --> CFG[config/location.json + GeoJSON]
+  FLASK --> GRAPH[NetworkX: pedestrian, vehicle, aircraft]
+  FLASK --> EV[data/events.jsonl]
+  FLASK --> AI[Ollama / Whisper, опционально]
+```
+
+## Тесты и проверка
+
+```powershell
+.venv\Scripts\python.exe -m pytest -q          # 48 passed, 104 skipped
+.venv\Scripts\python.exe tools/smoke_vdnh.py   # 3 заявки, прибытия, журнал, XLSX
+.venv\Scripts\python.exe tools/build_location_config.py
+.venv\Scripts\python.exe tools/apply_vdnh_location.py
+```
+
+## Безопасность
+
+- `AUTH_REQUIRED=1` по умолчанию, cookie `HttpOnly` + `SameSite=Lax`.
+- Пароли — scrypt (werkzeug), старые открытые пароли мигрируются при входе.
+- Security-заголовки, same-origin CORS, rate limit входа, санитизация 500.
+- `database.db` в репозиторий не входит: восстановите из резервной копии.
+- Полный отчёт и остаточные риски — `SECURITY_AUDIT.md`.
+
+## Презентация: тезисы
+
+1. **Архитектура и стек.** Схема выше: браузеры и WebView → REST/SSE →
+   Flask/waitress → SQLite + GeoJSON + графы NetworkX + JSONL-журнал;
+   опционально Ollama/Whisper.
+2. **Функционал.** Заявка от пилота, MEL/ATA в MCC, назначение диспетчером,
+   маршрут по графу с waypoints и спецтранспортом, ETA, автофиксация
+   прибытия, норматив 15 минут, журнал и XLSX, мобильные приложения.
+3. **Разработка и качество.** Итерации по этапам, pytest (48 тестов),
+   smoke-скрипт на копии БД, ревью безопасности, ИИ-ассистент для
+   рефакторинга и тестов; найденные XSS и открытый API исправлены.
+4. **Авторство.** Людьми: постановка цепочки ролей, схема данных, интерфейсы
+   диспетчера и инженера. Совместно с ИИ: роутер с проекцией на ребро,
+   три графа, миграция паролей, тесты, аудит. ИИ: черновики шаблонов,
+   комментарии и отчёты; все изменения проверялись запуском тестов.
+5. **Адаптация под ВДНХ.** Конфиг локации, 325 дорог, 10 зон, 6 объектов,
+   карты Leaflet с границей и слоями, стартовые позиции агентов.
+6. **Маршруты, транспорт, ETA, журнал.** Скорости рёбер, запрет рулёжек для
+   инженера, выбор машины сравнением времени, пересчёт ETA по GPS,
+   warning за 5 минут, breach и факт прибытия в `events.jsonl`.
+
+---
+
+# Приложение. Чеклист финального этапа «Ит-2026»
 
 **Максимум: 108 баллов** = обязательная часть (22 критерия, 97 б.) + необязательная часть (3 критерия, 11 б.)
 **Полигон:** ВДНХ, Москва. **Испытание:** 1 попытка, 3 части (презентация + имитация + живой инженер).
