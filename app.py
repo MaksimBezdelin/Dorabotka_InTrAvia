@@ -4,6 +4,7 @@ import math
 import time
 import json
 import base64
+import queue
 import sqlite3
 import tempfile
 import hashlib
@@ -13,7 +14,8 @@ import networkx as nx
 from datetime import datetime, timezone, timedelta
 from flask_cors import CORS
 from flask import (Flask, request, jsonify, session,
-                   render_template, redirect, url_for, Response, abort)
+                   render_template, redirect, url_for, Response, abort,
+                   stream_with_context)
 
 try:
     from openai import OpenAI
@@ -40,9 +42,50 @@ if os.path.exists(FFMPEG_PATH):
         os.environ['PATH'] = ffmpeg_dir + os.pathsep + cp
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-app.secret_key = 'intravia-secret-key-change-in-production'
+app.secret_key = os.environ.get('SECRET_KEY', '').strip() or 'intravia-secret-key-change-in-production'
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+
+# ------------------------------------------------------------
+# Realtime: in-process SSE bus (gunicorn/Flask, один процесс, много потоков)
+# ------------------------------------------------------------
+_SSE_LOCK = threading.Lock()
+_SSE_CLIENTS = set()
+_SSE_QUEUE_SIZE = 200
+
+
+def sse_publish(event, data):
+    """Публикует событие всем подключённым SSE-клиентам."""
+    payload = ('event: ' + str(event) + '\n' +
+               'data: ' + json.dumps(data, ensure_ascii=False, default=str) + '\n\n')
+    with _SSE_LOCK:
+        dead = []
+        for client_queue in _SSE_CLIENTS:
+            try:
+                client_queue.put_nowait(payload)
+            except queue.Full:
+                dead.append(client_queue)
+        for client_queue in dead:
+            _SSE_CLIENTS.discard(client_queue)
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+@app.after_request
+def _publish_mutation(response):
+    """Любая изменяющая API-операция будит веб-клиенты, чтобы они перечитали состояние."""
+    try:
+        if request.method in ('POST', 'PUT', 'DELETE') and request.path.startswith('/api/'):
+            if response.status_code < 500 and request.path not in ('/api/auth/login',):
+                sse_publish('sync', {'path': request.path,
+                                     'status': response.status_code,
+                                     'at': _utc_now_iso()})
+    except Exception as exc:
+        print(f'[SSE] publish error: {exc}')
+    return response
 
 
 @app.errorhandler(404)
@@ -3743,6 +3786,7 @@ def get_requests():
         r.flight_cancelled_at, r.all_rejected, r.mcc_status, r.mcc_decision, r.mcc_comment,
         r.engineer_verdict, r.engineer_verdict_at, r.aog_action, r.inspection_assigned_at,
         r.mcc_mel_choice, r.mcc_proc_o, r.mcc_proc_m, r.mcc_proc_o_text, r.mcc_proc_m_text,
+        r.mcc_ata,
         r.mcc_mel_ref, r.mcc_mel_category, r.mcc_due_date, r.mcc_due_condition,
         r.mcc_mel_revision, r.mcc_mel_description, r.mcc_mel_restrictions,
         r.mel_catalog_id, r.mel_assessed_by, r.mel_assessment_comment, r.mel_rectification_interval,
@@ -4545,6 +4589,317 @@ def transcribe_request_audio(rid):
             if p and os.path.exists(p):
                 try: os.remove(p)
                 except: pass
+
+
+# ============================================================
+# Мобильные WebView-приложения и контракт приёма геопозиции
+# ============================================================
+def _log_ingest_error(raw_point, error):
+    """Журнал ошибок приёма геоданных (append-only JSONL, без изменения схемы БД)."""
+    try:
+        path = os.path.join(BASE_DIR, 'data', 'ingest_errors.log')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = json.dumps(raw_point, ensure_ascii=False, default=str)[:1000]
+        with open(path, 'a', encoding='utf-8') as log_file:
+            log_file.write(json.dumps({'at': _utc_now_iso(), 'error': error,
+                                       'point': payload}, ensure_ascii=False) + '\n')
+    except Exception as exc:
+        print(f'[TRACK] log error: {exc}')
+
+
+def _track_known_object(raw_obj):
+    """Сопоставляет obj из контракта с агентом системы.
+
+    Поддерживаются канонические id (`eng_1`, `CAR-001`, `SU-1001`), номера
+    из контракта (`e-01`, `v-01`) и регистрация ВС (`RA-73142`).
+    """
+    raw = str(raw_obj or '').strip()
+    if not raw:
+        return None
+    needle = raw.lower()
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, device_id FROM engineers")
+        for row in cur.fetchall():
+            eid = str(row['id'])
+            device = str(row['device_id'] or '')
+            number = get_engineer_number_from_device(device)
+            aliases = {eid.lower(), device.lower()}
+            if number:
+                aliases.update({f'e-{number:02d}', f'e-{number}',
+                                f'en-{number:03d}', f'eng-{number}'})
+            if needle in aliases:
+                return {'type': 'engineer', 'id': eid, 'label': row['name'] or device}
+
+        cur.execute("SELECT id, device_id FROM transport")
+        for row in cur.fetchall():
+            tid = str(row['id'])
+            device = str(row['device_id'] or '')
+            aliases = {tid.lower(), device.lower(), f'v-{int(tid):02d}', f'v-{tid}'}
+            if needle in aliases:
+                return {'type': 'transport', 'id': tid, 'label': device or tid}
+
+        cur.execute("SELECT id, callsign FROM aircraft")
+        for row in cur.fetchall():
+            callsign = str(row['callsign'] or '')
+            if needle in {str(row['id']).lower(), callsign.lower()}:
+                return {'type': 'aircraft', 'id': callsign or str(row['id']),
+                        'label': callsign or str(row['id'])}
+
+        cur.execute("SELECT registration FROM aircraft_registry "
+                    "WHERE UPPER(registration)=?", (raw.upper(),))
+        row = cur.fetchone()
+        if row:
+            return {'type': 'aircraft', 'id': str(row['registration']).upper(),
+                    'label': str(row['registration']).upper()}
+
+        cur.execute("SELECT DISTINCT aircraft FROM requests "
+                    "WHERE UPPER(aircraft)=? LIMIT 1", (raw.upper(),))
+        row = cur.fetchone()
+        if row:
+            return {'type': 'aircraft', 'id': str(row['aircraft']).upper(),
+                    'label': str(row['aircraft']).upper()}
+    finally:
+        conn.close()
+    return None
+
+
+def _track_apply_position(kind, object_id, lat, lng, when):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        assigned_request = None
+        if kind == 'engineer':
+            cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
+                        (lat, lng, object_id))
+            if cur.rowcount == 0:
+                return False
+        elif kind == 'transport':
+            cur.execute("SELECT assigned_to FROM transport WHERE id=?", (int(object_id),))
+            row = cur.fetchone()
+            assigned_request = row['assigned_to'] if row else None
+            cur.execute("UPDATE transport SET lat=?, lng=? WHERE id=?",
+                        (lat, lng, int(object_id)))
+            if cur.rowcount == 0:
+                return False
+        else:  # aircraft
+            cur.execute("SELECT id FROM aircraft WHERE id=? OR UPPER(callsign)=?",
+                        (object_id, object_id.upper()))
+            row = cur.fetchone()
+            if row:
+                cur.execute("UPDATE aircraft SET lat=?, lng=?, updated_at=CURRENT_TIMESTAMP "
+                            "WHERE id=?", (lat, lng, row['id']))
+                object_id = str(row['id'])
+
+        cur.execute("""INSERT INTO map_object_positions
+                       (object_type, object_id, lat, lng, updated_at)
+                       VALUES (?,?,?,?,?)
+                       ON CONFLICT(object_type, object_id) DO UPDATE SET
+                         lat=excluded.lat, lng=excluded.lng, updated_at=excluded.updated_at""",
+                    (kind, str(object_id), lat, lng, when))
+        conn.commit()
+    finally:
+        conn.close()
+
+    if kind == 'engineer':
+        try:
+            _recalc_routes_for_engineer(object_id, force=True)
+        except Exception as exc:
+            print(f'[TRACK] route recalc engineer: {exc}')
+    elif kind == 'transport' and assigned_request:
+        try:
+            _recalc_route_for_request_id(assigned_request, force=True)
+        except Exception as exc:
+            print(f'[TRACK] route recalc request: {exc}')
+
+    sse_publish('position', {'type': kind, 'obj': str(object_id),
+                             'lat': lat, 'lon': lng, 't': when})
+    return True
+
+
+def _track_process_point(point):
+    result = {'accepted': False, 'applied': False, 'obj': None, 't': None}
+    if not isinstance(point, dict):
+        _log_ingest_error(point, 'point is not an object')
+        result['error'] = 'Точка должна быть JSON-объектом'
+        return result
+
+    obj = point.get('obj')
+    result['obj'] = obj
+    lat_raw = point.get('lat')
+    lon_raw = point.get('lon', point.get('lng'))
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            raise ValueError('out of range')
+    except (TypeError, ValueError):
+        _log_ingest_error(point, 'lat/lon missing or not numeric')
+        result['error'] = 'lat/lon обязательны и должны быть числами'
+        return result
+
+    when = point.get('t')
+    if not isinstance(when, str) or not when.strip():
+        when = _utc_now_iso()
+    result['accepted'] = True
+    result['t'] = when
+
+    known = _track_known_object(obj)
+    if not known:
+        _log_ingest_error(point, 'unknown object')
+        return result
+
+    result['applied'] = _track_apply_position(known['type'], known['id'],
+                                              lat, lon, when)
+    return result
+
+
+@app.route('/api/v1/track', methods=['POST'])
+def api_v1_track():
+    """Единая ручка приёма геопозиции: одна точка или пакет точек."""
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({'accepted': False, 'applied': False, 'obj': None,
+                        't': None, 'error': 'Ожидается JSON'}), 400
+
+    if isinstance(data, dict) and isinstance(data.get('points'), list):
+        points = data['points']
+        if len(points) > 5000:
+            return jsonify({'error': 'Слишком большой пакет (максимум 5000 точек)'}), 413
+        return jsonify([_track_process_point(point) for point in points])
+
+    if not isinstance(data, dict):
+        return jsonify({'accepted': False, 'applied': False, 'obj': None,
+                        't': None, 'error': 'Ожидается объект точки или {"points": [...]}'}), 400
+
+    result = _track_process_point(data)
+    if not result['accepted']:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route('/api/v1/stream')
+def api_v1_stream():
+    """Server-Sent Events: все изменения состояния в реальном времени."""
+    client_queue = queue.Queue(maxsize=_SSE_QUEUE_SIZE)
+    with _SSE_LOCK:
+        _SSE_CLIENTS.add(client_queue)
+
+    def generate():
+        try:
+            yield 'retry: 2000\n\n'
+            yield ('event: hello\ndata: ' +
+                   json.dumps({'server_time': _utc_now_iso()}, ensure_ascii=False) + '\n\n')
+            while True:
+                try:
+                    payload = client_queue.get(timeout=15)
+                    yield payload
+                except queue.Empty:
+                    yield ': ping\n\n'
+        finally:
+            with _SSE_LOCK:
+                _SSE_CLIENTS.discard(client_queue)
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache',
+                             'X-Accel-Buffering': 'no'})
+
+
+def _agents_snapshot():
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization,
+                              e.status, e.task_step, e.task,
+                              COALESCE(p.lat, e.coords_lat) AS lat,
+                              COALESCE(p.lng, e.coords_lng) AS lng
+                       FROM engineers e
+                       LEFT JOIN map_object_positions p
+                         ON p.object_type='engineer' AND p.object_id=e.id
+                       ORDER BY e.device_id""")
+        engineers = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item['obj'] = str(item['id'])
+            item['kind'] = 'engineer'
+            item['label'] = item.get('device_id') or item.get('name') or item['id']
+            item['number'] = get_engineer_number_from_device(item.get('device_id'))
+            engineers.append(item)
+
+        cur.execute("""SELECT t.id, t.device_id, t.assigned_to,
+                              COALESCE(p.lat, t.lat) AS lat,
+                              COALESCE(p.lng, t.lng) AS lng
+                       FROM transport t
+                       LEFT JOIN map_object_positions p
+                         ON p.object_type='transport' AND p.object_id=CAST(t.id AS TEXT)
+                       ORDER BY t.id""")
+        transport = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item['obj'] = str(item['id'])
+            item['kind'] = 'transport'
+            item['label'] = item.get('device_id') or ('CAR-' + str(item['id']))
+            transport.append(item)
+
+        cur.execute("SELECT id, callsign, lat, lng, status, heading, speed "
+                    "FROM aircraft ORDER BY callsign")
+        aircraft = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item['obj'] = item.get('callsign') or str(item['id'])
+            item['kind'] = 'aircraft'
+            item['label'] = item.get('callsign') or str(item['id'])
+            aircraft.append(item)
+
+        cur.execute("""SELECT object_id, lat, lng, updated_at
+                       FROM map_object_positions WHERE object_type='aircraft'""")
+        known_aircraft = {str(a.get('obj')) for a in aircraft}
+        for row in cur.fetchall():
+            if str(row['object_id']) not in known_aircraft:
+                aircraft.append({'id': row['object_id'], 'obj': row['object_id'],
+                                 'kind': 'aircraft', 'label': row['object_id'],
+                                 'callsign': row['object_id'],
+                                 'lat': row['lat'], 'lng': row['lng'],
+                                 'status': 'tracked', 'updated_at': row['updated_at']})
+
+        return {'server_time': _utc_now_iso(), 'engineers': engineers,
+                'transport': transport, 'aircraft': aircraft}
+    finally:
+        conn.close()
+
+
+@app.route('/api/v1/agents', methods=['GET'])
+def api_v1_agents():
+    return jsonify(_agents_snapshot())
+
+
+@app.route('/api/v1/snapshot', methods=['GET'])
+def api_v1_snapshot():
+    payload = _agents_snapshot()
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT id, aircraft, flight_number, parking_id, fault_type,
+                              status, routing_stage, engineer_id, engineer_name,
+                              travel_time, using_car, best_car, created_at
+                       FROM requests
+                       WHERE status NOT IN ('draft','deleted','completed','cancelled','flight_cancelled')
+                       ORDER BY created_at DESC""")
+        payload['requests'] = [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify(payload)
+
+
+@app.route('/m/engineer')
+def mobile_engineer_app():
+    return render_template('mobile/engineer.html')
+
+
+@app.route('/m/agents')
+def mobile_agents_app():
+    return render_template('mobile/agents.html')
 
 
 # ============================================================

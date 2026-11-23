@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b2545">
+<title>InTrAvia — инженер</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --navy:#0b2545; --blue:#1f6feb; --sky:#4d9fff; --gold:#f5b301;
+    --bg:#eef2f7; --card:#ffffff; --text:#16233a; --muted:#6b7a90;
+    --green:#15803d; --red:#dc2626; --amber:#b45309; --line:#dbe3ee;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif}
+  body{padding-bottom:calc(84px + var(--safe-bottom))}
+  header{position:sticky;top:0;z-index:1000;background:linear-gradient(135deg,#0b2545,#123b66);
+    color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 4px 18px rgba(11,37,69,.28)}
+  header .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--gold)}
+  header h1{font-size:15px;margin:0;line-height:1.2;font-weight:700}
+  header p{margin:2px 0 0;font-size:11px;color:#b9cbe2}
+  header .gear{margin-left:auto;background:rgba(255,255,255,.12);border:0;color:#fff;
+    border-radius:10px;padding:8px 10px;font-size:16px}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 3px 14px rgba(20,38,63,.06);overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+    font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#375273}
+  .card-body{padding:14px}
+  #map{height:44vh;min-height:280px;background:#dfe7f0}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;
+    font-size:11px;font-weight:700;background:#e8f0fb;color:#1f4f8a}
+  .pill.ok{background:#e7f7ed;color:var(--green)}
+  .pill.warn{background:#fff4d6;color:var(--amber)}
+  .pill.bad{background:#fde8e8;color:var(--red)}
+  .muted{color:var(--muted);font-size:12px}
+  .req-title{font-size:17px;font-weight:800;margin:0 0 4px}
+  .req-sub{font-size:12px;color:var(--muted);margin:0 0 10px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .kv{background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:9px 10px}
+  .kv b{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#8493a7;margin-bottom:3px}
+  .kv span{font-size:12px;font-weight:700;line-height:1.35}
+  .eta{display:flex;align-items:baseline;gap:6px;margin:10px 0 2px}
+  .eta strong{font-size:30px;line-height:1;color:var(--blue)}
+  .eta small{font-size:12px;color:var(--muted)}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .btn{border:0;border-radius:12px;padding:13px 10px;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px}
+  .btn:disabled{opacity:.45}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-green{background:var(--green);color:#fff}
+  .btn-red{background:#fde8e8;color:var(--red)}
+  .btn-ghost{background:#eef3fa;color:#24476f}
+  .btn-wide{grid-column:1 / -1}
+  .empty{text-align:center;padding:26px 14px;color:var(--muted);font-size:13px}
+  .empty .big{font-size:30px;display:block;margin-bottom:8px;opacity:.7}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + var(--safe-bottom));
+    z-index:4000;background:#0b2545;color:#fff;padding:11px 16px;border-radius:12px;
+    font-size:13px;font-weight:600;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.25);
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{background:#8f1d1d}
+  .toast.ok{background:#166534}
+  .gps{margin-top:10px;background:#f7f9fc;border:1px dashed #b9c9dd;border-radius:12px;
+    padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12px}
+  .gps .dot{width:9px;height:9px;border-radius:50%;background:#94a3b8}
+  .gps.on .dot{background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.16)}
+  .gps b{margin-left:auto;font-size:11px}
+  .switch{margin-left:auto}
+  .switch input{width:44px;height:24px;appearance:none;background:#cbd5e1;border-radius:999px;
+    position:relative;outline:none;transition:.2s}
+  .switch input:checked{background:var(--green)}
+  .switch input:before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;
+    background:#fff;top:3px;left:3px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .switch input:checked:before{left:23px}
+  nav.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:3000;display:grid;grid-template-columns:repeat(3,1fr);
+    background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border-top:1px solid var(--line);
+    padding:8px 10px calc(8px + var(--safe-bottom))}
+  nav.tabbar a{text-decoration:none;color:#7b8ba1;font-size:10px;font-weight:700;text-align:center;
+    display:flex;flex-direction:column;gap:3px;align-items:center;padding:4px}
+  nav.tabbar a b{font-size:18px;line-height:1}
+  nav.tabbar a.active{color:var(--blue)}
+  .sheet{position:fixed;inset:0;z-index:5000;background:rgba(8,20,36,.55);display:none;
+    align-items:flex-end;justify-content:center}
+  .sheet.show{display:flex}
+  .sheet-inner{background:#fff;width:100%;max-width:620px;border-radius:20px 20px 0 0;
+    padding:18px 16px calc(18px + var(--safe-bottom));max-height:86vh;overflow:auto}
+  .sheet h3{margin:0 0 12px;font-size:16px}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+  .field label{font-size:11px;font-weight:800;text-transform:uppercase;color:#6b7a90;letter-spacing:.04em}
+  .field input,.field select,.field textarea{border:1px solid #cfdae8;border-radius:11px;
+    padding:12px;font-size:14px;font-family:inherit;background:#fff;color:var(--text)}
+  .req-list{display:flex;flex-direction:column;gap:8px}
+  .req-option{border:1px solid var(--line);background:#f8fafc;border-radius:12px;padding:12px;
+    display:flex;align-items:center;gap:10px;font-size:13px}
+  .req-option .id{font-weight:800;color:var(--blue)}
+  .req-option small{color:var(--muted)}
+  .req-option .go{margin-left:auto;background:var(--blue);color:#fff;border:0;border-radius:9px;
+    padding:8px 12px;font-weight:800;font-size:12px}
+  .leaflet-container{font-family:inherit}
+  .badge-obj{position:absolute;left:12px;top:12px;z-index:800;background:rgba(11,37,69,.88);
+    color:#fff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700}
+  .map-wrap{position:relative}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">A</div>
+  <div>
+    <h1>InTrAvia · Инженер</h1>
+    <p id="who">Выбор инженера…</p>
+  </div>
+  <button class="gear" id="changeEngineer" title="Сменить инженера">⚙</button>
+</header>
+
+<main>
+  <section class="card map-wrap">
+    <div id="map"></div>
+    <div class="badge-obj" id="mapLegend">—</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Текущая заявка</div>
+    <div class="card-body" id="taskCard">
+      <div class="empty"><span class="big">🛠</span>Нет активной заявки</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Передача геопозиции</div>
+    <div class="card-body">
+      <div class="gps" id="gpsBox">
+        <span class="dot"></span>
+        <span id="gpsText">GPS выключен</span>
+        <label class="switch" title="Передавать GPS">
+          <input type="checkbox" id="gpsToggle">
+        </label>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Точки уходят на <code>/api/v1/track</code> не чаще раза в 2 секунды и сразу обновляют карту диспетчера.</p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <a href="#map" class="active"><b>🗺</b>Карта</a>
+  <a href="#task"><b>📋</b>Заявка</a>
+  <a href="/engineer/dashboard.html"><b>🖥</b>Полный вид</a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<div class="sheet" id="engineerSheet">
+  <div class="sheet-inner">
+    <h3>Выберите инженера</h3>
+    <p class="muted" style="margin-top:-6px">Этот выбор сохранится на устройстве.</p>
+    <div class="req-list" id="engineerList"><div class="empty">Загрузка…</div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var LS_ENGINEER = 'intravia.mobile.engineer';
+  var LS_GPS = 'intravia.mobile.gps';
+
+  var state = {
+    engineerId: localStorage.getItem(LS_ENGINEER) || '',
+    engineer: null,
+    request: null,
+    route: null,
+    parking: {},
+    positions: {},
+    markers: {},
+    refreshTimer: null,
+    lastGpsSentAt: 0,
+    lastGpsPoint: null,
+    gpsWatchId: null,
+    gpsOn: localStorage.getItem(LS_GPS) !== '0'
+  };
+
+  var map = null;
+  var ownMarker = null;
+  var routeLine = null;
+  var targetMarker = null;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function num(value) {
+    var n = Number(value);
+    return isFinite(n) ? n : null;
+  }
+
+  var toastTimer = null;
+  function toast(message, kind) {
+    var el = $('toast');
+    el.textContent = message;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = 'toast ' + (kind || ''); }, 3400);
+  }
+
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+    return fetch(path, options).then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) {
+          if (!response.ok) {
+            throw new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+          }
+          return body;
+        });
+    });
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') {
+      $('map').innerHTML = '<div class="empty">Карта недоступна: нет связи с CDN Leaflet</div>';
+      return;
+    }
+    map = L.map('map', { zoomControl: false, attributionControl: false })
+      .setView([55.976, 37.406], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+  }
+
+  function markerIcon(color, text) {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:34px;height:34px;border-radius:50%;background:' + color +
+            ';border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.3);display:flex;' +
+            'align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800">' +
+            text + '</div>',
+      iconSize: [34, 34], iconAnchor: [17, 17]
+    });
+  }
+
+  function setOwnPosition(lat, lng) {
+    if (!map || !isFinite(lat) || !isFinite(lng)) return;
+    if (!ownMarker) {
+      ownMarker = L.marker([lat, lng], { icon: markerIcon('#1f6feb', 'Я'), zIndexOffset: 900 }).addTo(map);
+      map.setView([lat, lng], 16);
+    } else {
+      ownMarker.setLatLng([lat, lng]);
+    }
+  }
+
+  function renderPositions(agents) {
+    if (!map) return;
+    var seen = {};
+    function put(kind, obj, lat, lng, label, color, text) {
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      if (kind === 'engineer' && state.engineerId && String(obj) === String(state.engineerId)) {
+        setOwnPosition(lat, lng);
+        return;
+      }
+      var key = kind + ':' + obj;
+      seen[key] = true;
+      var marker = state.markers[key];
+      if (!marker) {
+        marker = L.marker([lat, lng], { icon: markerIcon(color, text), title: label }).addTo(map);
+        marker.bindTooltip(label, { direction: 'top', offset: [0, -12] });
+        state.markers[key] = marker;
+      } else {
+        marker.setLatLng([lat, lng]);
+      }
+      state.positions[key] = { lat: lat, lng: lng, label: label, kind: kind, obj: obj };
+    }
+
+    (agents.engineers || []).forEach(function (item) {
+      put('engineer', item.id, num(item.lat), num(item.lng), item.label || item.name, '#64748b', 'И');
+    });
+    (agents.transport || []).forEach(function (item) {
+      put('transport', item.id, num(item.lat), num(item.lng), item.label, '#0ea5e9', 'Т');
+    });
+    (agents.aircraft || []).forEach(function (item) {
+      put('aircraft', item.obj || item.id, num(item.lat), num(item.lng),
+          item.label || item.callsign, '#f59e0b', 'ВС');
+    });
+    Object.keys(state.markers).forEach(function (key) {
+      if (!seen[key]) {
+        map.removeLayer(state.markers[key]);
+        delete state.markers[key];
+      }
+    });
+    if (state.engineer) {
+      $('mapLegend').textContent = (state.engineer.device_id || '') + ' · ' +
+        (state.engineer.name || '');
+    }
+  }
+
+  function drawRoute(route) {
+    if (!map || !route || !Array.isArray(route.path) || route.path.length < 2) return;
+    state.route = route;
+    var points = route.path.map(function (point) { return [point[0], point[1]]; });
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(points, { color: '#1f6feb', weight: 6, opacity: 0.9, lineJoin: 'round' }).addTo(map);
+    if (!targetMarker) {
+      targetMarker = L.marker(points[points.length - 1],
+        { icon: markerIcon('#15803d', 'Ц'), zIndexOffset: 700 }).addTo(map);
+      targetMarker.bindTooltip('Зона обслуживания', { direction: 'top' });
+    } else {
+      targetMarker.setLatLng(points[points.length - 1]);
+    }
+    map.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 17 });
+  }
+
+  function clearRoute() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+    state.route = null;
+  }
+
+  function statusLabel(status) {
+    return ({
+      assigned: 'Назначена', arriving: 'В пути', in_progress: 'В работе',
+      working: 'В работе', queued: 'В очереди', completed: 'Выполнена'
+    })[status] || status || '—';
+  }
+
+  function renderTask() {
+    var card = $('taskCard');
+    var request = state.request;
+    if (!request) {
+      card.innerHTML = '<div class="empty"><span class="big">✅</span>Активных заявок нет</div>';
+      clearRoute();
+      return;
+    }
+    var eta = state.route && isFinite(Number(state.route.tt)) ? Math.round(Number(state.route.tt)) : null;
+    var usingCar = state.route && state.route.uc;
+    var actions = '';
+
+    if (request.status === 'assigned') {
+      actions =
+        '<button class="btn btn-green" id="acceptBtn">Принять</button>' +
+        '<button class="btn btn-red" id="rejectBtn">Отклонить</button>';
+    } else if (request.status === 'arriving' || request.status === 'in_progress' || request.status === 'working') {
+      actions =
+        (request.using_car ? '<button class="btn btn-ghost" id="carBtn">Сел в транспорт</button>' : '') +
+        '<button class="btn btn-primary" id="arriveBtn">Я на месте</button>' +
+        '<button class="btn btn-green btn-wide" id="diagnoseBtn">Начать диагностику</button>';
+    }
+
+    var routeText = '—';
+    if (state.route) {
+      routeText = usingCar
+        ? (Math.round(Number(state.route.wc || 0)) + ' мин пешком + ' +
+           Math.round(Number(state.route.ct || 0)) + ' мин на транспорте')
+        : (Math.round(Number(state.route.tt || 0)) + ' мин пешком');
+    }
+
+    card.innerHTML =
+      '<h2 class="req-title">ВС ' + esc(request.aircraft || '—') + '</h2>' +
+      '<p class="req-sub">' + esc(request.fault_type || 'неисправность') +
+        ' · стоянка ' + esc(request.parking_id || '—') +
+        ' · <span class="pill ' + (request.status === 'assigned' ? 'warn' : 'ok') + '">' +
+        esc(statusLabel(request.status)) + '</span></p>' +
+      '<div class="eta"><strong>' + (eta == null ? '—' : esc(eta)) + '</strong><small>мин до борта (ETA)</small></div>' +
+      '<div class="grid2">' +
+        '<div class="kv"><b>Маршрут</b><span>' + esc(routeText) + '</span></div>' +
+        '<div class="kv"><b>Спецтранспорт</b><span>' + (usingCar ? esc(state.route.bc || 'назначен') : 'не нужен') + '</span></div>' +
+        '<div class="kv"><b>Рейс</b><span>' + esc(request.flight_number || '—') + '</span></div>' +
+        '<div class="kv"><b>MEL / ATA</b><span>' + esc(request.mcc_mel_ref || '—') + ' / ' + esc(request.mcc_ata || '—') + '</span></div>' +
+      '</div>' +
+      (actions ? '<div class="actions">' + actions + '</div>' : '') +
+      '<p class="muted" style="margin:12px 0 0">' + esc(request.description || '') + '</p>';
+
+    var accept = $('acceptBtn');
+    if (accept) accept.onclick = acceptRequest;
+    var reject = $('rejectBtn');
+    if (reject) reject.onclick = rejectRequest;
+    var car = $('carBtn');
+    if (car) car.onclick = function () { reportStep('in_car'); };
+    var arrive = $('arriveBtn');
+    if (arrive) arrive.onclick = function () { reportStep('arrived'); };
+    var diagnose = $('diagnoseBtn');
+    if (diagnose) diagnose.onclick = function () { reportStep('diagnosing'); };
+  }
+
+  function activeRequests() {
+    return api('/api/requests').then(function (rows) {
+      if (!Array.isArray(rows)) return [];
+      var active = rows.filter(function (row) {
+        return String(row.engineer_id || '') === String(state.engineerId) &&
+          ['assigned', 'arriving', 'in_progress', 'working', 'queued'].indexOf(row.status) >= 0;
+      });
+      return active;
+    });
+  }
+
+  function refreshTask() {
+    if (!state.engineerId) return Promise.resolve();
+    return activeRequests().then(function (rows) {
+      state.request = rows[0] || null;
+      if (!state.request) {
+        renderTask();
+        return;
+      }
+      var request = state.request;
+      var routePromise = Promise.resolve();
+      if (['assigned', 'arriving', 'in_progress', 'working'].indexOf(request.status) >= 0) {
+        routePromise = api('/api/dispatcher/requests/' + encodeURIComponent(request.id) + '/route')
+          .then(function (payload) { if (payload && payload.route) drawRoute(payload.route); })
+          .catch(function () { /* маршрут ещё не готов */ });
+      }
+      return routePromise.then(renderTask);
+    }).catch(function (error) {
+      console.warn('[TASK]', error);
+    });
+  }
+
+  function refreshEngineer() {
+    if (!state.engineerId) return Promise.resolve();
+    return api('/api/engineers/' + encodeURIComponent(state.engineerId)).then(function (engineer) {
+      state.engineer = engineer;
+      $('who').textContent = (engineer.device_id || '') + ' · ' + (engineer.name || '');
+      if (num(engineer.coords_lat) != null) setOwnPosition(num(engineer.coords_lat), num(engineer.coords_lng));
+    }).catch(function () {
+      state.engineerId = '';
+      localStorage.removeItem(LS_ENGINEER);
+      openEngineerSheet();
+    });
+  }
+
+  function refreshAgents() {
+    return api('/api/v1/agents').then(function (payload) {
+      renderPositions(payload);
+      $('mapLegend').textContent = state.engineer
+        ? ((state.engineer.device_id || '') + ' · ' + (state.engineer.name || ''))
+        : 'Выберите инженера';
+    }).catch(function (error) { console.warn('[AGENTS]', error); });
+  }
+
+  function refreshAll() {
+    return Promise.all([refreshAgents(), refreshEngineer().then(refreshTask)]);
+  }
+
+  function scheduleRefresh() {
+    clearTimeout(state.refreshTimer);
+    state.refreshTimer = setTimeout(function () {
+      refreshAgents();
+      refreshTask();
+    }, 500);
+  }
+
+  function acceptRequest() {
+    if (!state.request) return;
+    api('/api/requests/' + encodeURIComponent(state.request.id) + '/accept', {
+      method: 'POST', body: JSON.stringify({ engineer_id: state.engineerId })
+    }).then(function () {
+      toast('Заявка принята, маршрут запущен', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function rejectRequest() {
+    if (!state.request) return;
+    var reason = prompt('Причина отказа:', 'Нет инструмента');
+    if (!reason) return;
+    api('/api/requests/' + encodeURIComponent(state.request.id) + '/reject', {
+      method: 'POST',
+      body: JSON.stringify({ engineer_id: state.engineerId, reason: reason })
+    }).then(function (result) {
+      toast(result.reassigned ? 'Заявка передана другому инженеру' : 'Заявка возвращена в очередь', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function reportStep(step) {
+    if (!state.engineerId) return;
+    api('/api/engineers/' + encodeURIComponent(state.engineerId) + '/step', {
+      method: 'PUT', body: JSON.stringify({ step: step })
+    }).then(function () {
+      toast(({ in_car: 'Отмечена посадка в транспорт', arrived: 'Прибытие зафиксировано',
+               diagnosing: 'Диагностика начата' })[step] || 'Статус обновлён', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function sendGps(position) {
+    if (!state.engineerId || !position || !position.coords) return;
+    var now = Date.now();
+    var coords = position.coords;
+    var last = state.lastGpsPoint;
+    var moved = !last || Math.abs(last.lat - coords.latitude) > 0.00002 ||
+      Math.abs(last.lng - coords.longitude) > 0.00002;
+    if (!moved && now - state.lastGpsSentAt < 5000) return;
+    state.lastGpsSentAt = now;
+    state.lastGpsPoint = { lat: coords.latitude, lng: coords.longitude };
+    setOwnPosition(coords.latitude, coords.longitude);
+    api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({
+        obj: state.engineerId,
+        lat: coords.latitude,
+        lon: coords.longitude,
+        acc: coords.accuracy || null,
+        t: new Date().toISOString()
+      })
+    }).then(function (result) {
+      $('gpsText').textContent = result.applied
+        ? ('GPS · ' + coords.latitude.toFixed(5) + ', ' + coords.longitude.toFixed(5))
+        : 'GPS: сервер не принял точку';
+    }).catch(function (error) {
+      $('gpsText').textContent = 'GPS: ' + error.message;
+    });
+  }
+
+  function startGps() {
+    if (!state.gpsOn || !navigator.geolocation) {
+      $('gpsBox').classList.remove('on');
+      $('gpsText').textContent = navigator.geolocation ? 'GPS выключен' : 'GPS недоступен в WebView';
+      return;
+    }
+    if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = navigator.geolocation.watchPosition(sendGps, function (error) {
+      $('gpsBox').classList.remove('on');
+      $('gpsText').textContent = 'GPS: ' + (error.message || 'нет сигнала');
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+    $('gpsBox').classList.add('on');
+    $('gpsText').textContent = 'GPS включён, ждём сигнал…';
+  }
+
+  function stopGps() {
+    if (state.gpsWatchId != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(state.gpsWatchId);
+    }
+    state.gpsWatchId = null;
+    $('gpsBox').classList.remove('on');
+    $('gpsText').textContent = 'GPS выключен';
+  }
+
+  function openEngineerSheet() {
+    var sheet = $('engineerSheet');
+    sheet.classList.add('show');
+    var list = $('engineerList');
+    list.innerHTML = '<div class="empty">Загрузка…</div>';
+    api('/api/engineers').then(function (rows) {
+      if (!Array.isArray(rows) || !rows.length) {
+        list.innerHTML = '<div class="empty">Инженеры не найдены</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function (engineer) {
+        return '<div class="req-option">' +
+          '<div><div class="id">' + esc(engineer.device_id || engineer.id) + '</div>' +
+          '<small>' + esc(engineer.name || '') + ' · ' + esc(engineer.specialization || '') +
+          ' · ' + esc(engineer.status || '') + '</small></div>' +
+          '<button class="go" data-id="' + esc(engineer.id) + '">Выбрать</button></div>';
+      }).join('');
+      list.querySelectorAll('button[data-id]').forEach(function (button) {
+        button.onclick = function () {
+          state.engineerId = button.getAttribute('data-id');
+          localStorage.setItem(LS_ENGINEER, state.engineerId);
+          sheet.classList.remove('show');
+          refreshAll().then(startGps);
+        };
+      });
+    }).catch(function (error) {
+      list.innerHTML = '<div class="empty">Ошибка: ' + esc(error.message) + '</div>';
+    });
+  }
+
+  function connectStream() {
+    if (!window.EventSource) return;
+    var source = new EventSource('/api/v1/stream');
+    source.addEventListener('position', function (event) {
+      try {
+        var point = JSON.parse(event.data);
+        var key = point.type + ':' + point.obj;
+        var marker = state.markers[key];
+        if (marker && isFinite(Number(point.lat)) && isFinite(Number(point.lon))) {
+          marker.setLatLng([Number(point.lat), Number(point.lon)]);
+        }
+        if (point.type === 'engineer' && String(point.obj) === String(state.engineerId)) {
+          setOwnPosition(Number(point.lat), Number(point.lon));
+        }
+      } catch (error) { /* ignore malformed */ }
+    });
+    ['sync', 'request'].forEach(function (name) {
+      source.addEventListener(name, scheduleRefresh);
+    });
+    source.onerror = function () { setTimeout(function () { source.close(); connectStream(); }, 3000); };
+  }
+
+  function boot() {
+    initMap();
+    $('changeEngineer').onclick = openEngineerSheet;
+    $('gpsToggle').checked = state.gpsOn;
+    $('gpsToggle').onchange = function () {
+      state.gpsOn = this.checked;
+      localStorage.setItem(LS_GPS, state.gpsOn ? '1' : '0');
+      if (state.gpsOn) startGps(); else stopGps();
+    };
+    if (!state.engineerId) openEngineerSheet();
+    refreshAll().then(function () {
+      if (state.gpsOn) startGps();
+    });
+    connectStream();
+    setInterval(function () {
+      refreshAgents();
+      refreshTask();
+    }, 7000);
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>

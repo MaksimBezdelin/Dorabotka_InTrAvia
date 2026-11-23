@@ -24,6 +24,13 @@ mobile/dist/
 *.apk
 *.aab
 
+# --- WebView-оболочки (Gradle) ---
+mobile/webview-*/.gradle/
+mobile/webview-*/build/
+mobile/webview-*/app/build/
+mobile/webview-*/local.properties
+local.properties
+
 # --- Аудио и модели Whisper ---
 *.wav
 *.mp3
@@ -36,6 +43,7 @@ certs/
 
 # --- Прочее ---
 .env
+data/ingest_errors.log
 Thumbs.db
 Desktop.ini
 .DS_Store

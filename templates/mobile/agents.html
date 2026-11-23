@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b2545">
+<title>InTrAvia — агенты и маяк</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --navy:#0b2545; --blue:#1f6feb; --gold:#f5b301; --bg:#eef2f7; --card:#fff;
+    --text:#16233a; --muted:#6b7a90; --green:#15803d; --red:#dc2626; --amber:#b45309;
+    --line:#dbe3ee; --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  body{padding-bottom:calc(16px + var(--safe-bottom))}
+  header{position:sticky;top:0;z-index:1000;background:linear-gradient(135deg,#0b2545,#123b66);
+    color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 4px 18px rgba(11,37,69,.28)}
+  header .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--gold)}
+  header h1{font-size:15px;margin:0;line-height:1.2}
+  header p{margin:2px 0 0;font-size:11px;color:#b9cbe2}
+  .live{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;
+    background:rgba(255,255,255,.12);padding:6px 9px;border-radius:999px}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:#94a3b8}
+  .live.on .dot{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.18)}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 3px 14px rgba(20,38,63,.06);overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+    font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#375273}
+  .card-body{padding:14px}
+  #map{height:42vh;min-height:270px;background:#dfe7f0}
+  .map-wrap{position:relative}
+  .badge-obj{position:absolute;left:12px;top:12px;z-index:800;background:rgba(11,37,69,.88);
+    color:#fff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .field label{font-size:10px;font-weight:800;text-transform:uppercase;color:#6b7a90;letter-spacing:.05em}
+  select,input{width:100%;border:1px solid #cfdae8;border-radius:11px;padding:12px;
+    font-size:14px;font-family:inherit;background:#fff;color:var(--text)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .btn{border:0;border-radius:12px;padding:13px 10px;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px;width:100%}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-green{background:var(--green);color:#fff}
+  .btn-red{background:#fde8e8;color:var(--red)}
+  .btn-ghost{background:#eef3fa;color:#24476f}
+  .btn:disabled{opacity:.45}
+  .beacon{margin-top:12px;border:1px dashed #b9c9dd;border-radius:13px;padding:12px;background:#f8fafc}
+  .beacon.on{border-color:#22c55e;background:#f0fdf4}
+  .beacon-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800}
+  .beacon-head .dot{width:9px;height:9px;border-radius:50%;background:#94a3b8}
+  .beacon.on .beacon-head .dot{background:#22c55e;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 7px rgba(34,197,94,0)}}
+  .beacon .meta{margin-left:auto;font-size:11px;color:var(--muted)}
+  .beacon-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .log{max-height:210px;overflow:auto;font-size:11px;line-height:1.5}
+  .log-item{padding:8px 0;border-bottom:1px solid #edf1f6;display:flex;gap:8px}
+  .log-item:last-child{border-bottom:0}
+  .log-time{color:#8a99ad;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .log-body{min-width:0}
+  .log-body b{display:block;overflow-wrap:anywhere}
+  .ok{color:var(--green)} .bad{color:var(--red)} .warn{color:var(--amber)}
+  .muted{color:var(--muted);font-size:12px}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + var(--safe-bottom));
+    z-index:4000;background:#0b2545;color:#fff;padding:11px 16px;border-radius:12px;
+    font-size:13px;font-weight:600;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.25);
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{background:#8f1d1d}
+  .toast.ok{background:#166534}
+  .leaflet-container{font-family:inherit}
+  .hint{background:#fff7e6;border:1px solid #f1d9a7;color:#7c5b13;border-radius:11px;
+    padding:10px 12px;font-size:11px;line-height:1.45;margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">A</div>
+  <div>
+    <h1>InTrAvia · Агенты</h1>
+    <p id="counts">Загрузка агентов…</p>
+  </div>
+  <div class="live" id="liveBadge"><span class="dot"></span><span id="liveText">LIVE</span></div>
+</header>
+
+<main>
+  <section class="card map-wrap">
+    <div id="map"></div>
+    <div class="badge-obj" id="selectedBadge">Точка не выбрана</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Агент и координаты</div>
+    <div class="card-body">
+      <div class="field">
+        <label for="agentSelect">Агент</label>
+        <select id="agentSelect"><option value="">Загрузка…</option></select>
+      </div>
+      <div class="field">
+        <label for="customObj">Или свой obj (например RA-73142)</label>
+        <input id="customObj" placeholder="e-01 / CAR-001 / RA-73142" autocomplete="off">
+      </div>
+      <div class="row">
+        <div class="field"><label for="latInput">Широта</label><input id="latInput" inputmode="decimal" placeholder="55.9755"></div>
+        <div class="field"><label for="lonInput">Долгота</label><input id="lonInput" inputmode="decimal" placeholder="37.4005"></div>
+      </div>
+      <p class="muted" style="margin:-2px 0 10px">Коснитесь карты или перетащите маркер, чтобы задать точку.</p>
+      <button class="btn btn-primary" id="sendBtn">Отправить точку</button>
+
+      <div class="beacon" id="beaconBox">
+        <div class="beacon-head"><span class="dot"></span><span id="beaconTitle">Маяк выключен</span>
+          <span class="meta" id="beaconMeta">0 отправок</span></div>
+        <div class="beacon-controls">
+          <div class="field" style="margin:0">
+            <label for="beaconInterval">Интервал</label>
+            <select id="beaconInterval">
+              <option value="1000">1 секунда</option>
+              <option value="2000" selected>2 секунды</option>
+              <option value="5000">5 секунд</option>
+              <option value="10000">10 секунд</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="beaconSource">Источник</label>
+            <select id="beaconSource">
+              <option value="map" selected>Точка на карте</option>
+              <option value="gps">GPS устройства</option>
+            </select>
+          </div>
+        </div>
+        <div class="beacon-controls">
+          <button class="btn btn-green" id="beaconStart">Включить маяк</button>
+          <button class="btn btn-red" id="beaconStop" disabled>Остановить</button>
+        </div>
+        <div class="hint">Режим маяка отправляет позицию выбранного агента на сервер с заданным интервалом. Остальные агенты при этом продолжают отображаться на карте в реальном времени.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Журнал отправок</div>
+    <div class="card-body"><div class="log" id="log"><div class="muted">Пока пусто</div></div></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var state = {
+    agents: { engineers: [], transport: [], aircraft: [] },
+    markers: {},
+    selectedObj: '',
+    selectedKind: '',
+    selectedPoint: null,
+    beaconTimer: null,
+    beaconSends: 0,
+    gpsWatchId: null,
+    gpsPoint: null,
+    sending: false
+  };
+
+  var map = null;
+  var targetMarker = null;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  var toastTimer = null;
+  function toast(message, kind) {
+    var el = $('toast');
+    el.textContent = message;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = 'toast ' + (kind || ''); }, 3200);
+  }
+
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+    return fetch(path, options).then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) {
+          if (!response.ok) {
+            var error = new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+            error.body = body;
+            throw error;
+          }
+          return body;
+        });
+    });
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') {
+      $('map').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Карта недоступна: нет связи с CDN Leaflet</div>';
+      return;
+    }
+    map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.976, 37.406], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    map.on('click', function (event) {
+      setPoint(event.latlng.lat, event.latlng.lng, true);
+    });
+  }
+
+  function markerIcon(color, text, size) {
+    size = size || 32;
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color +
+        ';border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.3);display:flex;' +
+        'align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800">' + text + '</div>',
+      iconSize: [size, size], iconAnchor: [size / 2, size / 2]
+    });
+  }
+
+  function setPoint(lat, lng, moveMarker) {
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    state.selectedPoint = { lat: lat, lng: lng };
+    $('latInput').value = lat.toFixed(6);
+    $('lonInput').value = lng.toFixed(6);
+    if (moveMarker && map) {
+      if (!targetMarker) {
+        targetMarker = L.marker([lat, lng], { draggable: true, icon: markerIcon('#dc2626', 'Ц', 38), zIndexOffset: 1200 }).addTo(map);
+        targetMarker.on('dragend', function () {
+          var point = targetMarker.getLatLng();
+          setPoint(point.lat, point.lng, false);
+        });
+      } else {
+        targetMarker.setLatLng([lat, lng]);
+      }
+    }
+    updateSelectedBadge();
+  }
+
+  function updateSelectedBadge() {
+    var label = $('agentSelect');
+    var custom = $('customObj').value.trim();
+    var obj = custom || state.selectedObj;
+    var name = label.options[label.selectedIndex] ? label.options[label.selectedIndex].textContent : '';
+    $('selectedBadge').textContent = obj ? (obj + (name && !custom ? ' · ' + name : '')) : 'Точка не выбрана';
+  }
+
+  function renderAgents(payload) {
+    state.agents = payload;
+    $('counts').textContent = (payload.engineers || []).length + ' инженеров · ' +
+      (payload.transport || []).length + ' ТС · ' + (payload.aircraft || []).length + ' ВС';
+    if (!map) return;
+    var seen = {};
+    function put(kind, obj, lat, lng, label, color, text) {
+      if (!isFinite(Number(lat)) || !isFinite(Number(lng))) return;
+      var key = kind + ':' + obj;
+      seen[key] = true;
+      var marker = state.markers[key];
+      if (!marker) {
+        marker = L.marker([Number(lat), Number(lng)], { icon: markerIcon(color, text, 30), title: label }).addTo(map);
+        marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
+        state.markers[key] = marker;
+      } else {
+        marker.setLatLng([Number(lat), Number(lng)]);
+      }
+    }
+    (payload.engineers || []).forEach(function (item) { put('engineer', item.id, item.lat, item.lng, item.label || item.name, '#64748b', 'И'); });
+    (payload.transport || []).forEach(function (item) { put('transport', item.id, item.lat, item.lng, item.label, '#0ea5e9', 'Т'); });
+    (payload.aircraft || []).forEach(function (item) { put('aircraft', item.obj || item.id, item.lat, item.lng, item.label || item.callsign, '#f59e0b', 'ВС'); });
+    Object.keys(state.markers).forEach(function (key) {
+      if (!seen[key]) { map.removeLayer(state.markers[key]); delete state.markers[key]; }
+    });
+    rebuildSelect(payload);
+  }
+
+  function rebuildSelect(payload) {
+    var select = $('agentSelect');
+    var current = select.value || state.selectedObj;
+    var html = '<option value="">— выберите агента —</option>';
+    function group(title, items, kind) {
+      if (!items || !items.length) return;
+      html += '<optgroup label="' + esc(title) + '">';
+      items.forEach(function (item) {
+        var obj = kind === 'aircraft' ? (item.obj || item.id) : String(item.id);
+        var label = (item.label || item.callsign || item.name || obj) +
+          (item.device_id && item.device_id !== label ? ' · ' + item.device_id : '');
+        html += '<option value="' + esc(obj) + '" data-kind="' + kind + '">' + esc(label) + '</option>';
+      });
+      html += '</optgroup>';
+    }
+    group('Инженеры', payload.engineers, 'engineer');
+    group('Спецтранспорт', payload.transport, 'transport');
+    group('Воздушные суда', payload.aircraft, 'aircraft');
+    select.innerHTML = html;
+    if (current) {
+      var found = Array.prototype.slice.call(select.options).some(function (option) { return option.value === current; });
+      if (found) select.value = current;
+    }
+    updateSelectedBadge();
+  }
+
+  function selectedAgent() {
+    var select = $('agentSelect');
+    var custom = $('customObj').value.trim();
+    if (custom) return { obj: custom, kind: 'custom' };
+    if (!select.value) return null;
+    var option = select.options[select.selectedIndex];
+    return { obj: select.value, kind: option.getAttribute('data-kind') || 'custom' };
+  }
+
+  function setGpsPoint(position) {
+    state.gpsPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
+    setPoint(state.gpsPoint.lat, state.gpsPoint.lng, true);
+  }
+
+  function startGps() {
+    if (!navigator.geolocation) {
+      toast('GPS недоступен на этом устройстве', 'err');
+      return false;
+    }
+    if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = navigator.geolocation.watchPosition(setGpsPoint, function (error) {
+      toast('GPS: ' + (error.message || 'нет сигнала'), 'err');
+    }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    return true;
+  }
+
+  function stopGps() {
+    if (state.gpsWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = null;
+  }
+
+  function currentPoint() {
+    var source = $('beaconSource').value;
+    if (source === 'gps' && state.gpsPoint) return state.gpsPoint;
+    if (state.selectedPoint) return state.selectedPoint;
+    var lat = Number($('latInput').value);
+    var lon = Number($('lonInput').value);
+    if (isFinite(lat) && isFinite(lon)) return { lat: lat, lng: lon };
+    return null;
+  }
+
+  function sendPoint(silent) {
+    var agent = selectedAgent();
+    var point = currentPoint();
+    if (!agent) { if (!silent) toast('Выберите агента или укажите obj', 'err'); return Promise.resolve(); }
+    if (!point) { if (!silent) toast('Укажите точку на карте', 'err'); return Promise.resolve(); }
+    if (state.sending) return Promise.resolve();
+    state.sending = true;
+    var started = performance.now();
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({
+        obj: agent.obj,
+        lat: Number(point.lat.toFixed(7)),
+        lon: Number(point.lng.toFixed(7)),
+        t: new Date().toISOString()
+      })
+    }).then(function (result) {
+      var ms = Math.round(performance.now() - started);
+      addLog(agent.obj, result, ms);
+      if (!silent) {
+        toast(result.applied ? 'Точка принята' : 'Сервер не знает такого агента', result.applied ? 'ok' : 'err');
+      }
+      return result;
+    }).catch(function (error) {
+      addLog(agent.obj, { accepted: false, applied: false, error: error.message }, Math.round(performance.now() - started));
+      if (!silent) toast(error.message, 'err');
+    }).finally(function () {
+      state.sending = false;
+    });
+  }
+
+  function addLog(obj, result, ms) {
+    var log = $('log');
+    if (log.querySelector('.muted')) log.innerHTML = '';
+    var time = new Date().toLocaleTimeString('ru-RU');
+    var status = result.applied ? 'принята' : (result.accepted ? 'объект неизвестен' : 'ошибка');
+    var css = result.applied ? 'ok' : (result.accepted ? 'warn' : 'bad');
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = '<span class="log-time">' + esc(time) + '</span>' +
+      '<span class="log-body"><b>' + esc(obj) + ' → ' + esc(status) + '</b>' +
+      '<span class="muted">' + esc(ms) + ' мс · accepted=' + esc(result.accepted) +
+      ' · applied=' + esc(result.applied) + (result.error ? ' · ' + esc(result.error) : '') + '</span></span>';
+    log.insertBefore(item, log.firstChild);
+    while (log.children.length > 40) log.removeChild(log.lastChild);
+  }
+
+  function startBeacon() {
+    var agent = selectedAgent();
+    if (!agent) { toast('Сначала выберите агента', 'err'); return; }
+    if ($('beaconSource').value === 'gps' && !startGps()) return;
+    var interval = Number($('beaconInterval').value) || 2000;
+    state.beaconSends = 0;
+    $('beaconBox').classList.add('on');
+    $('beaconTitle').textContent = 'Маяк: ' + agent.obj;
+    $('beaconMeta').textContent = '0 отправок';
+    $('beaconStart').disabled = true;
+    $('beaconStop').disabled = false;
+    sendPoint(true);
+    state.beaconTimer = setInterval(function () {
+      if (!state.selectedPoint && $('beaconSource').value === 'gps' && !state.gpsPoint) return;
+      sendPoint(true).then(function () {
+        state.beaconSends += 1;
+        $('beaconMeta').textContent = state.beaconSends + ' отправок';
+      });
+    }, interval);
+    toast('Маяк включён: ' + agent.obj, 'ok');
+  }
+
+  function stopBeacon() {
+    if (state.beaconTimer) clearInterval(state.beaconTimer);
+    state.beaconTimer = null;
+    stopGps();
+    $('beaconBox').classList.remove('on');
+    $('beaconTitle').textContent = 'Маяк выключен';
+    $('beaconStart').disabled = false;
+    $('beaconStop').disabled = true;
+  }
+
+  function refreshAgents() {
+    return api('/api/v1/agents').then(renderAgents).catch(function (error) {
+      console.warn('[AGENTS]', error);
+    });
+  }
+
+  function connectStream() {
+    if (!window.EventSource) return;
+    var source = new EventSource('/api/v1/stream');
+    source.addEventListener('hello', function () {
+      $('liveBadge').classList.add('on');
+      $('liveText').textContent = 'LIVE';
+    });
+    source.addEventListener('position', function (event) {
+      try {
+        var point = JSON.parse(event.data);
+        var key = point.type + ':' + point.obj;
+        var marker = state.markers[key];
+        if (marker) marker.setLatLng([Number(point.lat), Number(point.lon)]);
+      } catch (error) { /* ignore */ }
+    });
+    source.addEventListener('sync', function () { refreshAgents(); });
+    source.onerror = function () {
+      $('liveBadge').classList.remove('on');
+      $('liveText').textContent = '…';
+      setTimeout(function () { source.close(); connectStream(); }, 3000);
+    };
+  }
+
+  function boot() {
+    initMap();
+    $('agentSelect').onchange = function () {
+      state.selectedObj = this.value;
+      updateSelectedBadge();
+      var agent = selectedAgent();
+      if (agent) {
+        var item = null;
+        if (agent.kind === 'engineer') item = state.agents.engineers.find(function (x) { return String(x.id) === agent.obj; });
+        if (agent.kind === 'transport') item = state.agents.transport.find(function (x) { return String(x.id) === agent.obj; });
+        if (agent.kind === 'aircraft') item = state.agents.aircraft.find(function (x) { return String(x.obj || x.id) === agent.obj; });
+        if (item && isFinite(Number(item.lat))) setPoint(Number(item.lat), Number(item.lng), true);
+      }
+    };
+    $('customObj').oninput = updateSelectedBadge;
+    $('latInput').onchange = function () { setPoint(Number(this.value), Number($('lonInput').value), true); };
+    $('lonInput').onchange = function () { setPoint(Number($('latInput').value), Number(this.value), true); };
+    $('sendBtn').onclick = function () { sendPoint(false); };
+    $('beaconStart').onclick = startBeacon;
+    $('beaconStop').onclick = stopBeacon;
+    refreshAgents();
+    connectStream();
+    setInterval(refreshAgents, 10000);
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>
