@@ -1133,7 +1133,7 @@
                 var deviceId = document.getElementById('editDeviceId').value.trim();
                 var speed = parseInt(document.getElementById('editSpeed').value) || 50;
                 if (!deviceId) return showToast('Введите ID', 'error');
-                var data = { device_id: deviceId, speed: speed, lat: 55.975, lng: 37.410 };
+                var data = { device_id: deviceId, speed: speed, lat: 55.83367, lng: 37.62709 };
                 if (editId === null) {
                     fetch(API_URL + '/transport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
                         .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });

@@ -390,7 +390,8 @@
                 .then(function(r) { if (!r.ok) throw new Error('location'); return r.json(); })
                 .then(function(loc) {
                     if (loc.center) {
-                        window.__vdnhCenter = [loc.center.lat, loc.center.lng];
+                        window.__vdnhCenter = [loc.center.lat,
+                            (loc.center.lon !== undefined ? loc.center.lon : loc.center.lng)];
                         map.setView(window.__vdnhCenter, 16);
                     }
                     if (loc.boundary) {

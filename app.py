@@ -434,52 +434,9 @@ def _aircraft_taxi_conflict(lat, lng):
                     return reservation.get('aircraft') or 'самолёт'
     return None
 
-_PARKING_FALLBACK = {
-    '101': (55.9807, 37.4171), '102': (55.9806, 37.4171),
-    '103': (55.9801, 37.4173), '104': (55.9800, 37.4174),
-    '105': (55.9808, 37.4163), '106': (55.9807, 37.4164),
-    '107': (55.9804, 37.4172), '108': (55.9803, 37.4173),
-    '109': (55.9801, 37.4166), '110': (55.9800, 37.4167),
-    '111': (55.9797, 37.4175), '112': (55.9796, 37.4176),
-    '113': (55.9794, 37.4170), '114': (55.9793, 37.4170),
-    '115': (55.9790, 37.4179), '116': (55.9789, 37.4179),
-    '117': (55.9785, 37.4183), '118': (55.9782, 37.4176),
-    '119': (55.9783, 37.4172), '120': (55.9784, 37.4172),
-    '121': (55.9785, 37.4171), '122': (55.9783, 37.4181),
-    '124': (55.9799, 37.4095), '125': (55.9797, 37.4097),
-    '126': (55.9796, 37.4113), '127': (55.9796, 37.4115),
-    '128': (55.9792, 37.4100), '129': (55.9790, 37.4102),
-    '130': (55.9796, 37.4111), '131': (55.9791, 37.4111),
-    '132': (55.9790, 37.4112), '134': (55.9789, 37.4115),
-    '135': (55.9788, 37.4116), '136': (55.9784, 37.4105),
-    '137': (55.9782, 37.4106), '138': (55.9781, 37.4118),
-    '139': (55.9780, 37.4120), '140': (55.9775, 37.4125),
-    '141': (55.9771, 37.4119), '142': (55.9771, 37.4110),
-    '143': (55.9772, 37.4104), '144': (55.9774, 37.4103),
-    '145': (55.9774, 37.4121), '146': (55.9772, 37.4121),
-    '11': (55.9624, 37.4013), '12': (55.9624, 37.4004),
-    '13': (55.9625, 37.4017), '14': (55.9627, 37.4027),
-    '15': (55.9627, 37.4030), '16': (55.9630, 37.4043),
-    '17': (55.9632, 37.4047), '19': (55.9643, 37.4047),
-    '20': (55.9645, 37.4046), '21': (55.9650, 37.4043),
-    '22': (55.9652, 37.4042), '23': (55.9655, 37.4043),
-    '24': (55.9656, 37.4046), '25': (55.9656, 37.4050),
-    '26': (55.9650, 37.4055), '27': (55.9648, 37.4056),
-    '28': (55.9642, 37.4058), '29': (55.9640, 37.4060),
-    '30': (55.9635, 37.4074), '31': (55.9636, 37.4087),
-    '32': (55.9636, 37.4092), '33': (55.9637, 37.4107),
-    '34': (55.9638, 37.4108), '35': (55.9639, 37.4118),
-    '36': (55.9644, 37.4128), '37': (55.9644, 37.4128),
-    '38': (55.9648, 37.4130), '39': (55.9652, 37.4132),
-    '40': (55.9656, 37.4134), '41': (55.9659, 37.4135),
-    '46': (55.9664, 37.4134), '47': (55.9667, 37.4135),
-    '48': (55.9669, 37.4137), '49': (55.9669, 37.4138),
-    '50': (55.9670, 37.4146), '51': (55.9671, 37.4155),
-    '52': (55.9672, 37.4163), '53': (55.9674, 37.4171),
-    '54': (55.9674, 37.4172), '55': (55.9671, 37.4180),
-    '57': (55.9669, 37.4181), '58': (55.9668, 37.4181),
-    '59': (55.9664, 37.4179), '60': (55.9661, 37.4175),
-}
+# Легаси-координаты Шереметьево удалены: география берётся только
+# из config/location.json и static/geodata/vdnh.
+_PARKING_FALLBACK = {}
 
 
 def distance_km(lat1, lng1, lat2, lng2):
@@ -2519,8 +2476,8 @@ def create_user():
         conn.close()
         return jsonify({'error': 'Email уже существует'}), 400
     uid = role + '_' + str(int(time.time() * 1000))
-    avatar = {'dispatcher': '👨‍✈️', 'mcc': '👨‍💻', 'cpu': '🎧'}.get(role, '👤')
-    default_pwd = {'dispatcher': 'disp123', 'mcc': 'mcc123', 'cpu': 'cpu123'}.get(role, 'user123')
+    avatar = {'dispatcher': '👨‍✈️', 'mcc': '👨‍💻'}.get(role, '👤')
+    default_pwd = {'dispatcher': 'disp123', 'mcc': 'mcc123'}.get(role, 'user123')
     password = data.get('password') or default_pwd
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                    VALUES (?,?,?,?,?,?,?,?,'offline')""",
@@ -4293,17 +4250,14 @@ def create_engineer():
     num = next_engineer_number(conn)
     eid = f'eng_{num}'
     dev = f'EN-{num:03d}'
-    cur.execute("SELECT COUNT(*) FROM engineers")
-    total = cur.fetchone()[0]
-    lat = 55.975 + (total % 6) * 0.0008
-    lng = 37.410 + (total % 6) * 0.0008
+    lat, lng = _location_center()
     cur.execute("""INSERT INTO engineers (id,name,device_id,specialization,coords_lat,coords_lng,status,phone,task_step)
                    VALUES (?,?,?,?,?,?,?,?,'idle')""",
                 (eid, name, dev, data.get('specialization', 'general'),
                  lat, lng, data.get('status', 'free'), data.get('phone', '')))
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'eng123',?,'engineer','🔧','offline')""",
-                (eid, email, name))
+                   VALUES (?,?,?,?,'engineer','🔧','offline')""",
+                (eid, email, hash_password('eng123'), name))
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'id': eid, 'device_id': dev, 'number': num})
@@ -4542,8 +4496,8 @@ def create_pilot():
                 (pid, name, email, data.get('phone', ''), data.get('aircraft', ''),
                  data.get('rank', 'pilot'), data.get('status', 'active')))
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,status)
-                   VALUES (?,?,'pilot123',?,'pilot','👨‍✈️','offline')""",
-                (pid, email, name))
+                   VALUES (?,?,?,?,'pilot','👨‍✈️','offline')""",
+                (pid, email, hash_password('pilot123'), name))
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'id': pid})
