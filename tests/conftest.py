@@ -18,6 +18,8 @@ SESSION_DB_PATH = os.path.join(
 if os.path.isfile(SOURCE_DB):
     shutil.copyfile(SOURCE_DB, SESSION_DB_PATH)
 os.environ['INTRAVIA_DB'] = SESSION_DB_PATH
+os.environ.setdefault('INTRAVIA_EVENTS',
+                      os.path.join(os.path.dirname(SESSION_DB_PATH), 'events.jsonl'))
 
 
 @pytest.fixture(scope='session')
