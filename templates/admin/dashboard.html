@@ -112,25 +112,81 @@
         .empty-state p { font-size: 14px; font-weight: 500; }
 
         /* ── Карта агентов (админ-режим) ── */
-        .agentmap-layout { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; align-items: stretch; }
-        .agentmap-panel { display: flex; flex-direction: column; gap: 8px; max-height: 660px; overflow-y: auto; }
-        .agentmap-panel h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--aero-text-light); margin-top: 6px; }
-        .agentmap-panel label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--aero-gray); }
-        .agentmap-panel select, .agentmap-panel input, .agentmap-panel textarea {
+        .agentmap-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
+        .agentmap-tabs { display: flex; gap: 4px; background: #eef2f7; padding: 4px; border-radius: 11px; }
+        .agentmap-tab { display: flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 8px 13px; border-radius: 8px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--aero-text-light); cursor: pointer; transition: all var(--transition); white-space: nowrap; }
+        .agentmap-tab:hover { color: var(--aero-blue); }
+        .agentmap-tab.active { background: #fff; color: var(--aero-blue); box-shadow: 0 1px 5px rgba(0,51,102,0.15); }
+        .agentmap-tab .cnt { background: #e2e8f0; color: var(--aero-text-light); border-radius: 20px; padding: 1px 8px; font-size: 10px; font-weight: 700; }
+        .agentmap-tab.active .cnt { background: var(--aero-blue-pale); color: var(--aero-blue); }
+        .agentmap-search { flex: 1; min-width: 190px; max-width: 320px; padding: 9px 12px; border: 1px solid var(--aero-gray-light); border-radius: 10px; font-family: inherit; font-size: 13px; background: #f8fafc; outline: none; }
+        .agentmap-search:focus { border-color: var(--aero-blue-light); background: #fff; }
+        .agentmap-legend { display: flex; gap: 12px; margin-left: auto; font-size: 11px; color: var(--aero-gray); flex-wrap: wrap; }
+        .agentmap-legend span { display: inline-flex; align-items: center; gap: 5px; }
+        .agentmap-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+        .agentmap-layout { display: grid; grid-template-columns: 430px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+        .agentmap-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+        .agentmap-card { padding: 16px 18px; }
+        .agentmap-card .card-header { margin-bottom: 10px; }
+        .agentmap-card label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--aero-gray); margin: 8px 0 5px; }
+        .agentmap-card input, .agentmap-card textarea, .agentmap-card select {
             width: 100%; padding: 9px 11px; border: 1px solid var(--aero-gray-light); border-radius: 9px;
             font-family: inherit; font-size: 13px; color: var(--aero-text); background: #f8fafc; outline: none;
         }
-        .agentmap-panel select:focus, .agentmap-panel input:focus, .agentmap-panel textarea:focus { border-color: var(--aero-blue-light); background: #fff; }
-        .agentmap-panel textarea { font-family: Consolas, 'Courier New', monospace; font-size: 12px; resize: vertical; min-height: 130px; }
-        .agentmap-panel .row2 { display: flex; gap: 8px; }
-        .agentmap-panel .row2 > * { flex: 1; min-width: 0; }
-        .agentmap-panel .hint { font-size: 11px; color: var(--aero-gray); line-height: 1.5; }
-        .agentmap-panel .beacon { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--aero-text-light); text-transform: none; letter-spacing: 0; }
-        .agentmap-panel .beacon input { width: auto; }
-        .agentmap-status { font-size: 12px; color: var(--aero-text-light); background: #f8fafc; border: 1px solid var(--aero-gray-light); border-radius: 9px; padding: 9px 11px; }
-        .agentmap-result { background: #0f172a; color: #e2e8f0; border-radius: 9px; padding: 10px 12px; font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; max-height: 170px; overflow: auto; }
-        .agentmap-map { padding: 0; overflow: hidden; min-height: 660px; }
-        #agentMap { width: 100%; height: 100%; min-height: 660px; background: #e8ecf0; }
+        .agentmap-card input:focus, .agentmap-card textarea:focus, .agentmap-card select:focus { border-color: var(--aero-blue-light); background: #fff; }
+        .agentmap-card textarea { font-family: Consolas, 'Courier New', monospace; font-size: 12px; resize: vertical; min-height: 190px; }
+        .agentmap-card .hint { font-size: 11px; color: var(--aero-gray); line-height: 1.5; margin-bottom: 8px; }
+        .agentmap-card .row2 { display: flex; gap: 8px; align-items: center; }
+        .agentmap-card .row2 > * { flex: 1; min-width: 0; }
+
+        .agentmap-selected { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #f2f7ff 0%, #eaf2ff 100%); border: 1px solid #d6e4fb; margin-bottom: 12px; }
+        .agentmap-selected .ico { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; color: #fff; background: var(--aero-blue); flex-shrink: 0; }
+        .agentmap-selected .label { font-size: 14px; font-weight: 700; color: var(--aero-text); line-height: 1.2; }
+        .agentmap-selected .sub { font-size: 11px; color: var(--aero-text-light); margin-top: 3px; }
+        .agentmap-selected .coords { font-family: Consolas, monospace; font-size: 11px; color: var(--aero-blue); background: #fff; border: 1px solid #d6e4fb; border-radius: 8px; padding: 5px 8px; white-space: nowrap; }
+        .agentmap-selected.empty { background: #f8fafc; border-color: var(--aero-gray-light); }
+        .agentmap-selected.empty .ico { background: var(--aero-gray); }
+
+        .agentmap-list { display: flex; flex-direction: column; gap: 6px; max-height: 330px; overflow-y: auto; padding-right: 4px; }
+        .agentmap-list::-webkit-scrollbar { width: 5px; }
+        .agentmap-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .agent-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--aero-gray-light); background: #fff; cursor: pointer; transition: all var(--transition); }
+        .agent-row:hover { background: #f8fafc; border-color: #cbd5e1; transform: translateX(1px); }
+        .agent-row.selected { background: #eef5ff; border-color: var(--aero-blue-light); box-shadow: inset 0 0 0 1px var(--aero-blue-light); }
+        .agent-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .agent-row .meta { flex: 1; min-width: 0; }
+        .agent-row .label { font-size: 12.5px; font-weight: 700; color: var(--aero-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .agent-row .sub { font-size: 10.5px; color: var(--aero-gray); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+        .agent-row .chip { font-size: 10px; font-weight: 700; border-radius: 20px; padding: 2px 8px; white-space: nowrap; background: #f1f5f9; color: var(--aero-text-light); }
+        .agent-row .chip.free { background: #dcfce7; color: #15803d; }
+        .agent-row .chip.busy { background: #fef3c7; color: #b45309; }
+
+        .agentmap-beacon-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .agentmap-beacon-row .beacon { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 600; color: var(--aero-text-light); text-transform: none; letter-spacing: 0; }
+        .agentmap-beacon-row .beacon input { width: auto; }
+        .agentmap-beacon-row select { width: auto; padding: 7px 10px; }
+        .agentmap-beacon-row .btn-sm { margin-left: auto; }
+
+        .agentmap-log { display: flex; flex-direction: column; gap: 4px; max-height: 130px; overflow-y: auto; margin-top: 10px; }
+        .agentmap-log .entry { font-size: 11px; line-height: 1.4; padding: 6px 9px; border-radius: 7px; background: #f8fafc; border-left: 3px solid #cbd5e1; color: var(--aero-text-light); word-break: break-word; }
+        .agentmap-log .entry.ok { border-left-color: var(--aero-green); }
+        .agentmap-log .entry.err { border-left-color: var(--aero-red); }
+        .agentmap-log .time { color: var(--aero-gray); margin-right: 6px; font-family: Consolas, monospace; }
+
+        .agentmap-result { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px 14px; font-family: Consolas, 'Courier New', monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; min-height: 190px; max-height: 260px; overflow: auto; }
+        .agentmap-result.ok { box-shadow: inset 0 0 0 1px #16a34a; }
+        .agentmap-result.err { box-shadow: inset 0 0 0 1px #dc2626; }
+        .agentmap-json { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+
+        .agentmap-map { padding: 0; overflow: hidden; position: relative; min-height: 680px; }
+        #agentMap { width: 100%; height: 100%; min-height: 680px; background: #e8ecf0; }
+        .agentmap-hint-badge { position: absolute; left: 12px; bottom: 12px; z-index: 500; background: rgba(15,23,42,0.82); color: #fff; font-size: 11px; font-weight: 600; padding: 7px 11px; border-radius: 8px; pointer-events: none; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        @media (max-width: 1280px) {
+            .agentmap-layout { grid-template-columns: 380px minmax(0, 1fr); }
+            .agentmap-json { grid-template-columns: 1fr; }
+        }
 
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); z-index: 20000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
@@ -427,51 +483,102 @@
         </div>
 
         <div class="department-section" id="section-agentmap">
-            <div class="agentmap-layout">
-                <div class="card agentmap-panel">
-                    <div class="card-header" style="margin-bottom:4px;">
-                        <h3>Агент на карте</h3>
-                        <button class="btn-sm btn-secondary" onclick="loadAgentMapData()"><i class="fas fa-sync-alt"></i></button>
-                    </div>
-                    <label for="mapAgentType">Тип агента</label>
-                    <select id="mapAgentType" onchange="fillAgentSelect()">
-                        <option value="engineer">Инженер</option>
-                        <option value="transport">Спецтехника</option>
-                        <option value="aircraft">Воздушное судно</option>
-                    </select>
-                    <label for="mapAgentSelect">Объект</label>
-                    <select id="mapAgentSelect" onchange="updateSelectedAgent()"></select>
-                    <div class="hint">Клик по карте ставит выбранного агента в точку и отправляет POST /api/v1/track. Маркеры всех агентов обновляются в реальном времени.</div>
-                    <div class="row2">
-                        <input id="mapLat" type="number" step="0.000001" placeholder="Широта">
-                        <input id="mapLng" type="number" step="0.000001" placeholder="Долгота">
-                    </div>
-                    <button class="btn-sm btn-primary" onclick="sendAgentFromInputs()"><i class="fas fa-location-arrow"></i> Отправить точку</button>
-                    <label class="beacon"><input type="checkbox" id="mapBeacon" onchange="toggleAgentBeacon()"> Маяк — отправлять каждые 2 с</label>
-                    <div class="agentmap-status" id="mapAgentStatus">Выберите агента</div>
-                    <div class="agentmap-result" id="mapTrackResult">Готово к отправке точки.</div>
+            <div class="card agentmap-toolbar">
+                <div class="agentmap-tabs" id="mapTabs">
+                    <button type="button" class="agentmap-tab active" data-kind="engineer" onclick="setAgentKind('engineer')">
+                        <i class="fas fa-user-cog"></i> Инженеры <span class="cnt" id="cntEngineer">0</span>
+                    </button>
+                    <button type="button" class="agentmap-tab" data-kind="transport" onclick="setAgentKind('transport')">
+                        <i class="fas fa-truck"></i> Техника <span class="cnt" id="cntTransport">0</span>
+                    </button>
+                    <button type="button" class="agentmap-tab" data-kind="aircraft" onclick="setAgentKind('aircraft')">
+                        <i class="fas fa-plane"></i> ВС <span class="cnt" id="cntAircraft">0</span>
+                    </button>
+                </div>
+                <input id="mapSearch" class="agentmap-search" type="search" placeholder="Поиск: EN-001, борт, ID" oninput="setAgentSearch(this.value)">
+                <div class="agentmap-legend">
+                    <span><i class="dot" style="background:#2563eb"></i>инженер</span>
+                    <span><i class="dot" style="background:#f59e0b"></i>техника</span>
+                    <span><i class="dot" style="background:#ef4444"></i>ВС</span>
+                </div>
+                <button class="btn-sm btn-secondary" onclick="loadAgentMapData()"><i class="fas fa-sync-alt"></i> Обновить</button>
+            </div>
 
-                    <h4>JSON → эндпоинт</h4>
-                    <label for="mapJsonEndpoint">Эндпоинт</label>
-                    <input id="mapJsonEndpoint" type="text" value="/api/v1/track" list="mapEndpointList">
-                    <datalist id="mapEndpointList">
-                        <option value="/api/v1/track"></option>
-                        <option value="/api/route"></option>
-                        <option value="/api/dispatch"></option>
-                        <option value="/api/location"></option>
-                    </datalist>
-                    <label for="mapJsonBody">Тело запроса (JSON)</label>
-                    <textarea id="mapJsonBody" spellcheck="false">{
+            <div class="agentmap-layout">
+                <div class="agentmap-side">
+                    <div class="card agentmap-card">
+                        <div class="agentmap-selected empty" id="mapSelectedBox">
+                            <div class="ico"><i class="fas fa-crosshairs"></i></div>
+                            <div style="flex:1;min-width:0;">
+                                <div class="label">Агент не выбран</div>
+                                <div class="sub">Выберите строку в списке или маркер на карте</div>
+                            </div>
+                        </div>
+                        <div class="agentmap-list" id="mapAgentList">
+                            <div class="empty-state" style="padding:20px;"><p>Загрузка агентов…</p></div>
+                        </div>
+                    </div>
+
+                    <div class="card agentmap-card">
+                        <div class="card-header"><h3>Поставить точку</h3></div>
+                        <div class="hint">Клик по карте или ввод координат. Отправка — <b>POST /api/v1/track</b>.</div>
+                        <div class="row2">
+                            <input id="mapLat" type="number" step="0.000001" placeholder="Широта">
+                            <input id="mapLng" type="number" step="0.000001" placeholder="Долгота">
+                        </div>
+                        <div class="row2" style="margin-top:8px;">
+                            <button class="btn-sm btn-primary" onclick="sendAgentFromInputs()"><i class="fas fa-location-arrow"></i> Отправить точку</button>
+                            <button class="btn-sm btn-secondary" onclick="focusSelectedAgent()"><i class="fas fa-crosshairs"></i> К агенту</button>
+                        </div>
+                        <div class="agentmap-beacon-row">
+                            <label class="beacon"><input type="checkbox" id="mapBeacon" onchange="toggleAgentBeacon()"> Маяк</label>
+                            <select id="mapBeaconInterval" onchange="toggleAgentBeacon(true)">
+                                <option value="1000">1 с</option>
+                                <option value="2000" selected>2 с</option>
+                                <option value="5000">5 с</option>
+                            </select>
+                            <button class="btn-sm btn-secondary" onclick="centerVdnh()"><i class="fas fa-map"></i> ВДНХ</button>
+                        </div>
+                        <div class="agentmap-log" id="mapOpLog">
+                            <div class="entry">Готово. Выберите агента и точку.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card agentmap-map">
+                    <div id="agentMap"></div>
+                    <div class="agentmap-hint-badge" id="mapHintBadge">Клик по карте — поставить выбранного агента</div>
+                </div>
+            </div>
+
+            <div class="card agentmap-card">
+                <div class="card-header">
+                    <h3>JSON → эндпоинт</h3>
+                    <span class="badge-count">проверка контракта</span>
+                </div>
+                <div class="agentmap-json">
+                    <div>
+                        <label for="mapJsonEndpoint">Эндпоинт</label>
+                        <input id="mapJsonEndpoint" type="text" value="/api/v1/track" list="mapEndpointList">
+                        <datalist id="mapEndpointList">
+                            <option value="/api/v1/track"></option>
+                            <option value="/api/route"></option>
+                            <option value="/api/dispatch"></option>
+                            <option value="/api/location"></option>
+                        </datalist>
+                        <label for="mapJsonBody">Тело запроса (JSON)</label>
+                        <textarea id="mapJsonBody" spellcheck="false">{
   "points": [
     {"obj": "e-01", "lat": 55.835388, "lon": 37.632507},
     {"obj": "v-01", "lat": 55.834320, "lon": 37.632130}
   ]
 }</textarea>
-                    <button class="btn-sm btn-primary" onclick="sendAgentJson()"><i class="fas fa-paper-plane"></i> Отправить JSON</button>
-                    <div class="agentmap-result" id="mapJsonResult">Ответ появится здесь.</div>
-                </div>
-                <div class="card agentmap-map">
-                    <div id="agentMap"></div>
+                        <button class="btn-sm btn-primary" style="margin-top:8px;" onclick="sendAgentJson()"><i class="fas fa-paper-plane"></i> Отправить JSON</button>
+                    </div>
+                    <div>
+                        <label>Ответ сервера</label>
+                        <div class="agentmap-result" id="mapJsonResult">Ответ появится здесь.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1250,8 +1357,38 @@
         var agentMapInited = false;
         var agentMapMarkers = {};
         var agentMapAgents = [];
+        var agentMapKind = 'engineer';
+        var agentMapSearch = '';
+        var agentMapSelectedKey = '';
         var agentBeaconTimer = null;
         var agentStream = null;
+        var agentLogEntries = [];
+
+        var AGENT_KIND_LABELS = { engineer: 'Инженер', transport: 'Спецтехника', aircraft: 'ВС' };
+        var AGENT_KIND_ICONS = { engineer: 'fa-user-cog', transport: 'fa-truck', aircraft: 'fa-plane' };
+
+        function agentColor(kind) {
+            return kind === 'engineer' ? '#2563eb' : (kind === 'transport' ? '#f59e0b' : '#ef4444');
+        }
+
+        function agentKey(agent) { return agent.kind + ':' + agent.obj; }
+
+        function agentsOfType(kind) {
+            return agentMapAgents.filter(function (agent) { return agent.kind === kind; });
+        }
+
+        function findAgent(kind, obj) {
+            return agentMapAgents.filter(function (agent) {
+                return agent.kind === kind && String(agent.obj) === String(obj);
+            })[0] || null;
+        }
+
+        function findAgentByKey(key) {
+            if (!key) return null;
+            var index = key.indexOf(':');
+            if (index < 0) return null;
+            return findAgent(key.slice(0, index), key.slice(index + 1));
+        }
 
         function ensureAgentMap() {
             if (agentMapInited) {
@@ -1315,7 +1452,7 @@
             });
 
             agentMap.on('click', function (event) {
-                if (!currentAgent()) return;
+                if (!findAgentByKey(agentMapSelectedKey)) return;
                 setAgentPoint(event.latlng.lat, event.latlng.lng);
             });
 
@@ -1324,96 +1461,195 @@
             setInterval(loadAgentMapData, 15000);
         }
 
-        function agentKey(agent) { return agent.kind + ':' + agent.obj; }
+        function markerStyle(agent, selected) {
+            return {
+                radius: selected ? 10 : (agent.kind === 'aircraft' ? 8 : 7),
+                color: selected ? '#0b2545' : '#ffffff',
+                weight: selected ? 4 : 2,
+                fillColor: agentColor(agent.kind),
+                fillOpacity: 0.95
+            };
+        }
 
         function upsertAgentMarker(agent) {
-            if (agent.lat == null || agent.lng == null) return;
+            if (!agentMap || agent.lat == null || agent.lng == null) return;
             var key = agentKey(agent);
-            var color = agent.kind === 'engineer' ? '#2563eb'
-                : (agent.kind === 'transport' ? '#f59e0b' : '#ef4444');
+            var selected = key === agentMapSelectedKey;
             var marker = agentMapMarkers[key];
             if (!marker) {
-                marker = L.circleMarker([Number(agent.lat), Number(agent.lng)], {
-                    radius: agent.kind === 'aircraft' ? 8 : 7,
-                    color: '#ffffff', weight: 2,
-                    fillColor: color, fillOpacity: 0.95
-                }).addTo(agentMap);
-                marker.on('click', function () { selectAgent(agent.kind, agent.obj); });
+                marker = L.circleMarker([Number(agent.lat), Number(agent.lng)], markerStyle(agent, selected)).addTo(agentMap);
+                marker.on('click', function () { selectAgent(agent.kind, agent.obj, true); });
                 agentMapMarkers[key] = marker;
             } else {
                 marker.setLatLng([Number(agent.lat), Number(agent.lng)]);
+                marker.setStyle(markerStyle(agent, selected));
             }
-            marker.bindTooltip(agent.label || agent.obj, { direction: 'top' });
+            marker._agent = agent;
+            marker.bindTooltip((agent.label || agent.obj) + ' · ' + AGENT_KIND_LABELS[agent.kind], { direction: 'top' });
         }
 
-        function loadAgentMapData() {
-            if (!agentMapInited) return;
-            fetch('/api/v1/agents').then(function (r) { return r.json(); }).then(function (snapshot) {
-                agentMapAgents = [].concat(snapshot.engineers || [], snapshot.transport || [], snapshot.aircraft || []);
-                agentMapAgents.forEach(upsertAgentMarker);
-                fillAgentSelect();
-            }).catch(function (error) { console.warn('[AGENTMAP] agents:', error); });
+        function agentStatus(agent) {
+            if (agent.kind === 'engineer') {
+                if (agent.status === 'busy') return { text: 'занят', cls: 'busy' };
+                if (agent.status === 'free') return { text: 'свободен', cls: 'free' };
+                return { text: agent.status || '—', cls: '' };
+            }
+            if (agent.kind === 'transport') {
+                return agent.assigned_to
+                    ? { text: 'занят', cls: 'busy' }
+                    : { text: 'свободен', cls: 'free' };
+            }
+            return { text: agent.status || '—', cls: '' };
         }
 
-        function agentsOfType(type) {
-            return agentMapAgents.filter(function (agent) { return agent.kind === type; });
+        function filteredAgents() {
+            var needle = agentMapSearch.trim().toLowerCase();
+            var rows = agentsOfType(agentMapKind);
+            if (!needle) return rows;
+            return rows.filter(function (agent) {
+                var haystack = [agent.label, agent.obj, agent.device_id, agent.callsign, agent.id]
+                    .join(' ').toLowerCase();
+                return haystack.indexOf(needle) >= 0;
+            });
         }
 
-        function fillAgentSelect() {
-            var type = document.getElementById('mapAgentType').value;
-            var select = document.getElementById('mapAgentSelect');
-            var previous = select.value;
-            var rows = agentsOfType(type);
-            select.innerHTML = rows.map(function (agent) {
+        function renderAgentList() {
+            var list = document.getElementById('mapAgentList');
+            var rows = filteredAgents();
+            if (!rows.length) {
+                list.innerHTML = '<div class="empty-state" style="padding:18px;"><i class="fas fa-filter"></i><p>' +
+                    (agentMapAgents.length ? 'Ничего не найдено' : 'Агентов нет') + '</p></div>';
+                return;
+            }
+            list.innerHTML = rows.map(function (agent) {
+                var selected = agentKey(agent) === agentMapSelectedKey;
                 var coords = (agent.lat != null && agent.lng != null)
                     ? Number(agent.lat).toFixed(5) + ', ' + Number(agent.lng).toFixed(5)
                     : 'нет координат';
-                return '<option value="' + escapeHtml(String(agent.obj)) + '">' +
-                    escapeHtml((agent.label || agent.obj) + ' · ' + coords) + '</option>';
+                var status = agentStatus(agent);
+                return '<div class="agent-row' + (selected ? ' selected' : '') +
+                    '" data-kind="' + escapeHtml(agent.kind) +
+                    '" data-obj="' + escapeHtml(String(agent.obj)) + '">' +
+                    '<span class="dot" style="background:' + agentColor(agent.kind) + '"></span>' +
+                    '<div class="meta"><div class="label">' + escapeHtml(agent.label || agent.obj) + '</div>' +
+                    '<div class="sub">' + escapeHtml(String(agent.obj)) + ' · ' + escapeHtml(coords) + '</div></div>' +
+                    '<span class="chip ' + status.cls + '">' + escapeHtml(status.text) + '</span></div>';
             }).join('');
-            if (previous && rows.some(function (row) { return String(row.obj) === previous; })) {
-                select.value = previous;
-            }
-            updateSelectedAgent();
+            list.querySelectorAll('.agent-row').forEach(function (row) {
+                row.onclick = function () {
+                    selectAgent(row.getAttribute('data-kind'), row.getAttribute('data-obj'), true);
+                };
+            });
         }
 
-        function currentAgent() {
-            if (!agentMapInited) return null;
-            var type = document.getElementById('mapAgentType').value;
-            var obj = document.getElementById('mapAgentSelect').value;
-            return agentsOfType(type).filter(function (agent) {
-                return String(agent.obj) === obj;
-            })[0] || null;
+        function updateAgentTabs() {
+            document.querySelectorAll('#mapTabs .agentmap-tab').forEach(function (tab) {
+                tab.classList.toggle('active', tab.getAttribute('data-kind') === agentMapKind);
+            });
         }
 
-        function selectAgent(kind, obj) {
-            if (!agentMapInited) return;
-            document.getElementById('mapAgentType').value = kind;
-            fillAgentSelect();
-            document.getElementById('mapAgentSelect').value = String(obj);
-            updateSelectedAgent();
-        }
-
-        function updateSelectedAgent() {
-            var agent = currentAgent();
-            var status = document.getElementById('mapAgentStatus');
+        function updateSelectedAgent(fillInputs) {
+            var box = document.getElementById('mapSelectedBox');
+            var agent = findAgentByKey(agentMapSelectedKey);
             if (!agent) {
-                status.textContent = 'Агенты не найдены — выберите тип или обновите список.';
+                box.className = 'agentmap-selected empty';
+                box.innerHTML = '<div class="ico"><i class="fas fa-crosshairs"></i></div>' +
+                    '<div style="flex:1;min-width:0;"><div class="label">Агент не выбран</div>' +
+                    '<div class="sub">Выберите строку в списке или маркер на карте</div></div>';
+                document.getElementById('mapHintBadge').textContent = 'Выберите агента';
                 return;
             }
+            var status = agentStatus(agent);
             var coords = (agent.lat != null && agent.lng != null)
-                ? Number(agent.lat).toFixed(5) + ', ' + Number(agent.lng).toFixed(5)
+                ? Number(agent.lat).toFixed(6) + ', ' + Number(agent.lng).toFixed(6)
                 : 'нет координат';
-            status.textContent = 'Выбран: ' + (agent.label || agent.obj) + ' · ' + coords;
+            box.className = 'agentmap-selected';
+            box.innerHTML = '<div class="ico" style="background:' + agentColor(agent.kind) + '">' +
+                '<i class="fas ' + AGENT_KIND_ICONS[agent.kind] + '"></i></div>' +
+                '<div style="flex:1;min-width:0;"><div class="label">' + escapeHtml(agent.label || agent.obj) + '</div>' +
+                '<div class="sub">' + AGENT_KIND_LABELS[agent.kind] + ' · ' + escapeHtml(String(agent.obj)) +
+                ' · ' + escapeHtml(status.text) + '</div></div>' +
+                '<span class="coords">' + escapeHtml(coords) + '</span>';
+            document.getElementById('mapHintBadge').textContent =
+                'Клик по карте — поставить: ' + (agent.label || agent.obj);
+            if (fillInputs && agent.lat != null && agent.lng != null) {
+                document.getElementById('mapLat').value = Number(agent.lat).toFixed(6);
+                document.getElementById('mapLng').value = Number(agent.lng).toFixed(6);
+            }
         }
 
-        function showAgentTrackResult(text) {
-            document.getElementById('mapTrackResult').textContent = text;
+        function selectAgent(kind, obj, pan) {
+            if (!agentMapInited) return;
+            agentMapKind = kind;
+            updateAgentTabs();
+            var agent = findAgent(kind, obj);
+            if (!agent) { renderAgentList(); updateSelectedAgent(false); return; }
+            agentMapSelectedKey = agentKey(agent);
+            Object.keys(agentMapMarkers).forEach(function (key) {
+                var marker = agentMapMarkers[key];
+                if (marker && marker._agent) marker.setStyle(markerStyle(marker._agent, key === agentMapSelectedKey));
+            });
+            renderAgentList();
+            updateSelectedAgent(true);
+            if (pan !== false && agent.lat != null && agent.lng != null) {
+                agentMap.setView([Number(agent.lat), Number(agent.lng)], Math.max(agentMap.getZoom(), 17));
+            }
+        }
+
+        function setAgentKind(kind) {
+            agentMapKind = kind;
+            updateAgentTabs();
+            var rows = filteredAgents();
+            if (rows.length) {
+                selectAgent(rows[0].kind, rows[0].obj, false);
+            } else {
+                agentMapSelectedKey = '';
+                renderAgentList();
+                updateSelectedAgent(false);
+            }
+        }
+
+        function setAgentSearch(value) {
+            agentMapSearch = value || '';
+            renderAgentList();
+        }
+
+        function loadAgentMapData() {
+            if (!agentMapInited) return Promise.resolve();
+            return fetch('/api/v1/agents').then(function (r) { return r.json(); }).then(function (snapshot) {
+                agentMapAgents = [].concat(snapshot.engineers || [], snapshot.transport || [], snapshot.aircraft || []);
+                document.getElementById('cntEngineer').textContent = agentsOfType('engineer').length;
+                document.getElementById('cntTransport').textContent = agentsOfType('transport').length;
+                document.getElementById('cntAircraft').textContent = agentsOfType('aircraft').length;
+                var hadSelection = !!findAgentByKey(agentMapSelectedKey);
+                if (!hadSelection) {
+                    var first = filteredAgents()[0];
+                    agentMapSelectedKey = first ? agentKey(first) : '';
+                }
+                agentMapAgents.forEach(upsertAgentMarker);
+                renderAgentList();
+                updateSelectedAgent(!hadSelection && !!agentMapSelectedKey);
+            }).catch(function (error) {
+                agentOpLog('Не удалось загрузить агентов: ' + error.message, 'err');
+            });
+        }
+
+        function agentOpLog(text, kind) {
+            var time = new Date().toLocaleTimeString('ru-RU', { hour12: false });
+            agentLogEntries.unshift({ time: time, text: text, kind: kind || '' });
+            agentLogEntries = agentLogEntries.slice(0, 8);
+            document.getElementById('mapOpLog').innerHTML = agentLogEntries.map(function (entry) {
+                return '<div class="entry ' + entry.kind + '"><span class="time">' +
+                    escapeHtml(entry.time) + '</span>' + escapeHtml(entry.text) + '</div>';
+            }).join('');
         }
 
         function setAgentPoint(lat, lng) {
-            var agent = currentAgent();
-            if (!agent) { showAgentTrackResult('Сначала выберите агента.'); return; }
+            var agent = findAgentByKey(agentMapSelectedKey);
+            if (!agent) {
+                agentOpLog('Сначала выберите агента.', 'err');
+                return Promise.resolve(false);
+            }
             var body = {
                 obj: String(agent.obj),
                 lat: Number(lat.toFixed(6)),
@@ -1422,24 +1658,30 @@
             };
             document.getElementById('mapLat').value = body.lat;
             document.getElementById('mapLng').value = body.lon;
-            fetch('/api/v1/track', {
+            return fetch('/api/v1/track', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
-            }).then(function (r) {
-                return r.json().then(function (payload) { return { status: r.status, body: payload }; });
+            }).then(function (response) {
+                return response.json().then(function (payload) {
+                    return { status: response.status, body: payload };
+                });
             }).then(function (result) {
-                var ok = result.body && result.body.accepted && result.body.applied;
-                showAgentTrackResult((ok ? 'OK' : 'ОТВЕТ') + ' ' + result.status + ' → ' +
-                    JSON.stringify(result.body));
+                var ok = !!(result.body && result.body.accepted && result.body.applied);
+                agentOpLog((ok ? 'Точка принята' : 'Точка отклонена') + ': ' +
+                    (agent.label || agent.obj) + ' → ' + body.lat + ', ' + body.lon +
+                    ' (HTTP ' + result.status + ')', ok ? 'ok' : 'err');
                 if (ok) {
                     agent.lat = body.lat;
                     agent.lng = body.lon;
                     upsertAgentMarker(agent);
-                    updateSelectedAgent();
+                    renderAgentList();
+                    updateSelectedAgent(false);
                 }
+                return ok;
             }).catch(function (error) {
-                showAgentTrackResult('Ошибка сети: ' + error.message);
+                agentOpLog('Ошибка сети: ' + error.message, 'err');
+                return false;
             });
         }
 
@@ -1447,24 +1689,48 @@
             var lat = Number(document.getElementById('mapLat').value);
             var lng = Number(document.getElementById('mapLng').value);
             if (!isFinite(lat) || !isFinite(lng)) {
-                showAgentTrackResult('Введите широту и долготу числами.');
+                agentOpLog('Введите широту и долготу числами.', 'err');
                 return;
             }
             setAgentPoint(lat, lng);
         }
 
+        function focusSelectedAgent() {
+            var agent = findAgentByKey(agentMapSelectedKey);
+            if (!agent || agent.lat == null || agent.lng == null || !agentMap) {
+                agentOpLog('У выбранного агента нет координат.', 'err');
+                return;
+            }
+            agentMap.setView([Number(agent.lat), Number(agent.lng)], 18);
+        }
+
+        function centerVdnh() {
+            if (agentMap) agentMap.setView([55.83367, 37.62709], 16);
+        }
+
         function toggleAgentBeacon() {
             var enabled = document.getElementById('mapBeacon').checked;
+            var interval = Number(document.getElementById('mapBeaconInterval').value) || 2000;
             if (agentBeaconTimer) { clearInterval(agentBeaconTimer); agentBeaconTimer = null; }
-            if (!enabled) { showAgentTrackResult('Маяк выключен.'); return; }
-            showAgentTrackResult('Маяк включён: точка отправляется каждые 2 с.');
+            if (!enabled) {
+                agentOpLog('Маяк выключен.');
+                return;
+            }
+            var agent = findAgentByKey(agentMapSelectedKey);
+            if (!agent) {
+                document.getElementById('mapBeacon').checked = false;
+                agentOpLog('Выберите агента для маяка.', 'err');
+                return;
+            }
+            agentOpLog('Маяк включён: ' + (agent.label || agent.obj) +
+                ', каждые ' + (interval / 1000) + ' с.');
             agentBeaconTimer = setInterval(function () {
-                var agent = currentAgent();
-                if (!agent || agent.lat == null || agent.lng == null) return;
-                var lat = Number(agent.lat) + (Math.random() - 0.5) * 0.00008;
-                var lng = Number(agent.lng) + (Math.random() - 0.5) * 0.00012;
-                if (agentBeaconTimer) setAgentPoint(lat, lng);
-            }, 2000);
+                var current = findAgentByKey(agentMapSelectedKey);
+                if (!current || current.lat == null || current.lng == null) return;
+                var lat = Number(current.lat) + (Math.random() - 0.5) * 0.00008;
+                var lng = Number(current.lng) + (Math.random() - 0.5) * 0.00012;
+                setAgentPoint(lat, lng);
+            }, interval);
         }
 
         function connectAgentStream() {
@@ -1481,7 +1747,8 @@
                 agent.lat = point.lat;
                 agent.lng = point.lon;
                 upsertAgentMarker(agent);
-                if (currentAgent() === agent) updateSelectedAgent();
+                if (agentKey(agent) === agentMapSelectedKey) updateSelectedAgent(false);
+                if (!agentBeaconTimer) renderAgentList();
             });
             agentStream.onerror = function () {
                 setTimeout(function () {
@@ -1497,8 +1764,9 @@
             try {
                 payload = JSON.parse(raw);
             } catch (error) {
-                document.getElementById('mapJsonResult').textContent =
-                    'Некорректный JSON: ' + error.message;
+                document.getElementById('mapJsonResult').className = 'agentmap-result err';
+                document.getElementById('mapJsonResult').textContent = 'Некорректный JSON: ' + error.message;
+                agentOpLog('JSON не отправлен: ' + error.message, 'err');
                 return;
             }
             fetch(endpoint, {
@@ -1511,13 +1779,26 @@
                 });
             }).then(function (result) {
                 var pretty = result.text;
-                try { pretty = JSON.stringify(JSON.parse(result.text), null, 2); } catch (_) {}
-                document.getElementById('mapJsonResult').textContent =
-                    'POST ' + endpoint + ' → HTTP ' + result.status + '\n' + pretty;
+                var parsed = null;
+                try {
+                    parsed = JSON.parse(result.text);
+                    pretty = JSON.stringify(parsed, null, 2);
+                } catch (_) { /* не JSON — показываем текст как есть */ }
+                var rejected = Array.isArray(parsed)
+                    ? parsed.some(function (item) { return item && item.applied === false; })
+                    : !!(parsed && typeof parsed === 'object' && parsed.applied === false);
+                var okStatus = result.status >= 200 && result.status < 300 && !rejected;
+                var view = document.getElementById('mapJsonResult');
+                view.className = 'agentmap-result ' + (okStatus ? 'ok' : 'err');
+                view.textContent = 'POST ' + endpoint + ' → HTTP ' + result.status + '\n' + pretty;
+                agentOpLog('JSON → ' + endpoint + ': HTTP ' + result.status +
+                    (rejected ? ' (applied:false)' : ''), okStatus ? 'ok' : 'err');
                 if (endpoint.indexOf('/api/v1/track') === 0) loadAgentMapData();
             }).catch(function (error) {
-                document.getElementById('mapJsonResult').textContent =
-                    'Ошибка сети: ' + error.message;
+                var view = document.getElementById('mapJsonResult');
+                view.className = 'agentmap-result err';
+                view.textContent = 'Ошибка сети: ' + error.message;
+                agentOpLog('JSON: ошибка сети — ' + error.message, 'err');
             });
         }
 
