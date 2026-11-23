@@ -339,9 +339,13 @@ def _enforce_server_auth():
 def _security_headers(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
-    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    # strict-origin-when-cross-origin: путь не утекает, но тайловые серверы
+    # (OSM) получают origin в Referer — иначе они отдают плитку «Access blocked».
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'geolocation=(self), microphone=(self), camera=()')
-    if request.path.startswith('/api/'):
+    # API и HTML не кэшируем: после перезапуска сервера браузер
+    # не должен показывать старую карту/шаблон.
+    if request.path.startswith('/api/') or response.mimetype == 'text/html':
         response.headers.setdefault('Cache-Control', 'no-store')
     return response
 
@@ -670,6 +674,51 @@ def apply_location_parking():
         }
     print(f'[LOCATION] Стоянок ВДНХ: {len(PARKING_META)}')
     return len(PARKING_META)
+
+
+def apply_location_objects():
+    """Заполняет MAP_OBJECTS объектами ВДНХ (вместо легаси svo_all.geojson)."""
+    global MAP_OBJECTS
+    try:
+        location = load_location_config()
+    except Exception as exc:
+        print(f'[LOCATION] Объекты не загружены: {exc}')
+        return 0
+    objects = []
+    for obj in location.get('objects', []):
+        geometry = obj.get('geometry') or {}
+        gt = geometry.get('type')
+        coords = geometry.get('coordinates') or []
+        if gt == 'Polygon':
+            rings = coords
+        elif gt == 'MultiPolygon':
+            rings = [ring for polygon in coords for ring in polygon]
+        else:
+            rings = []
+        latlngs = []
+        for ring in rings:
+            points = []
+            for point in ring:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    try:
+                        points.append([float(point[1]), float(point[0])])
+                    except (TypeError, ValueError):
+                        continue
+            if len(points) >= 3:
+                latlngs.append(points)
+        if not latlngs:
+            continue
+        objects.append({
+            'name': str(obj.get('name') or obj.get('id') or 'Объект'),
+            'latlngs': latlngs[0] if len(latlngs) == 1 else latlngs,
+            'color': obj.get('color') or '#2563eb',
+            'weight': 2,
+            'opacity': 0.9,
+            'fillOpacity': 0.15,
+        })
+    MAP_OBJECTS = objects
+    print(f'[LOCATION] Объектов ВДНХ: {len(MAP_OBJECTS)}')
+    return len(MAP_OBJECTS)
 
 
 def _zone_geometry(parking_id):
@@ -6210,11 +6259,11 @@ def mobile_agents_app():
 # ============================================================
 def _startup():
     init_db()
-    load_svo_geojson()
     load_road_graph()
     try:
         load_location_config()
         apply_location_parking()
+        apply_location_objects()
     except Exception as e:
         print(f'[STARTUP LOCATION] {e}')
     try:

@@ -6,7 +6,7 @@
     <title>Диспетчер — InTrAvia Вектор</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -877,7 +877,7 @@
             line-height: 1.7; white-space: pre-wrap;
         }
 
-        .leaflet-control-attribution { display: none !important; }
+        .leaflet-control-attribution { font-size: 10px; }
         .leaflet-control-zoom { margin-bottom: 0 !important; }
         .leaflet-control-zoom a {
             border-radius: 4px !important;
@@ -997,7 +997,7 @@
                 <div class="legend-row"><span class="dot gold"></span> Маршрут</div>
                 <div class="legend-row"><span class="dot parking"></span> Стоянка ВС</div>
             </div>
-            <div class="map-hint">SVO · B, C, D, E, F · спецтранспорт</div>
+            <div class="map-hint">ВДНХ · зоны SZ-1…SZ-10 · спецтранспорт</div>
         </div>
 
         <div id="notificationContainer"></div>
@@ -1355,7 +1355,7 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script>
 var API_URL = '/api';
 
@@ -2946,12 +2946,16 @@ function initMap() {
         center: [0, 0],
         zoom: 2,
         zoomControl: true,
-        attributionControl: false,
+        attributionControl: true,
         preferCanvas: true
     });
     state.map = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    // Атрибуция обязательна: без неё OSM блокирует тайлы.
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
 
     // ── Слой объектов (полигоны) — под маркерами ──
     state.objectsLayer = L.layerGroup().addTo(map);

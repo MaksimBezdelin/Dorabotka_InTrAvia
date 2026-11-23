@@ -101,7 +101,7 @@ def test_security_headers_present(anon_client):
     resp = anon_client.get('/login.html')
     assert resp.headers['X-Content-Type-Options'] == 'nosniff'
     assert resp.headers['X-Frame-Options'] == 'SAMEORIGIN'
-    assert resp.headers['Referrer-Policy'] == 'same-origin'
+    assert resp.headers['Referrer-Policy'] == 'strict-origin-when-cross-origin'
 
 
 def test_session_cookie_flags(app_module):

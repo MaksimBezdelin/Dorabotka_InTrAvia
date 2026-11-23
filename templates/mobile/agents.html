@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b2545">
 <title>InTrAvia — агенты и маяк</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <style>
   :root{
     --navy:#0b2545; --blue:#1f6feb; --gold:#f5b301; --bg:#eef2f7; --card:#fff;
@@ -176,7 +176,7 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script>
 (function () {
   'use strict';
@@ -235,11 +235,14 @@
 
   function initMap() {
     if (typeof L === 'undefined') {
-      $('map').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Карта недоступна: нет связи с CDN Leaflet</div>';
+      $('map').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Карта недоступна: Leaflet не загрузился</div>';
       return;
     }
-    map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    map = L.map('map', { zoomControl: false, attributionControl: true }).setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     map.on('click', function (event) {
       setPoint(event.latlng.lat, event.latlng.lng, true);

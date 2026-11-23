@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b2545">
 <title>InTrAvia — инженер</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <style>
   :root{
     --navy:#0b2545; --blue:#1f6feb; --sky:#4d9fff; --gold:#f5b301;
@@ -181,7 +181,7 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script>
 (function () {
   'use strict';
@@ -192,6 +192,7 @@
   var state = {
     engineerId: localStorage.getItem(LS_ENGINEER) || '',
     engineer: null,
+    user: null,
     request: null,
     route: null,
     parking: {},
@@ -250,12 +251,15 @@
 
   function initMap() {
     if (typeof L === 'undefined') {
-      $('map').innerHTML = '<div class="empty">Карта недоступна: нет связи с CDN Leaflet</div>';
+      $('map').innerHTML = '<div class="empty">Карта недоступна: Leaflet не загрузился</div>';
       return;
     }
-    map = L.map('map', { zoomControl: false, attributionControl: false })
+    map = L.map('map', { zoomControl: false, attributionControl: true })
       .setView([0, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
   }
 
@@ -742,6 +746,13 @@
   }
 
   function openEngineerSheet() {
+    // Вошедшему инженеру выбор не нужен: работаем под его учётной записью.
+    if (state.user && state.user.role === 'engineer' && state.user.id) {
+      state.engineerId = state.user.id;
+      localStorage.setItem(LS_ENGINEER, state.engineerId);
+      refreshAll();
+      return;
+    }
     var sheet = $('engineerSheet');
     sheet.classList.add('show');
     var list = $('engineerList');
@@ -819,6 +830,16 @@
     $('loginSheet').classList.add('show');
   }
 
+  // Инженер входит под своей учётной записью — свой профиль выбирается
+  // автоматически, список инженеров больше не требуется.
+  function applySessionUser(user) {
+    state.user = user || null;
+    if (user && user.role === 'engineer' && user.id) {
+      state.engineerId = user.id;
+      localStorage.setItem(LS_ENGINEER, user.id);
+    }
+  }
+
   function submitLogin() {
     var email = $('loginEmail').value.trim();
     var password = $('loginPassword').value;
@@ -826,7 +847,8 @@
     api('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: email, password: password })
-    }).then(function () {
+    }).then(function (payload) {
+      applySessionUser(payload && payload.user);
       $('loginSheet').classList.remove('show');
       startUi();
     }).catch(function (error) { toast(error.message, 'err'); });
@@ -835,7 +857,11 @@
   function boot() {
     $('loginBtn').onclick = submitLogin;
     checkServerAuth().then(function (result) {
-      if (result.ok) { startUi(); return; }
+      if (result.ok) {
+        applySessionUser(result.body && result.body.user);
+        startUi();
+        return;
+      }
       if (result.body && result.body.auth_required) { openLoginSheet(); return; }
       startUi();
     }).catch(function () { startUi(); });
