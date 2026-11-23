@@ -147,6 +147,42 @@ def append_event(event_type, **fields):
     return record
 
 
+def read_events(since=None, limit=1000):
+    """Читает append-only журнал. since — ISO-время, возвращаются события после него."""
+    if not os.path.isfile(EVENTS_PATH):
+        return []
+    events = []
+    try:
+        with _EVENTS_LOCK:
+            with open(EVENTS_PATH, encoding='utf-8') as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(event, dict):
+                        continue
+                    if since and str(event.get('at') or '') <= str(since):
+                        continue
+                    events.append(event)
+    except OSError as exc:
+        print(f'[EVENTS] read: {exc}')
+        return []
+    if limit and limit > 0:
+        events = events[-limit:]
+    return events
+
+
+def _append_request_created(rid, source, aircraft, parking_id, flight_number, status, stage):
+    return append_event('request_created', request_id=rid, source=source,
+                        aircraft=aircraft, parking_id=parking_id,
+                        flight_number=flight_number, status=status,
+                        routing_stage=stage)
+
+
 @app.after_request
 def _publish_mutation(response):
     """Любая изменяющая API-операция будит веб-клиенты, чтобы они перечитали состояние."""
@@ -273,6 +309,8 @@ def _enforce_server_auth():
 
     if path.startswith('/api/'):
         if not session.get('user_id'):
+            append_event('role_denied', path=path, method=request.method,
+                         role=None, reason='unauthorized')
             return jsonify({'error': 'Требуется авторизация'}), 401
         role = session.get('role')
         if role == 'admin':
@@ -280,6 +318,8 @@ def _enforce_server_auth():
         for prefix, roles in WRITE_ROLE_PREFIXES:
             if path == prefix or path.startswith(prefix):
                 if role not in roles:
+                    append_event('role_denied', path=path, method=request.method,
+                                 role=role, reason='forbidden')
                     return jsonify({'error': 'Недостаточно прав'}), 403
                 break
         return None
@@ -1929,7 +1969,9 @@ def _recalc_route_for_request_id(request_id, force=False):
         conn.close()
         return
 
+    route_started = time.perf_counter()
     result = _recompute_route_for_request(req)
+    route_ms = round((time.perf_counter() - route_started) * 1000.0, 2)
     if not result:
         _clear_route_for_request(cur, request_id, req['engineer_comment'])
         conn.commit()
@@ -1938,6 +1980,25 @@ def _recalc_route_for_request_id(request_id, force=False):
     new_route, fields = result
 
     old_comment = req['engineer_comment'] or ''
+    old_eta = _route_eta_min(old_comment)
+    fresh_payload = _route_payload('ROUTE:' + new_route) or {}
+    new_eta = fresh_payload.get('eta_min')
+    try:
+        new_eta = round(float(new_eta), 1) if new_eta is not None else None
+    except (TypeError, ValueError):
+        new_eta = None
+    if old_eta is None:
+        append_event('route_built', request_id=request_id,
+                     engineer_id=req['engineer_id'], eta_min=new_eta,
+                     distance_m=fresh_payload.get('distance_m'),
+                     duration_ms=route_ms)
+    elif new_eta is not None and abs(new_eta - old_eta) >= 0.5:
+        append_event('route_recalculated', request_id=request_id,
+                     engineer_id=req['engineer_id'], previous_eta_min=old_eta,
+                     eta_min=new_eta, duration_ms=route_ms)
+        append_event('eta_updated', request_id=request_id,
+                     previous_eta_min=old_eta, eta_min=new_eta,
+                     delta_min=round(new_eta - old_eta, 1))
     # Пересчёт маршрута не должен стирать факт прибытия и сравнение с ETA.
     previous = _route_payload(old_comment)
     if previous and previous.get('arrival'):
@@ -4314,6 +4375,8 @@ def accept_request_assignment(rid):
                        'Инженер принял назначение; маршрут запущен')
     conn.commit()
     conn.close()
+    append_event('status_changed', request_id=rid, previous_status=req['status'],
+                 status='arriving', actor='engineer', engineer_id=engineer_id)
 
     # On acceptance, refresh the preview as the active travel route.
     _recalc_route_for_request_id(rid, force=True)
@@ -4384,6 +4447,15 @@ def update_engineer_step(eng_id):
         cur.execute("UPDATE engineers SET task_step=? WHERE id=?", (step, eng_id))
 
     conn.commit()
+    if step in ('in_car', 'arrived', 'diagnosing', 'completed', 'idle'):
+        cur.execute("""SELECT id FROM requests
+                       WHERE engineer_id=? AND routing_stage='technician'
+                         AND status NOT IN ('completed','cancelled','flight_cancelled',
+                                            'draft','report_submitted','deleted')
+                       ORDER BY created_at DESC LIMIT 1""", (eng_id,))
+        linked = cur.fetchone()
+        append_event('status_changed', request_id=(linked['id'] if linked else None),
+                     status=step, actor='engineer', engineer_id=eng_id)
     conn.close()
     _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True, 'step': step})
@@ -4797,6 +4869,9 @@ def export_operational_reports_xlsx():
         archive_ws.append([r.get('id',''), r.get('aircraft',''), r.get('created_at',''), r.get('archived_at',''),
                            r.get('archive_reason',''), r.get('engineer_name',''), r.get('engineer_verdict',''), r.get('engineer_comment','')])
 
+    events_ws = wb.create_sheet('Журнал')
+    _fill_events_sheet(events_ws, read_events(limit=0))
+
     for sheet in wb.worksheets:
         sheet.freeze_panes = 'A2'
         sheet.auto_filter.ref = sheet.dimensions
@@ -5009,6 +5084,7 @@ def dispatch():
                          data.get('pilot_audio_duration') or 0))
             conn.commit()
             conn.close()
+            _append_request_created(rid, 'pilot', aircraft, None, None, 'draft', 'mcc')
             return jsonify({'success': True, 'request_id': rid})
 
         parking_id = str(data.get('parking_id') or '')
@@ -5029,6 +5105,7 @@ def dispatch():
                      severity, pilot_name, pilot_rank))
         conn.commit()
         conn.close()
+        _append_request_created(rid, 'pilot', aircraft, parking_id, flight_number, 'new', 'mcc')
         return jsonify({'success': True, 'request_id': rid})
 
     # source == 'dispatcher'
@@ -5053,9 +5130,13 @@ def dispatch():
           AND engineer_id IS NOT NULL""")
     busy = {r['engineer_id'] for r in cur.fetchall()}
 
+    candidates_started = time.perf_counter()
     eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL,
                                        target[0], target[1],
                                        exclude_ids=busy)
+    candidates_ms = round((time.perf_counter() - candidates_started) * 1000.0, 2)
+    append_event('candidates_built', request_id=rid, duration_ms=candidates_ms,
+                 selected_engineer=(eng['id'] if eng else None))
 
     if eng:
         cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
@@ -5071,6 +5152,10 @@ def dispatch():
                     ('ВС ' + aircraft, eng['id']))
         conn.commit()
         conn.close()
+        _append_request_created(rid, source, aircraft, parking_id, flight_number,
+                                'assigned', 'technician')
+        append_event('assigned', request_id=rid, engineer_id=eng['id'],
+                     engineer=eng['device_id'], duration_ms=candidates_ms)
         # Маршрут-превью должен появиться сразу после назначения инженера.
         # Не ждём ни подтверждения диспетчера, ни ответа самого инженера.
         _recalc_route_for_request_id(rid, force=True)
@@ -5111,6 +5196,8 @@ def dispatch():
                  source, severity, pilot_name, pilot_rank))
     conn.commit()
     conn.close()
+    _append_request_created(rid, source, aircraft, parking_id, flight_number,
+                            'queued', 'dispatcher')
     _schedule_recheck(rid)
     return jsonify({'success': True, 'queued': True, 'request_id': rid,
                     'message': 'Заявка в очереди — нет свободных специалистов'})
@@ -5361,6 +5448,11 @@ def reject_request(rid):
         set_engineer_busy(conn, new_eng['id'], 'ВС ' + aircraft)
         conn.commit()
         conn.close()
+        append_event('status_changed', request_id=rid, previous_status='assigned',
+                     status='assigned', actor='engineer', engineer_id=rejected_by,
+                     note=reason)
+        append_event('reassigned', request_id=rid, previous_engineer=old_eng,
+                     engineer_id=new_eng['id'], reason=reason)
         # После отказа назначаем следующего инженера и сразу строим его маршрут.
         _recalc_route_for_request_id(rid, force=True)
         _recalc_all_active_routes()
@@ -5390,6 +5482,11 @@ def reject_request(rid):
         WHERE id=?""", (rej_str, rid))
     conn.commit()
     conn.close()
+    append_event('status_changed', request_id=rid, previous_status='assigned',
+                 status='queued', actor='engineer', engineer_id=rejected_by,
+                 note=reason)
+    append_event('reassigned', request_id=rid, previous_engineer=old_eng,
+                 engineer_id=None, reason=reason)
     _recalc_all_active_routes()
     _schedule_recheck(rid)
     return jsonify({'success': True, 'reassigned': False, 'queued': True})
@@ -5690,6 +5787,9 @@ def _log_ingest_error(raw_point, error):
                                        'point': payload}, ensure_ascii=False) + '\n')
     except Exception as exc:
         print(f'[TRACK] log error: {exc}')
+    append_event('ingest_error', error=error,
+                 obj=(raw_point.get('obj') if isinstance(raw_point, dict) else None),
+                 point=json.dumps(raw_point, ensure_ascii=False, default=str)[:500])
 
 
 def _track_known_object(raw_obj):
@@ -6065,6 +6165,78 @@ def api_v1_snapshot():
     finally:
         conn.close()
     return jsonify(payload)
+
+
+@app.route('/api/v1/events', methods=['GET'])
+def api_v1_events():
+    """Журнал событий (append-only). since — ISO-время, limit — последние N."""
+    if AUTH_REQUIRED and session.get('role') not in ('admin', 'dispatcher', 'mcc'):
+        return jsonify({'error': 'Недостаточно прав'}), 403
+    since = (request.args.get('since') or '').strip() or None
+    try:
+        limit = int(request.args.get('limit', 500))
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 5000))
+    events = read_events(since=since, limit=limit)
+    return jsonify({'events': events, 'count': len(events), 'since': since,
+                    'journal': os.path.basename(EVENTS_PATH)})
+
+
+def _fill_events_sheet(ws, events):
+    ws.append(['Время (ISO, мс)', 'Тип', 'Заявка', 'Участники', 'Параметры'])
+    for event in events:
+        participants = ', '.join(str(value) for value in (
+            event.get('engineer'), event.get('actor'), event.get('engineer_id'),
+            event.get('selected_engineer'), event.get('previous_engineer')) if value)
+        params = {key: value for key, value in event.items()
+                  if key not in ('at', 'type', 'request_id', 'engineer', 'actor')}
+        ws.append([event.get('at', ''), event.get('type', ''),
+                   event.get('request_id') or '', participants,
+                   json.dumps(params, ensure_ascii=False, default=str)])
+    return ws
+
+
+def _events_workbook(events):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Журнал'
+    _fill_events_sheet(ws, events)
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='17365D')
+        cell.alignment = Alignment(vertical='center', wrap_text=True)
+    for col_idx in range(1, ws.max_column + 1):
+        max_len = 12
+        for row_idx in range(1, min(ws.max_row, 400) + 1):
+            value = ws.cell(row=row_idx, column=col_idx).value
+            if value is not None:
+                max_len = max(max_len, min(len(str(value)), 90))
+        ws.column_dimensions[get_column_letter(col_idx)].width = max(12, min(max_len + 2, 90))
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+@app.route('/api/v1/events/export.xlsx', methods=['GET'])
+def api_v1_events_export():
+    if AUTH_REQUIRED and session.get('role') not in ('admin', 'dispatcher', 'mcc'):
+        return jsonify({'error': 'Недостаточно прав'}), 403
+    try:
+        payload = _events_workbook(read_events(limit=0))
+    except ImportError:
+        return jsonify({'success': False, 'error': 'Установите openpyxl'}), 503
+    filename = 'InTrAvia_events_' + datetime.utcnow().strftime('%Y%m%d_%H%M%S') + '.xlsx'
+    return Response(payload,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename="' + filename + '"'})
 
 
 @app.route('/m/engineer')
