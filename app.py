@@ -124,6 +124,29 @@ def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
 
+# ------------------------------------------------------------
+# Журнал событий: append-only JSONL (без изменения схемы БД)
+# ------------------------------------------------------------
+EVENTS_PATH = (os.environ.get('INTRAVIA_EVENTS', '').strip()
+               or os.path.join(BASE_DIR, 'data', 'events.jsonl'))
+_EVENTS_LOCK = threading.Lock()
+
+
+def append_event(event_type, **fields):
+    """Дописывает событие в data/events.jsonl. Журнал только пополняется."""
+    record = {'at': _utc_now_iso(), 'type': str(event_type)}
+    record.update(fields)
+    try:
+        os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
+        line = json.dumps(record, ensure_ascii=False, default=str)
+        with _EVENTS_LOCK:
+            with open(EVENTS_PATH, 'a', encoding='utf-8') as fh:
+                fh.write(line + '\n')
+    except OSError as exc:
+        print(f'[EVENTS] {exc}')
+    return record
+
+
 @app.after_request
 def _publish_mutation(response):
     """Любая изменяющая API-операция будит веб-клиенты, чтобы они перечитали состояние."""
@@ -1915,6 +1938,15 @@ def _recalc_route_for_request_id(request_id, force=False):
     new_route, fields = result
 
     old_comment = req['engineer_comment'] or ''
+    # Пересчёт маршрута не должен стирать факт прибытия и сравнение с ETA.
+    previous = _route_payload(old_comment)
+    if previous and previous.get('arrival'):
+        try:
+            fresh = json.loads(new_route)
+            fresh['arrival'] = previous['arrival']
+            new_route = json.dumps(fresh, ensure_ascii=False)
+        except (TypeError, ValueError):
+            pass
     report_part = ''
     if old_comment.startswith('ROUTE:'):
         rest = old_comment[6:]
@@ -2022,6 +2054,162 @@ def _log_routing_event(conn, rid, stage, actor, note=''):
     })
     cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
                 (json.dumps(history, ensure_ascii=False), rid))
+
+
+def _history_has_stage(history_json, stage):
+    try:
+        history = json.loads(history_json or '[]')
+    except (TypeError, ValueError):
+        return False
+    return any(isinstance(item, dict) and item.get('stage') == stage for item in history)
+
+
+def _route_payload(comment):
+    """Разбирает служебный ROUTE JSON из комментария заявки."""
+    comment = comment or ''
+    if not comment.startswith('ROUTE:'):
+        return None
+    rest = comment[6:]
+    depth = 0
+    for i, ch in enumerate(rest):
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    payload = json.loads(rest[:i + 1])
+                    return payload if isinstance(payload, dict) else None
+                except (TypeError, ValueError):
+                    return None
+    return None
+
+
+def _route_eta_min(comment):
+    """ETA (минуты) из сохранённого ROUTE JSON, иначе None."""
+    payload = _route_payload(comment)
+    if not payload:
+        return None
+    eta = payload.get('eta_min', payload.get('tt'))
+    try:
+        return round(float(eta), 1) if eta is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _nearest_free_engineer(conn, target_lat, target_lng):
+    """Ближайший свободный инженер до цели: время пешком или на спецтранспорте."""
+    cur = conn.cursor()
+    cur.execute("""SELECT id, name, device_id, coords_lat, coords_lng
+                   FROM engineers WHERE status='free'""")
+    engineers = [dict(row) for row in cur.fetchall()]
+    cur.execute("SELECT id, device_id, lat, lng FROM transport WHERE assigned_to IS NULL")
+    cars = [dict(row) for row in cur.fetchall()
+            if row['lat'] is not None and row['lng'] is not None]
+    best = None
+    for engineer in engineers:
+        if engineer['coords_lat'] is None or engineer['coords_lng'] is None:
+            continue
+        start = (float(engineer['coords_lat']), float(engineer['coords_lng']))
+        target = (float(target_lat), float(target_lng))
+        try:
+            route = build_route('engineer', start, [], target)
+        except RouteError:
+            continue
+        for car in cars:
+            try:
+                car_route = build_route('engineer', start, [], target,
+                                        {'use_transport': True,
+                                         'car_lat': car['lat'], 'car_lng': car['lng']})
+            except RouteError:
+                continue
+            if car_route['time_s'] < route['time_s']:
+                route = car_route
+        eta_min = round(route['time_s'] / 60.0, 1)
+        if best is None or eta_min < best['eta_min']:
+            best = {'id': engineer['id'], 'name': engineer['name'],
+                    'device_id': engineer['device_id'], 'eta_min': eta_min}
+    return best
+
+
+def _check_regulation_warning(request_id):
+    """Публикует warning за 5 минут до норматива и breach после его истечения."""
+    if not request_id:
+        return
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
+                              r.routing_history, r.status, r.engineer_id,
+                              r.engineer_comment, e.task_step,
+                              e.name AS engineer_name
+                       FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                       WHERE r.id=?""", (request_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+        if row['task_step'] in ('arrived', 'diagnosing'):
+            return
+        if row['status'] in ('completed', 'cancelled', 'flight_cancelled',
+                             'draft', 'report_submitted', 'deleted'):
+            return
+        started = _parse_timestamp(row['inspection_assigned_at'])
+        if not started:
+            return
+        elapsed_min = round(
+            (datetime.now(timezone.utc) - started).total_seconds() / 60.0, 1)
+        remaining_min = round(REGULATION_MINUTES - elapsed_min, 1)
+        eta_min = _route_eta_min(row['engineer_comment'])
+
+        if remaining_min <= 0:
+            if _history_has_stage(row['routing_history'], 'breach'):
+                return
+            note = (f'Норматив {REGULATION_MINUTES} мин нарушен: '
+                    f'{elapsed_min} мин с назначения')
+            _log_routing_event(conn, request_id, 'breach', 'Система', note)
+            conn.commit()
+            payload = {
+                'request_id': request_id, 'zone': row['parking_id'],
+                'engineer': row['engineer_name'], 'breach': True,
+                'elapsed_min': elapsed_min, 'remaining_min': remaining_min,
+                'eta_min': eta_min, 'regulation_minutes': REGULATION_MINUTES,
+                'at': _utc_now_iso(),
+            }
+            append_event('breach', **payload)
+            sse_publish('warning', payload)
+            return
+
+        if remaining_min > 5:
+            return
+        if _history_has_stage(row['routing_history'], 'warning'):
+            return
+        nearest = None
+        target = _parking_point(row['parking_id'])
+        if target:
+            nearest = _nearest_free_engineer(conn, target[0], target[1])
+        can_make_it = bool(eta_min is not None and eta_min <= remaining_min)
+        note = (f'До норматива {remaining_min} мин; ETA {eta_min if eta_min is not None else "—"} мин')
+        if nearest:
+            note += (f'; ближайший свободный {nearest["device_id"] or nearest["name"]} '
+                     f'{nearest["eta_min"]} мин')
+            nearest['can_make_it'] = nearest['eta_min'] <= remaining_min
+            can_make_it = nearest['can_make_it']
+        _log_routing_event(conn, request_id, 'warning', 'Система', note)
+        conn.commit()
+        payload = {
+            'request_id': request_id, 'zone': row['parking_id'],
+            'engineer': row['engineer_name'], 'breach': False,
+            'elapsed_min': elapsed_min, 'remaining_min': remaining_min,
+            'eta_min': eta_min, 'nearest_free': nearest,
+            'can_make_it': can_make_it,
+            'regulation_minutes': REGULATION_MINUTES, 'at': _utc_now_iso(),
+        }
+        append_event('warning', **payload)
+        sse_publish('warning', payload)
+    except Exception as exc:
+        print(f'[REGULATION] {request_id}: {exc}')
+    finally:
+        conn.close()
 
 
 # ============================================================
@@ -5562,9 +5750,37 @@ def _track_known_object(raw_obj):
     return None
 
 
+def _stamp_route_arrival(cur, request_id, comment, at, elapsed_min, eta_min, delta_min):
+    """Дописывает факт прибытия в сохранённый ROUTE JSON (без изменения схемы)."""
+    comment = comment or ''
+    if not comment.startswith('ROUTE:'):
+        return comment
+    rest = comment[6:]
+    depth = 0
+    end = -1
+    for i, ch in enumerate(rest):
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end <= 0:
+        return comment
+    try:
+        payload = json.loads(rest[:end])
+    except (TypeError, ValueError):
+        return comment
+    payload['arrival'] = {'at': at, 'elapsed_min': elapsed_min,
+                          'eta_min': eta_min, 'delta_min': delta_min}
+    return 'ROUTE:' + json.dumps(payload, ensure_ascii=False) + rest[end:]
+
+
 def _track_apply_position(kind, object_id, lat, lng, when):
     conn = get_db()
     arrival_event = None
+    active_request_id = None
     try:
         cur = conn.cursor()
         assigned_request = None
@@ -5576,7 +5792,7 @@ def _track_apply_position(kind, object_id, lat, lng, when):
 
             # Автоматическое прибытие: точка внутри полигона зоны обслуживания.
             cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
-                                  e.task_step
+                                  r.engineer_comment, e.task_step
                            FROM requests r JOIN engineers e ON e.id=r.engineer_id
                            WHERE r.engineer_id=? AND r.routing_stage='technician'
                              AND r.status NOT IN ('completed','cancelled',
@@ -5584,6 +5800,8 @@ def _track_apply_position(kind, object_id, lat, lng, when):
                                                   'report_submitted','deleted')
                            ORDER BY r.created_at DESC LIMIT 1""", (object_id,))
             active = cur.fetchone()
+            if active:
+                active_request_id = active['id']
             if active and active['parking_id']:
                 geometry = _zone_geometry(active['parking_id'])
                 if geometry and _point_in_geometry(lat, lng, geometry):
@@ -5598,17 +5816,31 @@ def _track_apply_position(kind, object_id, lat, lng, when):
                                 elapsed_min = round(
                                     (datetime.now(timezone.utc) - started).total_seconds() / 60.0, 1)
                             late = elapsed_min is not None and elapsed_min > REGULATION_MINUTES
+                            eta_min = _route_eta_min(active['engineer_comment'])
+                            delta_min = (round(elapsed_min - eta_min, 1)
+                                         if elapsed_min is not None and eta_min is not None
+                                         else None)
                             note = f'Автоматическое прибытие в зону {active["parking_id"]}'
                             if elapsed_min is not None:
                                 note += (f'; {elapsed_min} мин с назначения — '
                                          + ('нарушение норматива 15 мин' if late
                                             else 'в пределах норматива'))
+                            if eta_min is not None and delta_min is not None:
+                                note += f'; ETA {eta_min} мин, отклонение {delta_min:+} мин'
                             _log_routing_event(conn, active['id'], 'technician', 'GPS', note)
+                            cur.execute("UPDATE requests SET engineer_comment=? WHERE id=?",
+                                        (_stamp_route_arrival(cur, active['id'],
+                                                               active['engineer_comment'],
+                                                               _utc_now_iso(), elapsed_min,
+                                                               eta_min, delta_min),
+                                         active['id']))
                             arrival_event = {
                                 'request_id': active['id'],
                                 'zone': active['parking_id'],
                                 'lat': lat, 'lon': lng,
                                 'elapsed_min': elapsed_min,
+                                'eta_min': eta_min,
+                                'delta_min': delta_min,
                                 'regulation_minutes': REGULATION_MINUTES,
                                 'late': bool(late),
                                 'at': _utc_now_iso(),
@@ -5645,6 +5877,8 @@ def _track_apply_position(kind, object_id, lat, lng, when):
             _recalc_routes_for_engineer(object_id, force=True)
         except Exception as exc:
             print(f'[TRACK] route recalc engineer: {exc}')
+        if active_request_id and not arrival_event:
+            _check_regulation_warning(active_request_id)
     elif kind == 'transport' and assigned_request:
         try:
             _recalc_route_for_request_id(assigned_request, force=True)
@@ -5654,6 +5888,7 @@ def _track_apply_position(kind, object_id, lat, lng, when):
     sse_publish('position', {'type': kind, 'obj': str(object_id),
                              'lat': lat, 'lon': lng, 't': when})
     if arrival_event:
+        append_event('arrival', **arrival_event)
         sse_publish('arrival', arrival_event)
     return True
 

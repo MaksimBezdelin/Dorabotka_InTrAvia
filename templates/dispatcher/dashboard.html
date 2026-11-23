@@ -1909,6 +1909,7 @@ function init() {
 
     initTransport();
     initMap();
+    connectEventStream();
     updateParkingList();
     loadDataOnce();
     relayDispatcherReportsToCpu();
@@ -1926,6 +1927,33 @@ function init() {
     state.coordsInterval = setInterval(function() {
         if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
     }, 500);
+}
+
+function connectEventStream() {
+    if (!window.EventSource) return;
+    var source = new EventSource('/api/v1/stream');
+    source.addEventListener('warning', function(event) {
+        try {
+            var data = JSON.parse(event.data);
+            var title = data.breach ? 'Нарушение норматива 15 мин' : 'Норматив 15 мин истекает';
+            var text = 'Заявка ' + data.request_id + ' · зона ' + (data.zone || '—') +
+                ' · осталось ' + data.remaining_min + ' мин';
+            if (data.nearest_free) {
+                text += ' · ближайший ' + (data.nearest_free.device_id || data.nearest_free.name) +
+                    ' ' + data.nearest_free.eta_min + ' мин';
+            }
+            showToast(title + ': ' + text, data.breach ? 'error' : 'warning');
+            if (typeof loadRequestsOnly === 'function') loadRequestsOnly();
+        } catch (error) { /* ignore malformed */ }
+    });
+    source.addEventListener('sync', function() {
+        if (typeof loadRequestsOnly === 'function' && !state.isUpdating && !state.isDragging) {
+            loadRequestsOnly();
+        }
+    });
+    source.onerror = function() {
+        setTimeout(function() { source.close(); connectEventStream(); }, 4000);
+    };
 }
 
 function loadDataOnce() {

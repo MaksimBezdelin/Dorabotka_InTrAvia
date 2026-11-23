@@ -1944,9 +1944,30 @@
 
         window.showToast = showToast;
 
+        function connectEngineerEventStream() {
+            if (!window.EventSource) return;
+            var source = new EventSource('/api/v1/stream');
+            source.addEventListener('warning', function(event) {
+                try {
+                    var data = JSON.parse(event.data);
+                    var text = (data.breach ? 'Норматив 15 мин нарушен' : 'Норматив 15 мин истекает') +
+                        ' · заявка ' + data.request_id + ' · осталось ' + data.remaining_min + ' мин';
+                    showToast(text, data.breach ? 'error' : '');
+                    loadTasks();
+                } catch (error) { /* ignore malformed */ }
+            });
+            source.addEventListener('sync', function() {
+                if (!moveInterval) loadTasks();
+            });
+            source.onerror = function() {
+                setTimeout(function() { source.close(); connectEngineerEventStream(); }, 5000);
+            };
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             initMap();
             setTimeout(function() { if (map) map.invalidateSize(); }, 200);
+            connectEngineerEventStream();
             loadParkingCoords().finally(function() {
                 loadTasks();
                 setInterval(loadTasks, 5000);

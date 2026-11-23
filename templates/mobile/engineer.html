@@ -770,6 +770,14 @@
         }
       } catch (error) { /* ignore malformed */ }
     });
+    source.addEventListener('warning', function (event) {
+      try {
+        var data = JSON.parse(event.data);
+        toast((data.breach ? 'Норматив 15 мин нарушен' : 'Норматив 15 мин истекает') +
+          ' · осталось ' + data.remaining_min + ' мин', data.breach ? 'err' : '');
+        scheduleRefresh();
+      } catch (error) { /* ignore malformed */ }
+    });
     source.addEventListener('arrival', function (event) {
       try {
         state.arrival = JSON.parse(event.data);
