@@ -108,6 +108,7 @@
   .map-wrap{position:relative}
   .arrival{background:#e7f7ed;border:1px solid #86efac;color:#166534;border-radius:11px;
     padding:10px 12px;font-size:12px;font-weight:800;margin-bottom:10px}
+  .login-note{font-size:12px;color:var(--muted);margin:-4px 0 12px}
 </style>
 </head>
 <body>
@@ -155,6 +156,22 @@
 </nav>
 
 <div class="toast" id="toast"></div>
+
+<div class="sheet" id="loginSheet">
+  <div class="sheet-inner">
+    <h3>Вход в InTrAvia</h3>
+    <p class="login-note">Сервер требует авторизацию. Войдите под своей учётной записью.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="ivanov@aeroflot.ru">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Пароль</label>
+      <input id="loginPassword" type="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn">Войти</button>
+  </div>
+</div>
 
 <div class="sheet" id="engineerSheet">
   <div class="sheet-inner">
@@ -791,7 +808,40 @@
     source.onerror = function () { setTimeout(function () { source.close(); connectStream(); }, 3000); };
   }
 
+  function checkServerAuth() {
+    return fetch('/api/auth/session').then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) { return { ok: response.ok, body: body }; });
+    });
+  }
+
+  function openLoginSheet() {
+    $('loginSheet').classList.add('show');
+  }
+
+  function submitLogin() {
+    var email = $('loginEmail').value.trim();
+    var password = $('loginPassword').value;
+    if (!email || !password) { toast('Введите email и пароль', 'err'); return; }
+    api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function () {
+      $('loginSheet').classList.remove('show');
+      startUi();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
   function boot() {
+    $('loginBtn').onclick = submitLogin;
+    checkServerAuth().then(function (result) {
+      if (result.ok) { startUi(); return; }
+      if (result.body && result.body.auth_required) { openLoginSheet(); return; }
+      startUi();
+    }).catch(function () { startUi(); });
+  }
+
+  function startUi() {
     initMap();
     $('changeEngineer').onclick = openEngineerSheet;
     $('gpsToggle').checked = state.gpsOn;

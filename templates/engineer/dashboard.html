@@ -436,8 +436,8 @@
             var notif = document.createElement('div');
             notif.className = 'notification';
             notif.innerHTML =
-                '<div class="notif-title">' + title + '</div>' +
-                '<div class="notif-text">' + text + '</div>' +
+                '<div class="notif-title">' + escapeTaskHtml(title) + '</div>' +
+                '<div class="notif-text">' + escapeTaskHtml(text) + '</div>' +
                 '<div class="notif-time">' + new Date().toLocaleTimeString() + '</div>';
             container.appendChild(notif);
             try {
@@ -694,8 +694,8 @@
                 routeInfo.innerHTML =
                     '<strong style="color:var(--aero-blue);">' + routeData.time + ' мин</strong>' +
                     '<br><span style="font-size:13px;color:var(--aero-text-light);">' +
-                    routeData.walkToCar + ' мин пешком до ' + routeData.bestCar.deviceId +
-                    ' + ' + routeData.bestCarTime + ' мин на машине</span>';
+                    escapeTaskHtml(routeData.walkToCar) + ' мин пешком до ' + escapeTaskHtml(routeData.bestCar.deviceId) +
+                    ' + ' + escapeTaskHtml(routeData.bestCarTime) + ' мин на машине</span>';
             } else if (routeData.usingCar) {
                 routeInfo.innerHTML =
                     '<strong style="color:var(--aero-blue);">' + routeData.time + ' мин</strong>' +
@@ -1103,11 +1103,11 @@
                 '<div class="task-item">' +
                 renderSteps() +
                 '<div>' +
-                '<div class="task-title"><i class="fas fa-plane"></i> ' + (request.aircraft || 'ВС') + ' — ' + faultName + '</div>' +
-                '<div class="task-detail"><i class="fas fa-map-marker-alt"></i> Стоянка: ' + (request.parking_id || '—') + ' • Статус: ' + status.label + '</div>' +
+                '<div class="task-title"><i class="fas fa-plane"></i> ' + escapeTaskHtml(request.aircraft || 'ВС') + ' — ' + escapeTaskHtml(faultName) + '</div>' +
+                '<div class="task-detail"><i class="fas fa-map-marker-alt"></i> Стоянка: ' + escapeTaskHtml(request.parking_id || '—') + ' • Статус: ' + escapeTaskHtml(status.label) + '</div>' +
                 '<div class="task-route">' +
                 '<span class="route-icon"><i class="fas fa-route"></i></span>' +
-                '<span>' + routeText + '</span>' +
+                '<span>' + escapeTaskHtml(routeText) + '</span>' +
                 '</div>' +
                 melTaskHtml +
                 previousReportHtml +

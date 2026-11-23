@@ -62,7 +62,8 @@ RECHECK_DELAY_SEC = 10
 
 # AUTH_REQUIRED=1 включает серверную проверку сессии и ролей (рекомендуется
 # для любого стенда, доступного не только с localhost).
-AUTH_REQUIRED = os.environ.get('AUTH_REQUIRED', '').strip().lower() in ('1', 'true', 'yes', 'on')
+# По умолчанию сервер закрыт сессией. Для демо без входа: AUTH_REQUIRED=0.
+AUTH_REQUIRED = os.environ.get('AUTH_REQUIRED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 # CORS по умолчанию выключен: дашборды и мобильные страницы работают с того же origin.
 CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 
@@ -259,8 +260,9 @@ PUBLIC_API_PATHS = {
     '/api/v1/stream',
     '/api/v1/agents',
     '/api/v1/snapshot',
-    # Публичная география и расчёт маршрута нужны мобильным приложениям,
-    # которые открываются без сессии (страницы /m/*).
+    '/api/auth/session',
+    # Публичная география и расчёт маршрута нужны мобильным приложениям
+    # для отрисовки карты до входа и для имитатора организаторов.
     '/api/location',
     '/api/parking',
     '/api/route',
@@ -2482,7 +2484,7 @@ def auth_logout():
 def auth_session():
     """Текущая серверная сессия — для проверки состояния авторизации."""
     if not session.get('user_id'):
-        return jsonify({'authenticated': False}), 401
+        return jsonify({'authenticated': False, 'auth_required': AUTH_REQUIRED}), 401
     return jsonify({'authenticated': True,
                     'user': {'id': session.get('user_id'),
                              'role': session.get('role'),

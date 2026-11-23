@@ -75,6 +75,13 @@
   .leaflet-container{font-family:inherit}
   .hint{background:#fff7e6;border:1px solid #f1d9a7;color:#7c5b13;border-radius:11px;
     padding:10px 12px;font-size:11px;line-height:1.45;margin-top:10px}
+  .login{position:fixed;inset:0;z-index:6000;background:rgba(8,20,36,.6);display:none;
+    align-items:flex-end;justify-content:center}
+  .login.show{display:flex}
+  .login-inner{background:#fff;width:100%;max-width:620px;border-radius:20px 20px 0 0;
+    padding:18px 16px calc(18px + var(--safe-bottom));max-height:88vh;overflow:auto}
+  .login-inner h3{margin:0 0 6px;font-size:16px}
+  .login-note{font-size:12px;color:var(--muted);margin:0 0 12px}
 </style>
 </head>
 <body>
@@ -152,6 +159,22 @@
 </main>
 
 <div class="toast" id="toast"></div>
+
+<div class="login" id="loginSheet">
+  <div class="login-inner">
+    <h3>Вход в InTrAvia</h3>
+    <p class="login-note">Сервер требует авторизацию. Войдите, чтобы работать с агентами.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="dispatcher@aeroflot.ru">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Пароль</label>
+      <input id="loginPassword" type="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn">Войти</button>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -569,7 +592,40 @@
     };
   }
 
+  function checkServerAuth() {
+    return fetch('/api/auth/session').then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) { return { ok: response.ok, body: body }; });
+    });
+  }
+
+  function openLoginSheet() {
+    $('loginSheet').classList.add('show');
+  }
+
+  function submitLogin() {
+    var email = $('loginEmail').value.trim();
+    var password = $('loginPassword').value;
+    if (!email || !password) { toast('Введите email и пароль', 'err'); return; }
+    api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function () {
+      $('loginSheet').classList.remove('show');
+      startUi();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
   function boot() {
+    $('loginBtn').onclick = submitLogin;
+    checkServerAuth().then(function (result) {
+      if (result.ok) { startUi(); return; }
+      if (result.body && result.body.auth_required) { openLoginSheet(); return; }
+      startUi();
+    }).catch(function () { startUi(); });
+  }
+
+  function startUi() {
     initMap();
     $('agentSelect').onchange = function () {
       state.selectedObj = this.value;

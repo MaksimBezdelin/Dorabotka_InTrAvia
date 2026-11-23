@@ -3793,12 +3793,12 @@ function updateActiveRequests() {
         var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : req.engineer);
 
         html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
-            '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
-            '<div class="req-detail">' + req.fault + ' • Стоянка ' + req.parking + '</div>' +
+            '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + escapeHtml(req.aircraft) + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
+            '<div class="req-detail">' + escapeHtml(req.fault) + ' • Стоянка ' + escapeHtml(req.parking) + '</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
-            '<div style="font-weight:600;font-size:13px;">' + assignedEngineerText + '</div>' +
+            '<div style="font-weight:600;font-size:13px;">' + escapeHtml(assignedEngineerText) + '</div>' +
             '<div class="req-status" style="color:' + statusColor + ';">' + statusText + '</div>' +
             '</div>' +
             '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
@@ -3859,16 +3859,16 @@ function openRequestModal(ticketId) {
     var reportText = extractReportFromComment(ticket.engineer_comment || '');
     var reportBlock = '';
     if (reportText) {
-        reportBlock = '<div class="report-block"><div class="report-label"><i class="fas fa-clipboard-check"></i> Отчёт инженера</div><div class="report-body">' + reportText + '</div></div>';
+        reportBlock = '<div class="report-block"><div class="report-label"><i class="fas fa-clipboard-check"></i> Отчёт инженера</div><div class="report-body">' + escapeHtml(reportText) + '</div></div>';
     }
 
     document.getElementById('requestModalTitle').textContent = 'Заявка: ' + (ticket.aircraft || ticket.id);
     document.getElementById('requestModalContent').innerHTML =
-        '<div class="form-group"><label>Рейс</label><input type="text" value="' + (ticket.aircraft || '') + '" disabled style="background:#f8fafc;"></div>' +
-        '<div class="form-group"><label>Неисправность</label><input type="text" value="' + (ticket.fault_type || '') + '" disabled style="background:#f8fafc;"></div>' +
-        '<div class="form-group"><label>Стоянка</label><input type="text" value="' + (ticket.parking_id || '') + '" disabled style="background:#f8fafc;"></div>' +
-        '<div class="form-group"><label>Инженер</label><input type="text" value="' + (activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
-        '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + routeBreakdown + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
+        '<div class="form-group"><label>Рейс</label><input type="text" value="' + escapeHtml(ticket.aircraft || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Неисправность</label><input type="text" value="' + escapeHtml(ticket.fault_type || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Стоянка</label><input type="text" value="' + escapeHtml(ticket.parking_id || '') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Инженер</label><input type="text" value="' + escapeHtml(activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + escapeHtml(routeBreakdown) + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
         reportBlock +
         '<div class="form-group"><label>Статус</label><select id="statusSelect">' +
         '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
