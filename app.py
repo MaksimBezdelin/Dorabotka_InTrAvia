@@ -205,7 +205,8 @@ PUBLIC_PAGES = {'/login.html', '/m/engineer', '/m/agents'}
 
 DASHBOARD_ROLES = {
     '/mcc/dashboard.html': {'mcc'},
-    '/cpu/dashboard.html': {'cpu'},
+    # ЦПУ объединено с MCC: очередь ЦПУ ведёт та же роль.
+    '/cpu/dashboard.html': {'mcc'},
     '/dispatcher/dashboard.html': {'dispatcher'},
     '/pilot/dashboard.html': {'pilot'},
     '/engineer/dashboard.html': {'engineer'},
@@ -215,7 +216,6 @@ DASHBOARD_ROLES = {
 ROLE_HOME = {
     'admin': '/admin/dashboard.html',
     'mcc': '/mcc/dashboard.html',
-    'cpu': '/cpu/dashboard.html',
     'dispatcher': '/dispatcher/dashboard.html',
     'pilot': '/pilot/dashboard.html',
     'engineer': '/engineer/dashboard.html',
@@ -224,7 +224,7 @@ ROLE_HOME = {
 # Изменять эти группы API может только соответствующая роль (admin — всегда).
 WRITE_ROLE_PREFIXES = (
     ('/api/mcc/', {'mcc'}),
-    ('/api/cpu/', {'cpu'}),
+    ('/api/cpu/', {'mcc'}),
     ('/api/dispatcher/', {'dispatcher'}),
     ('/api/pilot/', {'pilot'}),
     ('/api/engineer/', {'engineer'}),
@@ -453,6 +453,260 @@ def _float_from_props(props, key, default):
     return default
 
 
+# ------------------------------------------------------------
+# Конфигурация локации (ВДНХ) — единственный источник географии
+# ------------------------------------------------------------
+LOCATION_CONFIG_PATH = os.path.join(BASE_DIR, 'config', 'location.json')
+_LOCATION_LOCK = threading.Lock()
+_LOCATION_CACHE = None
+
+
+def _read_geojson(path):
+    with open(path, encoding='utf-8-sig') as fh:
+        data = json.load(fh)
+    if data.get('type') != 'FeatureCollection' or not isinstance(data.get('features'), list):
+        raise RuntimeError(f'[LOCATION] Некорректный GeoJSON: {path}')
+    return data
+
+
+def _geometry_rings(geometry):
+    if not geometry:
+        return []
+    if geometry.get('type') == 'Polygon':
+        return [geometry['coordinates'][0]]
+    if geometry.get('type') == 'MultiPolygon':
+        return [poly[0] for poly in geometry['coordinates']]
+    return []
+
+
+def _geometry_centroid(geometry):
+    points = [pt for ring in _geometry_rings(geometry) for pt in ring]
+    if not points:
+        return None
+    lon = sum(p[0] for p in points) / len(points)
+    lat = sum(p[1] for p in points) / len(points)
+    return {'lat': round(lat, 6), 'lon': round(lon, 6)}
+
+
+def _geometry_bbox(geometry):
+    points = [pt for ring in _geometry_rings(geometry) for pt in ring]
+    if not points:
+        return None
+    lons = [p[0] for p in points]
+    lats = [p[1] for p in points]
+    return [round(min(lons), 6), round(min(lats), 6),
+            round(max(lons), 6), round(max(lats), 6)]
+
+
+def _road_stats(features):
+    counts, speeds = {}, {}
+    for feature in features:
+        props = feature.get('properties') or {}
+        road_type = props.get('type')
+        if not road_type:
+            continue
+        counts[road_type] = counts.get(road_type, 0) + 1
+        if props.get('spd_kmh'):
+            speeds.setdefault(road_type, set()).add(float(props['spd_kmh']))
+    return {'counts': counts, 'speeds': {k: sorted(v) for k, v in speeds.items()}}
+
+
+def load_location_config(force=False):
+    """Читает config/location.json и привязанные GeoJSON с кэшированием."""
+    global _LOCATION_CACHE
+    with _LOCATION_LOCK:
+        if _LOCATION_CACHE is not None and not force:
+            return _LOCATION_CACHE
+        if not os.path.isfile(LOCATION_CONFIG_PATH):
+            raise RuntimeError(f'[LOCATION] Конфиг не найден: {LOCATION_CONFIG_PATH}')
+        with open(LOCATION_CONFIG_PATH, encoding='utf-8-sig') as fh:
+            config = json.load(fh)
+
+        required = ('id', 'name', 'center', 'bbox', 'files', 'road_rules',
+                    'objects', 'parkings', 'regulation_minutes', 'walk_speed_kmh')
+        missing = [key for key in required if key not in config]
+        if missing:
+            raise RuntimeError('[LOCATION] В конфиге отсутствуют поля: ' + ', '.join(missing))
+
+        paths = {}
+        for key in ('roads', 'objects', 'service_zones', 'boundary'):
+            rel = (config.get('files') or {}).get(key)
+            if not rel:
+                raise RuntimeError(f'[LOCATION] Не указан файл {key}')
+            full = rel if os.path.isabs(rel) else os.path.join(BASE_DIR, rel)
+            if not os.path.isfile(full):
+                raise RuntimeError(f'[LOCATION] Файл не найден: {full}')
+            paths[key] = full
+
+        roads = _read_geojson(paths['roads'])
+        objects_fc = _read_geojson(paths['objects'])
+        zones_fc = _read_geojson(paths['service_zones'])
+        boundary_fc = _read_geojson(paths['boundary'])
+
+        role_by_name = {o.get('name'): o.get('role') for o in config.get('objects', [])}
+        objects = []
+        for feature in objects_fc['features']:
+            props = feature.get('properties') or {}
+            name = props.get('name') or f"object-{props.get('id')}"
+            objects.append({
+                'id': role_by_name.get(name) or f"object-{props.get('id')}",
+                'role': role_by_name.get(name, 'other'),
+                'name': name,
+                'centroid': _geometry_centroid(feature.get('geometry')),
+                'geometry': feature.get('geometry'),
+            })
+
+        parkings = []
+        for feature in zones_fc['features']:
+            props = feature.get('properties') or {}
+            zone_id = props.get('id')
+            parkings.append({
+                'id': f'SZ-{zone_id}',
+                'zone_id': zone_id,
+                'label': f'Стоянка SZ-{zone_id}',
+                'centroid': _geometry_centroid(feature.get('geometry')),
+                'geometry': feature.get('geometry'),
+            })
+        parkings.sort(key=lambda p: p['zone_id'] if isinstance(p['zone_id'], int) else 0)
+
+        boundary = boundary_fc['features'][0].get('geometry') if boundary_fc['features'] else None
+        result = dict(config)
+        result.update({
+            'objects': objects,
+            'parkings': parkings,
+            'zones': parkings,
+            'boundary': boundary,
+            'roads': roads,
+            'road_stats': _road_stats(roads['features']),
+            'bbox': config.get('bbox') or _geometry_bbox(boundary),
+        })
+        _LOCATION_CACHE = result
+        print(f"[LOCATION] {result['id']}: объектов {len(objects)}, стоянок {len(parkings)}, "
+              f"дорог {len(roads['features'])}")
+        return result
+
+
+def _location_center():
+    try:
+        center = load_location_config().get('center') or {}
+        return float(center.get('lat', 55.83367)), float(center.get('lon', 37.62709))
+    except Exception:
+        return 55.83367, 37.62709
+
+
+def _parking_point(parking_id):
+    """Координаты стоянки: SZ-N из config/location.json либо старые id из SVO."""
+    pid = str(parking_id or '').strip()
+    if not pid:
+        return None
+    if pid in PARKING_COORDS:
+        return PARKING_COORDS[pid]
+    try:
+        location = load_location_config()
+    except Exception:
+        return None
+    for parking in location.get('parkings', []):
+        zone_id = parking.get('zone_id')
+        if pid in (str(parking.get('id')), str(zone_id), f'SZ-{zone_id}'):
+            centroid = parking.get('centroid') or {}
+            if centroid:
+                return float(centroid['lat']), float(centroid['lon'])
+    return None
+
+
+def apply_location_parking():
+    """Заменяет стоянки SVO на зоны обслуживания ВДНХ (SZ-1..SZ-10)."""
+    global PARKING_COORDS, PARKING_META
+    try:
+        location = load_location_config()
+    except Exception as exc:
+        print(f'[LOCATION] Стоянки не загружены: {exc}')
+        return 0
+    PARKING_COORDS = {}
+    PARKING_META = {}
+    for parking in location.get('parkings', []):
+        pid = parking.get('id')
+        centroid = parking.get('centroid') or {}
+        if not pid or not centroid:
+            continue
+        lat, lng = float(centroid['lat']), float(centroid['lon'])
+        PARKING_COORDS[pid] = (lat, lng)
+        PARKING_META[pid] = {
+            'id': pid, 'ref': pid,
+            'label': parking.get('label') or pid,
+            'name': parking.get('label') or pid,
+            'lat': lat, 'lng': lng,
+            'centroid': {'lat': lat, 'lon': lng},
+            'polygon': parking.get('geometry'),
+            'geometry': parking.get('geometry'),
+            'zone_id': parking.get('zone_id'),
+        }
+    print(f'[LOCATION] Стоянок ВДНХ: {len(PARKING_META)}')
+    return len(PARKING_META)
+
+
+def _zone_geometry(parking_id):
+    pid = str(parking_id or '').strip()
+    if not pid:
+        return None
+    meta = PARKING_META.get(pid)
+    if meta and (meta.get('polygon') or meta.get('geometry')):
+        return meta.get('polygon') or meta.get('geometry')
+    try:
+        location = load_location_config()
+    except Exception:
+        return None
+    for parking in location.get('parkings', []):
+        zone_id = parking.get('zone_id')
+        if pid in (str(parking.get('id')), str(zone_id), f'SZ-{zone_id}'):
+            return parking.get('geometry')
+    return None
+
+
+def _point_in_ring(lat, lng, ring):
+    inside = False
+    x, y = float(lng), float(lat)
+    count = len(ring)
+    if count < 3:
+        return False
+    for i in range(count):
+        x1, y1 = ring[i][0], ring[i][1]
+        x2, y2 = ring[(i + 1) % count][0], ring[(i + 1) % count][1]
+        if (y1 > y) != (y2 > y):
+            intersect_x = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x < intersect_x:
+                inside = not inside
+    return inside
+
+
+def _point_in_geometry(lat, lng, geometry):
+    if not geometry:
+        return False
+    geom_type = geometry.get('type')
+    if geom_type == 'Polygon':
+        return _point_in_ring(lat, lng, geometry['coordinates'][0])
+    if geom_type == 'MultiPolygon':
+        return any(_point_in_ring(lat, lng, poly[0])
+                   for poly in geometry['coordinates'])
+    return False
+
+
+def _parse_timestamp(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace('Z', '+00:00'))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text[:19], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def load_svo_geojson():
     """Загружает стоянки (Point) и объекты (Polygon/MultiPolygon/LineString)
     из static/svo_all.geojson."""
@@ -628,45 +882,30 @@ def load_svo_geojson():
 
 
 # ============================================================
-# Дорожный граф
+# Дорожный граф (ВДНХ): пешеходный, транспортный, авиационный
 # ============================================================
-road_graph_vehicle = nx.Graph()
+GRAPH_PEDESTRIAN = nx.Graph()
+GRAPH_VEHICLE = nx.Graph()
+GRAPH_AIRCRAFT = nx.Graph()
+road_graph_vehicle = GRAPH_VEHICLE  # обратная совместимость
+
+_GRAPH_TYPE_SETS = {
+    'pedestrian': {'service', 'pedestrian'},
+    'vehicle': {'service'},
+    'aircraft': {'taxi', 'runway'},
+}
 
 
-def load_road_graph():
-    global road_graph_vehicle
-    road_graph_vehicle = nx.Graph()
-    filepath = os.path.join(STATIC_DIR, 'roads.geojson')
-    if not os.path.exists(filepath):
-        print(f'[GRAPH] {filepath} не найден')
-        return
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f'[GRAPH] Ошибка: {e}')
-        return
+def _build_graph(features, allowed_types, rules, closed_fids, label):
+    """Строит граф по рёбрам указанных типов.
 
-    segments = []
-    for feature in data.get('features', []):
-        geom = feature.get('geometry', {})
-        if geom.get('type') != 'LineString':
-            continue
-        props = feature.get('properties') or {}
-        if str(props.get('category') or '').strip().lower() not in ('vehicle', ''):
-            continue
-        coords = geom['coordinates']
-        if len(coords) < 2:
-            continue
-        segments.append([(float(c[1]), float(c[0])) for c in coords])
-
-    if not segments:
-        print('[GRAPH] Нет LineString')
-        return
-
+    Вес ребра — время в секундах: distance_m / (speed_kmh / 3.6).
+    Узлы — (lat, lng), склейка с допуском 3 м.
+    """
+    graph = nx.Graph()
     SNAP_M = 3.0
     TOL_LAT = SNAP_M / 111320.0
-    TOL_LNG = SNAP_M / (111320.0 * math.cos(math.radians(55.98)))
+    TOL_LNG = SNAP_M / (111320.0 * math.cos(math.radians(55.8337)))
     grid, cache = {}, {}
 
     def snap(lat, lng):
@@ -689,21 +928,96 @@ def load_road_graph():
         cache[key] = best
         return best
 
-    for seg in segments:
-        snapped = [snap(lat, lng) for lat, lng in seg]
+    skipped_closed = 0
+    for feature in features:
+        geom = feature.get('geometry') or {}
+        if geom.get('type') != 'LineString':
+            continue
+        props = feature.get('properties') or {}
+        road_type = str(props.get('type') or '').strip().lower()
+        if road_type not in allowed_types:
+            continue
+        fid = props.get('fid', props.get('id'))
+        if fid in closed_fids:
+            skipped_closed += 1
+            continue
+        coords = geom.get('coordinates') or []
+        if len(coords) < 2:
+            continue
+        rule = rules.get(road_type) or {}
+        try:
+            speed = float(props.get('spd_kmh') or rule.get('default_speed_kmh') or 5.0)
+        except (TypeError, ValueError):
+            speed = 5.0
+        speed = max(speed, 1.0)
+        agents = tuple(rule.get('agents') or ())
+        snapped = [snap(float(c[1]), float(c[0])) for c in coords]
         for i in range(len(snapped) - 1):
             n1, n2 = snapped[i], snapped[i + 1]
             if n1 == n2:
                 continue
-            w = distance_km(n1[0], n1[1], n2[0], n2[1])
-            road_graph_vehicle.add_edge(n1, n2, weight=w)
+            distance_m = distance_km(n1[0], n1[1], n2[0], n2[1]) * 1000.0
+            if distance_m <= 0:
+                continue
+            graph.add_edge(n1, n2,
+                           weight=distance_m / (speed / 3.6),
+                           distance_m=distance_m,
+                           speed_kmh=speed,
+                           road_type=road_type,
+                           allowed_agents=agents,
+                           closed=False)
+    if skipped_closed:
+        print(f'[GRAPH] {label}: пропущено закрытых рёбер — {skipped_closed}')
+    return graph
 
-    print(f'[GRAPH] {len(road_graph_vehicle.nodes)} узлов, '
-          f'{len(road_graph_vehicle.edges)} рёбер')
 
-    comps = list(nx.connected_components(road_graph_vehicle))
-    if len(comps) > 1:
-        _bridge_components(road_graph_vehicle, comps)
+def _graph_edge_types(graph):
+    return {d.get('road_type') for _, _, d in graph.edges(data=True)}
+
+
+def _self_check_graphs():
+    """В пешеходном/транспортном графах не должно быть taxi/runway,
+    в авиационном — service/pedestrian."""
+    checks = (
+        ('пешеходный', GRAPH_PEDESTRIAN, {'taxi', 'runway'}),
+        ('транспортный', GRAPH_VEHICLE, {'taxi', 'runway'}),
+        ('авиационный', GRAPH_AIRCRAFT, {'service', 'pedestrian'}),
+    )
+    ok = True
+    for label, graph, forbidden in checks:
+        bad = _graph_edge_types(graph) & forbidden
+        if bad:
+            ok = False
+            print(f'[GRAPH][CHECK] {label}: запрещённые типы рёбер {sorted(bad)}')
+    return ok
+
+
+def load_road_graph():
+    """Загружает три графа из config/location.json (roads.geojson ВДНХ)."""
+    global GRAPH_PEDESTRIAN, GRAPH_VEHICLE, GRAPH_AIRCRAFT, road_graph_vehicle
+    try:
+        location = load_location_config()
+        features = location['roads']['features']
+        rules = location.get('road_rules') or {}
+        closed_fids = set(location.get('closed_edges') or [])
+    except Exception as e:
+        print(f'[GRAPH] Конфигурация локации недоступна: {e}')
+        return
+
+    GRAPH_PEDESTRIAN = _build_graph(
+        features, _GRAPH_TYPE_SETS['pedestrian'], rules, closed_fids, 'пешеходный')
+    GRAPH_VEHICLE = _build_graph(
+        features, _GRAPH_TYPE_SETS['vehicle'], rules, closed_fids, 'транспортный')
+    GRAPH_AIRCRAFT = _build_graph(
+        features, _GRAPH_TYPE_SETS['aircraft'], rules, closed_fids, 'авиационный')
+    road_graph_vehicle = GRAPH_VEHICLE
+
+    for label, graph in (('пешеходный', GRAPH_PEDESTRIAN),
+                         ('транспортный', GRAPH_VEHICLE),
+                         ('авиационный', GRAPH_AIRCRAFT)):
+        print(f'[GRAPH] {label}: {len(graph.nodes)} узлов, '
+              f'{len(graph.edges)} рёбер, типы={sorted(_graph_edge_types(graph))}')
+    _self_check_graphs()
 
 
 def _bridge_components(graph, components):
@@ -777,6 +1091,251 @@ def get_shortest_path(graph, start_lat, start_lng, end_lat, end_lng):
     except Exception as ex:
         print(f'[GRAPH] Ошибка: {ex}')
         return None, 0
+
+
+# ============================================================
+# Маршрутизатор ВДНХ: привязка к рёбрам, участки, промежуточные точки
+# ============================================================
+class RouteError(Exception):
+    pass
+
+
+_EARTH_M_PER_DEG = 111320.0
+
+
+def _local_xy(lat, lng, lat0, lng0):
+    return ((lng - lng0) * _EARTH_M_PER_DEG * math.cos(math.radians(lat0)),
+            (lat - lat0) * _EARTH_M_PER_DEG)
+
+
+def _edge_projection(graph, lat, lng):
+    """Проекция точки на ближайшее ребро графа (в метрах, локальная плоскость)."""
+    if graph is None or not graph.edges:
+        return None
+    best = None
+    for u, v, data in graph.edges(data=True):
+        ux, uy = _local_xy(u[0], u[1], lat, lng)
+        vx, vy = _local_xy(v[0], v[1], lat, lng)
+        dx, dy = vx - ux, vy - uy
+        length2 = dx * dx + dy * dy
+        if length2 <= 1e-9:
+            continue
+        t = -(ux * dx + uy * dy) / length2
+        t = max(0.0, min(1.0, t))
+        px, py = ux + t * dx, uy + t * dy
+        dist = math.hypot(px, py)
+        if best is None or dist < best['distance_m']:
+            edge_len = data.get('distance_m') or math.sqrt(length2)
+            best = {
+                'distance_m': dist,
+                'u': u, 'v': v, 't': t,
+                'edge_len': edge_len,
+                'data': data,
+                'lat': u[0] + t * (v[0] - u[0]),
+                'lng': u[1] + t * (v[1] - u[1]),
+            }
+    return best
+
+
+def _attach_projection(graph, node, projection):
+    """Подключает виртуальный узел к концам спроецированного ребра."""
+    data = projection['data']
+    speed = float(data.get('speed_kmh') or 5.0)
+    speed = max(speed, 1.0)
+    for endpoint, distance_m in ((projection['u'], projection['t'] * projection['edge_len']),
+                                 (projection['v'], (1 - projection['t']) * projection['edge_len'])):
+        distance_m = max(distance_m, 0.01)
+        graph.add_edge(node, endpoint,
+                       weight=distance_m / (speed / 3.6),
+                       distance_m=distance_m,
+                       speed_kmh=speed,
+                       road_type=data.get('road_type'),
+                       allowed_agents=data.get('allowed_agents') or (),
+                       closed=False)
+
+
+def route_leg(graph, start, end, mode='engineer'):
+    """Маршрут между двумя точками с привязкой к ближайшим рёбрам."""
+    if graph is None or not graph.edges:
+        raise RouteError('Дорожная сеть не загружена')
+    start_lat, start_lng = float(start[0]), float(start[1])
+    end_lat, end_lng = float(end[0]), float(end[1])
+
+    sp = _edge_projection(graph, start_lat, start_lng)
+    ep = _edge_projection(graph, end_lat, end_lng)
+    if not sp or not ep:
+        raise RouteError('Не удалось привязать точки к дорожной сети')
+
+    warnings = []
+    if sp['distance_m'] > 100:
+        warnings.append(f'Старт в {int(sp["distance_m"])} м от дороги')
+    if ep['distance_m'] > 100:
+        warnings.append(f'Цель в {int(ep["distance_m"])} м от дороги')
+
+    graph_copy = graph.copy()
+    start_node = ('__virt__', 'start')
+    end_node = ('__virt__', 'end')
+    _attach_projection(graph_copy, start_node, sp)
+    _attach_projection(graph_copy, end_node, ep)
+
+    # Старт и цель на одном ребре — прямое соединение вдоль него.
+    if {sp['u'], sp['v']} == {ep['u'], ep['v']} and sp['u'] != sp['v']:
+        direct_m = abs(sp['t'] - ep['t']) * sp['edge_len']
+        speed = float(sp['data'].get('speed_kmh') or 5.0)
+        graph_copy.add_edge(start_node, end_node,
+                            distance_m=max(direct_m, 0.01),
+                            weight=max(direct_m, 0.01) / (max(speed, 1.0) / 3.6),
+                            speed_kmh=max(speed, 1.0),
+                            road_type=sp['data'].get('road_type'),
+                            allowed_agents=sp['data'].get('allowed_agents') or (),
+                            closed=False)
+
+    try:
+        nodes = nx.shortest_path(graph_copy, start_node, end_node, weight='weight')
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        raise RouteError('Маршрут недоступен: дороги не связаны')
+
+    coords = []
+    segments = []
+    distance_m = 0.0
+    time_s = 0.0
+    for node in nodes:
+        if node == start_node:
+            coords.append([start_lat, start_lng])
+        elif node == end_node:
+            coords.append([end_lat, end_lng])
+        else:
+            coords.append([node[0], node[1]])
+    for u, v in zip(nodes, nodes[1:]):
+        data = graph_copy[u][v]
+        segment_distance = float(data.get('distance_m') or 0.0)
+        segment_time = float(data.get('weight') or 0.0)
+        distance_m += segment_distance
+        time_s += segment_time
+        segments.append({
+            'distance_m': round(segment_distance, 1),
+            'time_s': round(segment_time, 1),
+            'speed_kmh': float(data.get('speed_kmh') or 0.0),
+            'road_type': data.get('road_type'),
+        })
+
+    return {
+        'mode': mode,
+        'path': coords,
+        'segments': segments,
+        'distance_m': round(distance_m, 1),
+        'time_s': round(time_s, 1),
+        'warnings': warnings,
+    }
+
+
+def _as_point(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        lat = value.get('lat', value.get('start_lat'))
+        lng = value.get('lng', value.get('lon', value.get('start_lng')))
+        if lat is None or lng is None:
+            raise RouteError('Точка должна содержать lat и lng')
+        return float(lat), float(lng)
+    if isinstance(value, (list, tuple)) and len(value) >= 2:
+        return float(value[0]), float(value[1])
+    raise RouteError('Некорректный формат точки')
+
+
+def build_route(agent_type, start, waypoints=None, target=None, options=None):
+    """Строит маршрут агента с промежуточными точками и задержками.
+
+    agent_type: engineer | transport | aircraft
+    Точки — (lat, lng) или {'lat','lng'}.
+    """
+    agent_type = str(agent_type or 'engineer').strip().lower()
+    if agent_type not in ('engineer', 'transport', 'aircraft'):
+        raise RouteError('agent_type должен быть engineer, transport или aircraft')
+    options = options or {}
+    start_pt = _as_point(start)
+    target_pt = _as_point(target)
+    if not start_pt or not target_pt:
+        raise RouteError('Нужны start и target')
+
+    waypoint_pts = []
+    for wp in (waypoints or []):
+        point = _as_point(wp)
+        if point:
+            waypoint_pts.append(point)
+
+    location = load_location_config()
+    delays = location.get('delays') or {}
+    boarding_s = float(delays.get('boarding_s', 10))
+    warehouse_s = float(delays.get('warehouse_s', 30))
+
+    legs = []
+    path = []
+    warnings = []
+    total_distance = 0.0
+    total_time = 0.0
+
+    def add_leg(leg, mode):
+        nonlocal total_distance, total_time
+        legs.append({
+            'mode': mode,
+            'from': leg['path'][0],
+            'to': leg['path'][-1],
+            'path': leg['path'],
+            'distance_m': leg['distance_m'],
+            'time_s': leg['time_s'],
+            'speed_kmh': round(
+                (leg['distance_m'] / leg['time_s'] * 3.6) if leg['time_s'] else 0.0, 1),
+        })
+        if not path:
+            path.extend(leg['path'])
+        else:
+            path.extend(leg['path'][1:])
+        total_distance += leg['distance_m']
+        total_time += leg['time_s']
+        warnings.extend(leg['warnings'])
+
+    use_transport = bool(options.get('use_transport'))
+    car = None
+    if use_transport:
+        car_point = _as_point({'lat': options.get('car_lat'), 'lng': options.get('car_lng')}) \
+            if options.get('car_lat') is not None and options.get('car_lng') is not None else None
+        if car_point:
+            car = car_point
+
+    if agent_type == 'engineer' and car:
+        add_leg(route_leg(GRAPH_PEDESTRIAN, start_pt, car, mode='walk'), 'walk')
+        total_time += boarding_s
+        steps = [car] + waypoint_pts + [target_pt]
+        for a, b in zip(steps, steps[1:]):
+            add_leg(route_leg(GRAPH_VEHICLE, a, b, mode='transport'), 'transport')
+        total_time += boarding_s  # высадка
+    elif agent_type == 'transport':
+        steps = [start_pt] + waypoint_pts + [target_pt]
+        for a, b in zip(steps, steps[1:]):
+            add_leg(route_leg(GRAPH_VEHICLE, a, b, mode='transport'), 'transport')
+    elif agent_type == 'aircraft':
+        steps = [start_pt] + waypoint_pts + [target_pt]
+        for a, b in zip(steps, steps[1:]):
+            add_leg(route_leg(GRAPH_AIRCRAFT, a, b, mode='aircraft'), 'aircraft')
+    else:
+        steps = [start_pt] + waypoint_pts + [target_pt]
+        for a, b in zip(steps, steps[1:]):
+            add_leg(route_leg(GRAPH_PEDESTRIAN, a, b, mode='walk'), 'walk')
+
+    total_time += warehouse_s * len(waypoint_pts)
+
+    return {
+        'agent_type': agent_type,
+        'legs': legs,
+        'path': path,
+        'distance_m': round(total_distance, 1),
+        'distance': round(total_distance / 1000.0, 3),
+        'time_s': round(total_time, 1),
+        'eta_min': round(total_time / 60.0, 1),
+        'waypoints': len(waypoint_pts),
+        'warnings': warnings,
+    }
 
 
 # ============================================================
@@ -996,59 +1555,109 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
 
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
     cars = [dict(r) for r in cur.fetchall()]
+    cars = [c for c in cars if c.get('lat') is not None and c.get('lng') is not None]
 
     feasible = []
     for e in pool:
-        e_lat = e['coords_lat'] or 55.975
-        e_lng = e['coords_lng'] or 37.410
-        walk_dist = distance_km(e_lat, e_lng, target_lat, target_lng)
-        walk_time = walk_dist / WALK_SPEED_KMH * 60
-        walk_path = [[e_lat, e_lng], [target_lat, target_lng]]
-        best_car = None
-        best_time = walk_time
-        best_car_time = 0
-        best_walk_to_car = 0
-        best_combined_path = walk_path
-
-        for car in cars:
-            seg1_dist = distance_km(e_lat, e_lng, car['lat'], car['lng'])
-            wtc = seg1_dist / WALK_SPEED_KMH * 60
-            seg1_path = [[e_lat, e_lng], [car['lat'], car['lng']]]
-            seg2_path, seg2_dist = get_shortest_path(
-                road_graph_vehicle, car['lat'], car['lng'], target_lat, target_lng
-            )
-            if seg2_dist == 0:
-                seg2_dist = distance_km(car['lat'], car['lng'], target_lat, target_lng)
-                seg2_path = [[car['lat'], car['lng']], [target_lat, target_lng]]
-            sp = car['speed'] or 30
-            dt = seg2_dist / sp * 60
-            t = wtc + dt
-            if t < best_time:
-                best_time = t
-                best_car = car
-                best_car_time = dt
-                best_walk_to_car = wtc
-                best_combined_path = seg1_path + seg2_path[1:]
-
-        if best_time > REGULATION_MINUTES:
+        if e['coords_lat'] is None or e['coords_lng'] is None:
             continue
+        eng_point = (float(e['coords_lat']), float(e['coords_lng']))
+        target_point = (float(target_lat), float(target_lng))
+        try:
+            walk_route = build_route('engineer', eng_point, [], target_point)
+        except RouteError:
+            continue
+
+        best_route = walk_route
+        best_car = None
+        for car in cars:
+            try:
+                car_route = build_route(
+                    'engineer', eng_point, [], target_point,
+                    {'use_transport': True,
+                     'car_lat': car['lat'], 'car_lng': car['lng']})
+            except RouteError:
+                continue
+            if car_route['time_s'] < best_route['time_s']:
+                best_route, best_car = car_route, car
+
+        travel_min = best_route['time_s'] / 60.0
+        if travel_min > REGULATION_MINUTES:
+            continue
+
+        walk_legs = [l for l in best_route['legs'] if l['mode'] == 'walk']
+        car_legs = [l for l in best_route['legs'] if l['mode'] == 'transport']
+        walk_to_car_min = (walk_legs[0]['time_s'] / 60.0) if (best_car and walk_legs) else 0.0
+        car_time_min = sum(l['time_s'] for l in car_legs) / 60.0
 
         feasible.append({
             'engineer': e,
-            'travel_time': round(best_time, 1),
-            'walk_time': round(walk_time, 1),
+            'travel_time': round(travel_min, 1),
+            'walk_time': round(walk_route['time_s'] / 60.0, 1),
             'using_car': best_car is not None, 'best_car': best_car,
-            'best_car_time_exact': best_car_time,
-            'walk_to_car_exact': best_walk_to_car,
-            'best_car_time': round(best_car_time, 1),
-            'walk_to_car': round(best_walk_to_car, 1),
-            'path_coords': best_combined_path,
+            'best_car_time_exact': car_time_min,
+            'walk_to_car_exact': walk_to_car_min,
+            'best_car_time': round(car_time_min, 1),
+            'walk_to_car': round(walk_to_car_min, 1),
+            'path_coords': best_route['path'],
         })
 
     if not feasible:
         return None, None
     feasible.sort(key=lambda x: x['travel_time'])
     return feasible[0]['engineer'], feasible[0]
+
+
+def choose_transport(engineer, target, waypoints=None, conn=None):
+    """Сравнивает пеший маршрут и вариант со спецтранспортом.
+
+    Возвращает {'mode': 'walk'|'transport', 'car': dict|None,
+                'route': результат build_route, 'time_s': лучшие секунды}.
+    """
+    def field(obj, key):
+        try:
+            return obj[key]
+        except (KeyError, IndexError, TypeError):
+            return getattr(obj, key, None)
+
+    lat = field(engineer, 'coords_lat')
+    lng = field(engineer, 'coords_lng')
+    if lat is None or lng is None:
+        raise RouteError('У инженера нет координат')
+    start = (float(lat), float(lng))
+    target_point = _as_point(target)
+    waypoint_list = waypoints or []
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport "
+                    "WHERE assigned_to IS NULL")
+        cars = [dict(r) for r in cur.fetchall()]
+    finally:
+        if own_conn:
+            conn.close()
+
+    walk_route = build_route('engineer', start, waypoint_list, target_point)
+    best = {'mode': 'walk', 'car': None, 'route': walk_route,
+            'time_s': walk_route['time_s']}
+
+    for car in cars:
+        if car.get('lat') is None or car.get('lng') is None:
+            continue
+        try:
+            car_route = build_route(
+                'engineer', start, waypoint_list, target_point,
+                {'use_transport': True,
+                 'car_lat': car['lat'], 'car_lng': car['lng']})
+        except RouteError:
+            continue
+        if car_route['time_s'] < best['time_s']:
+            best = {'mode': 'transport', 'car': car,
+                    'route': car_route, 'time_s': car_route['time_s']}
+    return best
 
 
 def try_reassign_queued():
@@ -1071,7 +1680,7 @@ def try_reassign_queued():
     for q in queued:
         rejected = {x.strip() for x in str(q['rejected_by']).split(',') if x.strip()}
         exclude = rejected | busy
-        target = PARKING_COORDS.get(str(q['parking_id'] or ''), (55.975, 37.410))
+        target = _parking_point(q['parking_id']) or _location_center()
         eng, route = get_free_engineer_for(conn, q['fault_type'] or 'engine_failure',
                                             FAULT_SKILL, target[0], target[1],
                                             exclude_ids=exclude)
@@ -1105,7 +1714,7 @@ def _recompute_route_for_request(request_row):
     if not eng_id or not parking:
         return None
 
-    target = PARKING_COORDS.get(parking)
+    target = _parking_point(parking)
     if target is None:
         return None
 
@@ -1125,89 +1734,45 @@ def _recompute_route_for_request(request_row):
     e_lat = float(eng['coords_lat'])
     e_lng = float(eng['coords_lng'])
 
-    walk_path, walk_dist = get_shortest_path(
-        road_graph_vehicle, e_lat, e_lng, target[0], target[1]
-    )
-    if walk_path is None:
-        walk_path = [[e_lat, e_lng], [target[0], target[1]]]
-        walk_dist = distance_km(e_lat, e_lng, target[0], target[1])
-    else:
-        # Гарантируем, что линия начинается ровно в координате метки инженера,
-        # а не в ближайшей вершине дорожного графа.
-        walk_path = list(walk_path)
-        if not walk_path:
-            walk_path = [[e_lat, e_lng], [target[0], target[1]]]
-        else:
-            walk_path[0] = [e_lat, e_lng]
-            if len(walk_path) == 1:
-                walk_path.append([target[0], target[1]])
-            else:
-                walk_path[-1] = [target[0], target[1]]
-    walk_time = walk_dist / WALK_SPEED_KMH * 60
+    try:
+        walk_route = build_route('engineer', (e_lat, e_lng), [], target)
+    except RouteError as exc:
+        print(f'[ROUTE] {request_row["id"]}: {exc}')
+        conn.close()
+        return None
 
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to=?",
                 (request_row['id'],))
     assigned_car = cur.fetchone()
 
-    best_time = walk_time
-    best_car = None
-    best_car_time = 0
-    best_walk_to_car = 0
-    best_path = walk_path
-
     if assigned_car:
-        seg1_dist = distance_km(e_lat, e_lng, assigned_car['lat'], assigned_car['lng'])
-        wtc = seg1_dist / WALK_SPEED_KMH * 60
-        car_path, car_dist = get_shortest_path(
-            road_graph_vehicle, assigned_car['lat'], assigned_car['lng'],
-            target[0], target[1]
-        )
-        if car_path is None:
-            car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
-            car_dist = distance_km(assigned_car['lat'], assigned_car['lng'], target[0], target[1])
-        else:
-            car_path = list(car_path)
-            if len(car_path) < 2:
-                car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
-            else:
-                car_path[0] = [assigned_car['lat'], assigned_car['lng']]
-                car_path[-1] = [target[0], target[1]]
-        sp = assigned_car['speed'] or 30
-        dt = car_dist / sp * 60
-        best_time = wtc + dt
-        best_car = assigned_car
-        best_car_time = dt
-        best_walk_to_car = wtc
-        best_path = [[e_lat, e_lng]] + car_path
+        cars = [dict(assigned_car)]
     else:
         cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-        for car in cur.fetchall():
-            seg1_dist = distance_km(e_lat, e_lng, car['lat'], car['lng'])
-            wtc = seg1_dist / WALK_SPEED_KMH * 60
-            car_path, car_dist = get_shortest_path(
-                road_graph_vehicle, car['lat'], car['lng'], target[0], target[1]
-            )
-            if car_path is None:
-                car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
-                car_dist = distance_km(car['lat'], car['lng'], target[0], target[1])
-            else:
-                car_path = list(car_path)
-                if len(car_path) < 2:
-                    car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
-                else:
-                    car_path[0] = [car['lat'], car['lng']]
-                    car_path[-1] = [target[0], target[1]]
-            sp = car['speed'] or 30
-            dt = car_dist / sp * 60
-            total = wtc + dt
-            if total < best_time:
-                best_time = total
-                best_car = car
-                best_car_time = dt
-                best_walk_to_car = wtc
-                best_path = [[e_lat, e_lng]] + car_path
+        cars = [dict(r) for r in cur.fetchall()]
+    cars = [c for c in cars if c.get('lat') is not None and c.get('lng') is not None]
+
+    best_route = walk_route
+    best_car = None
+    for car in cars:
+        try:
+            car_route = build_route(
+                'engineer', (e_lat, e_lng), [], target,
+                {'use_transport': True,
+                 'car_lat': car['lat'], 'car_lng': car['lng']})
+        except RouteError:
+            continue
+        if car_route['time_s'] < best_route['time_s']:
+            best_route, best_car = car_route, car
 
     conn.close()
+
+    walk_legs = [l for l in best_route['legs'] if l['mode'] == 'walk']
+    car_legs = [l for l in best_route['legs'] if l['mode'] == 'transport']
+    best_time = best_route['time_s'] / 60.0
+    best_car_time = sum(l['time_s'] for l in car_legs) / 60.0
+    best_walk_to_car = (walk_legs[0]['time_s'] / 60.0) if (best_car and walk_legs) else 0.0
+    best_path = best_route['path']
 
     rounded = [[round(p[0], 6), round(p[1], 6)] for p in best_path]
 
@@ -1225,6 +1790,11 @@ def _recompute_route_for_request(request_row):
         'bc': best_car['device_id'] if best_car else None,
         'pid': parking,
         'path': rounded,
+        'legs': best_route['legs'],
+        'distance_m': best_route['distance_m'],
+        'time_exact_s': round(best_route['time_s'], 1),
+        'eta_min': round(best_route['time_s'] / 60.0, 1),
+        'warnings': best_route['warnings'],
     }
     fields = {
         'travel_time': round(best_time, 1),
@@ -1495,13 +2065,23 @@ def cpu_dashboard():
 # ============================================================
 # Стоянки и объекты — API
 # ============================================================
+@app.route('/api/location', methods=['GET'])
+def api_location():
+    """География полигона: конфиг, объекты, стоянки, зоны, граница и дороги."""
+    try:
+        return jsonify(load_location_config(force=request.args.get('refresh') == '1'))
+    except Exception as exc:
+        print(f'[LOCATION] {exc}')
+        return jsonify({'error': 'Конфигурация локации недоступна'}), 500
+
+
 @app.route('/api/parking', methods=['GET'])
 def api_parking():
     def sort_key(k):
-        m = re.match(r'^(\d+)', str(k))
+        m = re.match(r'^(?:SZ-)?(\d+)', str(k))
         return (int(m.group(1)) if m else 9999, str(k))
-    result = [PARKING_META[k] for k in sorted(PARKING_META.keys(), key=sort_key)]
-    return jsonify(result)
+    keys = sorted(PARKING_META.keys(), key=sort_key)
+    return jsonify([PARKING_META[k] for k in keys])
 
 
 @app.route('/api/map-objects', methods=['GET'])
@@ -2837,7 +3417,7 @@ def cpu_send_to_dispatcher():
     aircraft = row['aircraft'] or 'ВС'
     parking_id = str(row['parking_id'] or '')
     fault = row['fault_type'] or 'other'
-    target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
+    target = _parking_point(parking_id) or _location_center()
 
     # Передаём заявку в диспетчерскую зону, сохраняя исходный source='pilot'.
     # Это необходимо, чтобы пилот продолжал видеть именно свою заявку.
@@ -3745,6 +4325,8 @@ def get_transport():
                      ON p.object_type='transport' AND p.object_id=CAST(t.id AS TEXT)
                    ORDER BY t.id""")
     res = [dict(r) for r in cur.fetchall()]
+    for car in res:
+        car['status'] = 'busy' if car.get('assigned_to') else 'free'
     conn.close()
     return jsonify(res)
 
@@ -3788,6 +4370,54 @@ def update_transport(tid):
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/api/transport/<int:tid>/assign', methods=['POST'])
+def assign_transport(tid):
+    """Резервирует машину за заявкой. При гонке вторая заявка получает 409."""
+    data = request.get_json() or {}
+    request_id = str(data.get('request_id') or '').strip()
+    if not request_id:
+        return jsonify({'success': False, 'error': 'request_id обязателен'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM requests WHERE id=?", (request_id,))
+    if not cur.fetchone():
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    cur.execute("""UPDATE transport SET assigned_to=?
+                   WHERE id=? AND (assigned_to IS NULL OR assigned_to=?)""",
+                (request_id, tid, request_id))
+    if cur.rowcount == 0:
+        conn.rollback()
+        conn.close()
+        return jsonify({'success': False, 'error': 'Машина уже назначена другой заявке'}), 409
+    conn.commit()
+    conn.close()
+    _recalc_route_for_request_id(request_id, force=True)
+    return jsonify({'success': True, 'transport_id': tid, 'request_id': request_id})
+
+
+@app.route('/api/transport/<int:tid>/release', methods=['POST'])
+def release_transport(tid):
+    data = request.get_json() or {}
+    request_id = str(data.get('request_id') or '').strip()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT assigned_to FROM transport WHERE id=?", (tid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Машина не найдена'}), 404
+    affected = row['assigned_to']
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE id=?", (tid,))
+    conn.commit()
+    conn.close()
+    target_request = request_id or affected
+    if target_request:
+        _recalc_route_for_request_id(target_request, force=True)
+    return jsonify({'success': True, 'transport_id': tid,
+                    'released_from': affected})
 
 
 @app.route('/api/transport/<int:tid>/coords', methods=['PUT'])
@@ -4223,7 +4853,7 @@ def dispatch():
     pilot_rank = (data.get('pilot_rank') or '').strip() or None
 
     rid = 'req_' + str(int(time.time() * 1000))
-    target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
+    target = _parking_point(parking_id) or _location_center()
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
         WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
@@ -4299,6 +4929,26 @@ def dispatch():
 @app.route('/api/route', methods=['POST'])
 def compute_route():
     data = request.get_json() or {}
+
+    # Новый формат: agent_type + waypoints + target.
+    if data.get('agent_type'):
+        options = {
+            'use_transport': bool(data.get('use_transport')),
+            'car_lat': data.get('car_lat'),
+            'car_lng': data.get('car_lng'),
+        }
+        try:
+            result = build_route(
+                data.get('agent_type'),
+                data.get('start') or {'lat': data.get('start_lat'), 'lng': data.get('start_lng')},
+                data.get('waypoints') or [],
+                data.get('target') or {'lat': data.get('end_lat'), 'lng': data.get('end_lng')},
+                options,
+            )
+        except RouteError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 422
+        return jsonify({'success': True, **result})
+
     try:
         start_lat = float(data.get('start_lat'))
         start_lng = float(data.get('start_lng'))
@@ -4388,7 +5038,7 @@ def cancel_request(rid):
     fault = row['fault_type'] or 'engine_failure'
     parking = str(row['parking_id'] or '')
     aircraft = row['aircraft'] or 'ВС'
-    target = PARKING_COORDS.get(parking, (55.975, 37.410))
+    target = _parking_point(parking) or _location_center()
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
         WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
@@ -4491,7 +5141,7 @@ def reject_request(rid):
     fault = row['fault_type'] or 'engine_failure'
     parking = str(row['parking_id'] or '')
     aircraft = row['aircraft'] or 'ВС'
-    target = PARKING_COORDS.get(parking, (55.975, 37.410))
+    target = _parking_point(parking) or _location_center()
     old_eng = row['engineer_id']
     rej_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
     if rejected_by:
@@ -4909,6 +5559,7 @@ def _track_known_object(raw_obj):
 
 def _track_apply_position(kind, object_id, lat, lng, when):
     conn = get_db()
+    arrival_event = None
     try:
         cur = conn.cursor()
         assigned_request = None
@@ -4917,6 +5568,46 @@ def _track_apply_position(kind, object_id, lat, lng, when):
                         (lat, lng, object_id))
             if cur.rowcount == 0:
                 return False
+
+            # Автоматическое прибытие: точка внутри полигона зоны обслуживания.
+            cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
+                                  e.task_step
+                           FROM requests r JOIN engineers e ON e.id=r.engineer_id
+                           WHERE r.engineer_id=? AND r.routing_stage='technician'
+                             AND r.status NOT IN ('completed','cancelled',
+                                                  'flight_cancelled','draft',
+                                                  'report_submitted','deleted')
+                           ORDER BY r.created_at DESC LIMIT 1""", (object_id,))
+            active = cur.fetchone()
+            if active and active['parking_id']:
+                geometry = _zone_geometry(active['parking_id'])
+                if geometry and _point_in_geometry(lat, lng, geometry):
+                    if active['task_step'] not in ('arrived', 'diagnosing'):
+                        cur.execute("""UPDATE engineers SET task_step='arrived'
+                                       WHERE id=? AND task_step IN ('accepted','in_car')""",
+                                    (object_id,))
+                        if cur.rowcount > 0:
+                            started = _parse_timestamp(active['inspection_assigned_at'])
+                            elapsed_min = None
+                            if started:
+                                elapsed_min = round(
+                                    (datetime.now(timezone.utc) - started).total_seconds() / 60.0, 1)
+                            late = elapsed_min is not None and elapsed_min > REGULATION_MINUTES
+                            note = f'Автоматическое прибытие в зону {active["parking_id"]}'
+                            if elapsed_min is not None:
+                                note += (f'; {elapsed_min} мин с назначения — '
+                                         + ('нарушение норматива 15 мин' if late
+                                            else 'в пределах норматива'))
+                            _log_routing_event(conn, active['id'], 'technician', 'GPS', note)
+                            arrival_event = {
+                                'request_id': active['id'],
+                                'zone': active['parking_id'],
+                                'lat': lat, 'lon': lng,
+                                'elapsed_min': elapsed_min,
+                                'regulation_minutes': REGULATION_MINUTES,
+                                'late': bool(late),
+                                'at': _utc_now_iso(),
+                            }
         elif kind == 'transport':
             cur.execute("SELECT assigned_to FROM transport WHERE id=?", (int(object_id),))
             row = cur.fetchone()
@@ -4957,6 +5648,8 @@ def _track_apply_position(kind, object_id, lat, lng, when):
 
     sse_publish('position', {'type': kind, 'obj': str(object_id),
                              'lat': lat, 'lon': lng, 't': when})
+    if arrival_event:
+        sse_publish('arrival', arrival_event)
     return True
 
 
@@ -5151,6 +5844,11 @@ def _startup():
     init_db()
     load_svo_geojson()
     load_road_graph()
+    try:
+        load_location_config()
+        apply_location_parking()
+    except Exception as e:
+        print(f'[STARTUP LOCATION] {e}')
     try:
         _recalc_all_active_routes()
     except Exception as e:

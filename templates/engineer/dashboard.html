@@ -327,8 +327,8 @@
         function animateEngineerAircraft(sim,done){if(sim.frame)cancelAnimationFrame(sim.frame);var r=sim.route||[],cum=[0],total=0;for(var i=1;i<r.length;i++){total+=engineerTaxiDistance(r[i-1],r[i]);cum.push(total);}if(r.length<2||total<1){if(done)done();return;}var duration=Math.max(6500,Math.min(26000,total/(7+Math.random()*2)*1000)),started=performance.now();sim.moving=true;function frame(now){if(!sim.marker||!map||!map.hasLayer(sim.marker))return;var progress=Math.min(1,(now-started)/duration),d=total*progress,j=1;while(j<cum.length-1&&cum[j]<d)j++;var x=r[j-1],y=r[j],seg=Math.max(.001,cum[j]-cum[j-1]),part=Math.max(0,Math.min(1,(d-cum[j-1])/seg));sim.marker.setLatLng([x[0]+(y[0]-x[0])*part,x[1]+(y[1]-x[1])*part]);if(progress<1)sim.frame=requestAnimationFrame(frame);else{sim.marker.setLatLng(r[r.length-1]);sim.moving=false;if(done)done();}}sim.frame=requestAnimationFrame(frame);}
         function removeEngineerAircraft(sim){if(!sim)return;if(sim.frame)cancelAnimationFrame(sim.frame);if(sim.timer)clearTimeout(sim.timer);if(sim.marker&&map&&map.hasLayer(sim.marker))map.removeLayer(sim.marker);if(sim.id!=null){delete engineerAircraftSimulations[String(sim.id)];delete engineerAircraftMarkers[String(sim.id)];}}
         function refreshEngineerRequestAircraft(){if(!mapInitialized||!map||!engineerTaxiGraph)return;fetch('/api/requests').then(function(r){return r.json();}).then(function(requests){if(!Array.isArray(requests))return;var live={};requests.forEach(function(req){if(!req||!req.parking_id||['completed','cancelled','flight_cancelled','deleted','draft'].indexOf(req.status)>=0||req.flight_cancelled)return;var p=PARKING_COORDS[String(req.parking_id)];if(!p)return;var id=String(req.id),signed=!!(req.crs_signed_at||req.crs_signed),sim=engineerAircraftSimulations[id];live[id]=true;var label=(req.aircraft||'Самолёт')+' · стоянка '+req.parking_id+(signed?' · подпись получена':' · ожидает подпись');if(!sim){var marker=L.marker([+p.lat,+p.lng],{icon:engineerPlaneIcon(),zIndexOffset:1700,interactive:true}).addTo(map).bindTooltip(label,{direction:'top'});sim=engineerAircraftSimulations[id]={id:id,marker:marker,aircraft:req.aircraft||'Самолёт',parkingId:String(req.parking_id),waitingForSignature:true,requestAircraft:true};engineerAircraftMarkers[id]=marker;}else sim.marker.setTooltipContent(label);if(signed&&sim.waitingForSignature&&!sim.departureStarted){sim.waitingForSignature=false;sim.departureStarted=true;var from=[+p.lat,+p.lng],area=engineerAreaNodes(),exits=area.filter(function(k){return engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,from)>350;}),to=exits.length?engineerTaxiGraph.nodes[exits[Math.floor(Math.random()*exits.length)]].point:null;sim.route=to?createEngineerTaxiRoute(from,to):null;if(sim.route&&sim.route.length>1){sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · выезд после подписи');animateEngineerAircraft(sim,function(){removeEngineerAircraft(sim);});}else{sim.departureStarted=false;sim.waitingForSignature=true;sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · подпись получена, ожидание маршрута выезда');}}});Object.keys(engineerAircraftSimulations).forEach(function(id){var sim=engineerAircraftSimulations[id];if(sim.requestAircraft&&!live[id])removeEngineerAircraft(sim);});}).catch(function(e){console.warn('[AIRCRAFT] Не удалось обновить самолёты заявок:',e);});}
-        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
-        function startEngineerAmbientAircraft(){fetch('/static/aircraft_paths.geojson').then(function(r){if(!r.ok)throw new Error('aircraft_paths.geojson');return r.json();}).then(function(data){buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
+        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону ВДНХ')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
+        function startEngineerAmbientAircraft(){fetch(API_URL + '/location').then(function(r){if(!r.ok)throw new Error('location');return r.json();}).then(function(loc){var feats=((loc.roads||{}).features||[]).filter(function(f){var t=(f.properties||{}).type;return t==='taxi'||t==='runway';}).map(function(f){var p=Object.assign({},f.properties);p.category=p.type==='runway'?'runway':'taxiway';return{type:'Feature',properties:p,geometry:f.geometry};});return {features:feats};}).then(function(data){buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
 
         // ─── Движение инженера по маршруту (по времени) ───
         var moveInterval = null;
@@ -382,10 +382,52 @@
         function initMap() {
             if (mapInitialized) return;
             map = L.map('map', {
-                center: [55.981349, 37.388359], zoom: 13,
+                center: [0, 0], zoom: 2,
                 zoomControl: true, attributionControl: false
             });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+            fetch(API_URL + '/location')
+                .then(function(r) { if (!r.ok) throw new Error('location'); return r.json(); })
+                .then(function(loc) {
+                    if (loc.center) {
+                        window.__vdnhCenter = [loc.center.lat, loc.center.lng];
+                        map.setView(window.__vdnhCenter, 16);
+                    }
+                    if (loc.boundary) {
+                        L.geoJSON(loc.boundary, {
+                            style: { color: '#64748b', weight: 2, dashArray: '6 4', fill: false },
+                            interactive: false
+                        }).addTo(map);
+                    }
+                    if (loc.roads) {
+                        L.geoJSON(loc.roads, {
+                            interactive: false,
+                            style: function(f) {
+                                var t = (f.properties || {}).type;
+                                var colors = { runway: '#ef4444', taxi: '#f59e0b', service: '#22c55e', pedestrian: '#3b82f6' };
+                                return { color: colors[t] || '#94a3b8', weight: t === 'runway' ? 4 : 2, opacity: 0.7 };
+                            }
+                        }).addTo(map);
+                    }
+                    (loc.parkings || []).forEach(function(p) {
+                        if (!p.geometry) return;
+                        L.geoJSON(p.geometry, {
+                            style: { color: '#f59e0b', weight: 1.5, fillColor: '#f59e0b', fillOpacity: 0.12 },
+                            interactive: false
+                        }).addTo(map);
+                    });
+                    (loc.objects || []).forEach(function(o) {
+                        if (!o.geometry) return;
+                        L.geoJSON(o.geometry, {
+                            style: { color: '#1e40af', weight: 1.5, fillColor: '#1e40af', fillOpacity: 0.25 },
+                            interactive: true
+                        }).bindTooltip(o.name || 'Объект', { sticky: true }).addTo(map);
+                    });
+                })
+                .catch(function(e) {
+                    console.warn('[MAP] location:', e);
+                    if (typeof showToast === 'function') showToast('Геоданные ВДНХ недоступны', 'error');
+                });
             mapInitialized = true;
         }
 
@@ -508,6 +550,7 @@
                     bestCarLng: parsed.bclng,
                     bestCar: parsed.bc ? { deviceId: parsed.bc } : null,
                     parkingId: parsed.pid,
+                    legs: Array.isArray(parsed.legs) ? parsed.legs : null,
                     path: parsed.path || null
                 };
             } catch (e) { console.warn('Не удалось распарсить ROUTE:', e); return null; }
@@ -532,6 +575,28 @@
             ].join('|');
         }
 
+        var ROUTE_MODE_COLORS = { walk: '#3b82f6', transport: '#f59e0b', aircraft: '#ef4444' };
+
+        // Диапазоны индексов участков маршрута внутри общего path.
+        // Нужны, чтобы при сокращении линии сохранять цвет по режиму.
+        function routeLegRanges(legs, pathLen) {
+            if (!Array.isArray(legs) || !legs.length) return null;
+            var ranges = [], idx = 0;
+            for (var i = 0; i < legs.length; i++) {
+                var leg = legs[i];
+                if (!leg || !Array.isArray(leg.path) || leg.path.length < 2) return null;
+                ranges.push({
+                    mode: leg.mode || 'walk',
+                    start: idx,
+                    end: idx + leg.path.length - 1,
+                    path: leg.path
+                });
+                idx += leg.path.length - 1;
+            }
+            if (ranges.length < 1 || ranges[ranges.length - 1].end !== pathLen - 1) return null;
+            return ranges;
+        }
+
         function drawRouteOnMap(routeData) {
             if (!mapInitialized) initMap();
 
@@ -545,7 +610,7 @@
             routeMarkers = {};
 
             if (!routeData || !routeData.from || !routeData.to) {
-                map.setView([55.981349, 37.388359], 13);
+                map.setView(window.__vdnhCenter || [0, 0], window.__vdnhCenter ? 16 : 2);
                 document.getElementById('routeInfo').innerHTML =
                     '<span style="color:var(--aero-gray);">Нет активного маршрута</span>';
                 return;
@@ -567,13 +632,27 @@
                 ];
             }
 
-            var polyline = L.polyline(latlngs, {
-                color: '#003366', weight: 4,
-                dashArray: '8, 6', opacity: 0.85,
-                lineCap: 'round', lineJoin: 'round'
-            }).addTo(map);
-            routeMarkers['polyline'] = polyline;
             routeMarkers['polylineFullPath'] = latlngs.slice();
+            var legRanges = routeLegRanges(routeData.legs, latlngs.length);
+            routeMarkers['legRanges'] = legRanges;
+            routeMarkers['polylineLayers'] = [];
+            if (legRanges) {
+                // Цвет линии по режиму: пешком / спецтранспорт / ВС.
+                legRanges.forEach(function(rg) {
+                    routeMarkers['polylineLayers'].push(L.polyline(rg.path, {
+                        color: ROUTE_MODE_COLORS[rg.mode] || '#003366', weight: 4,
+                        dashArray: rg.mode === 'walk' ? '8, 6' : null,
+                        opacity: 0.85, lineCap: 'round', lineJoin: 'round'
+                    }).addTo(map));
+                });
+                routeMarkers['polyline'] = null;
+            } else {
+                routeMarkers['polyline'] = L.polyline(latlngs, {
+                    color: '#003366', weight: 4,
+                    dashArray: '8, 6', opacity: 0.85,
+                    lineCap: 'round', lineJoin: 'round'
+                }).addTo(map);
+            }
 
             var startIcon = L.divIcon({
                 className: 'employee-marker',
@@ -1265,7 +1344,28 @@
             // Если инженер уже прибыл, сохраняем видимый пройденный маршрут,
             // а не удаляем линию из-за совпадения начальной и конечной точек.
             if (newLatLngs.length < 2) newLatLngs = fullPath.slice();
-            if (routeMarkers['polyline']) routeMarkers['polyline'].setLatLngs(newLatLngs);
+
+            var legRanges = routeMarkers['legRanges'];
+            var legLayers = routeMarkers['polylineLayers'] || [];
+            if (legRanges && legLayers.length === legRanges.length) {
+                // Обрезаем каждый цветной участок отдельно, начиная от текущей позиции.
+                var prepended = false;
+                for (var li = 0; li < legRanges.length; li++) {
+                    var rg = legRanges[li];
+                    var layer = legLayers[li];
+                    if (!layer) continue;
+                    if (rg.end < startIdx) { layer.setLatLngs([]); continue; }
+                    var localStart = Math.max(0, startIdx - rg.start);
+                    var pts = rg.path.slice(localStart);
+                    if (!prepended) {
+                        pts = [[pos.lat, pos.lng]].concat(pts);
+                        prepended = true;
+                    }
+                    layer.setLatLngs(pts.length > 1 ? pts : []);
+                }
+            } else if (routeMarkers['polyline']) {
+                routeMarkers['polyline'].setLatLngs(newLatLngs);
+            }
         }
 
         function startMoving() {

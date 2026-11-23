@@ -191,9 +191,6 @@
             <li id="nav-mcc" onclick="showSection('mcc', this)">
                 <a href="#"><i class="fas fa-user-cog"></i><span>Специалисты MCC</span></a>
             </li>
-            <li id="nav-cpu" onclick="showSection('cpu', this)">
-                <a href="#"><i class="fas fa-headset"></i><span>Диспетчеры ЦПУ</span></a>
-            </li>
             <li id="nav-pilots" onclick="showSection('pilots', this)">
                 <a href="#"><i class="fas fa-user-astronaut"></i><span>Пилоты</span></a>
             </li>
@@ -361,26 +358,6 @@
                             <tr><th>Имя</th><th>Email</th><th style="text-align:center;">Действия</th></tr>
                         </thead>
                         <tbody id="mccTableBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div class="department-section" id="section-cpu">
-            <div class="card">
-                <div class="card-header">
-                    <h3>Диспетчеры ЦПУ</h3>
-                    <div style="display:flex;gap:8px;align-items:center;">
-                        <span class="badge-count" id="cpuCount">0</span>
-                        <button class="btn-sm btn-primary" onclick="openAddCpuModal()"><i class="fas fa-plus"></i> Добавить</button>
-                    </div>
-                </div>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr><th>Имя</th><th>Email</th><th>Статус</th><th style="text-align:center;">Действия</th></tr>
-                        </thead>
-                        <tbody id="cpuTableBody"></tbody>
                     </table>
                 </div>
             </div>
