@@ -721,6 +721,34 @@ def apply_location_objects():
     return len(MAP_OBJECTS)
 
 
+def prune_stale_map_positions():
+    """Удаляет позиции агентов вне полигона (легаси-точки Шереметьево).
+
+    Иначе COALESCE(map_object_positions, coords_*) показывает инженеров
+    и технику на старых координатах SVO.
+    """
+    try:
+        bbox = load_location_config().get('bbox') or []
+        min_lon, min_lat, max_lon, max_lat = (float(v) for v in bbox)
+    except Exception as exc:
+        print(f'[LOCATION] Чистка позиций пропущена: {exc}')
+        return 0
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""DELETE FROM map_object_positions
+                       WHERE lat IS NULL OR lng IS NULL
+                          OR lat < ? OR lat > ? OR lng < ? OR lng > ?""",
+                    (min_lat, max_lat, min_lon, max_lon))
+        removed = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if removed:
+        print(f'[LOCATION] Удалено устаревших позиций вне полигона: {removed}')
+    return removed
+
+
 def _zone_geometry(parking_id):
     pid = str(parking_id or '').strip()
     if not pid:
@@ -6264,6 +6292,7 @@ def _startup():
         load_location_config()
         apply_location_parking()
         apply_location_objects()
+        prune_stale_map_positions()
     except Exception as e:
         print(f'[STARTUP LOCATION] {e}')
     try:

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Моё местоположение — Android / Brave</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        html, body { padding: 0; margin: 0; height: 100%; font-family: -apple-system, Roboto, sans-serif; }
+        #map { position: absolute; inset: 0; }
+
+        /* Верхняя панель с кнопками */
+        #panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(255,255,255,0.96);
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 14px;
+        }
+
+        #panel button {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: #0078ff;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        #panel button:active { background: #005fcc; }
+        #panel button.secondary { background: #6c757d; margin-bottom: 0; }
+        #panel button:disabled { background: #aaa; }
+
+        #status {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #333;
+            min-height: 18px;
+            line-height: 1.4;
+        }
+        #status.error { color: #c00; }
+        #status.ok { color: #080; }
+
+        /* Ручной ввод */
+        #manual {
+            margin-top: 10px;
+            display: none;
+            gap: 6px;
+        }
+        #manual.show { display: flex; flex-wrap: wrap; }
+        #manual input {
+            flex: 1;
+            min-width: 100px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        #manual button {
+            width: auto;
+            flex: 0 0 auto;
+            padding: 10px 14px;
+            margin-bottom: 0;
+        }
+
+        /* Мелкий текст подсказки */
+        #hint {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+        #hint a { color: #0078ff; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div id="panel">
+        <button id="btnGps">📍 Определить моё местоположение</button>
+        <button id="btnIp" class="secondary">🌍 Определить по IP (без GPS)</button>
+
+        <div id="status">Готово. Нажмите кнопку выше.</div>
+
+        <div id="manual">
+            <input id="lat" type="number" step="any" placeholder="Широта" inputmode="decimal">
+            <input id="lon" type="number" step="any" placeholder="Долгота" inputmode="decimal">
+            <button id="btnManual" class="secondary">Перейти</button>
+        </div>
+
+        <div id="hint">
+            Не работает GPS? → <a href="#" id="toggleManual">Ввести координаты вручную</a>
+        </div>
+    </div>
+
+    <script>
+    /* ============================================================
+       1. Инициализация карты
+       ============================================================ */
+    var map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    var marker = null;
+    var accuracyCircle = null;
+
+    var statusEl = document.getElementById('status');
+    var btnGps = document.getElementById('btnGps');
+    var btnIp = document.getElementById('btnIp');
+
+    /* ============================================================
+       2. Утилиты
+       ============================================================ */
+    function setStatus(text, type) {
+        statusEl.textContent = text;
+        statusEl.className = type || '';
+    }
+
+    function placeMarker(lat, lon, accuracyMeters, label) {
+        var p = [lat, lon];
+
+        if (marker) map.removeLayer(marker);
+        if (accuracyCircle) map.removeLayer(accuracyCircle);
+
+        marker = L.marker(p).addTo(map);
+
+        if (accuracyMeters && accuracyMeters > 0) {
+            accuracyCircle = L.circle(p, { radius: accuracyMeters, color: '#0078ff', weight: 1, fillOpacity: 0.15 }).addTo(map);
+        }
+
+        marker.bindPopup(
+            '<b>' + (label || 'Точка') + '</b><br>' +
+            'Широта: ' + lat.toFixed(6) + '<br>' +
+            'Долгота: ' + lon.toFixed(6) +
+            (accuracyMeters ? '<br>Точность: ~' + Math.round(accuracyMeters) + ' м' : '')
+        ).openPopup();
+
+        var zoom = accuracyMeters && accuracyMeters > 1000 ? 11 : 16;
+        map.setView(p, zoom);
+    }
+
+    /* ============================================================
+       3. Запрос GPS по нажатию кнопки (важно для Brave/Android!)
+       ============================================================ */
+    function requestGps() {
+        if (!('geolocation' in navigator)) {
+            setStatus('❌ Этот браузер не поддерживает геолокацию.', 'error');
+            return;
+        }
+
+        // Проверка безопасного контекста — критично для Android
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            setStatus('⚠️ Страница открыта без HTTPS. Android-браузеры блокируют GPS на http://. Откройте через https:// или localhost.', 'error');
+            return;
+        }
+
+        setStatus('⏳ Запрашиваю координаты… Разрешите доступ в появившемся окне.');
+        btnGps.disabled = true;
+
+        navigator.geolocation.getCurrentPosition(
+            onGpsSuccess,
+            onGpsError,
+            {
+                enableHighAccuracy: true,   // использовать GPS
+                timeout: 20000,             // ждать до 20 секунд (Android бывает медленный)
+                maximumAge: 0               // не использовать кэш
+            }
+        );
+    }
+
+    function onGpsSuccess(pos) {
+        btnGps.disabled = false;
+        var c = pos.coords;
+        setStatus('✅ Координаты получены. Точность: ' + Math.round(c.accuracy) + ' м.', 'ok');
+        placeMarker(c.latitude, c.longitude, c.accuracy, 'Вы здесь (GPS)');
+    }
+
+    function onGpsError(err) {
+        btnGps.disabled = false;
+        var msg = '';
+        switch (err.code) {
+            case 1:
+                msg = '❌ Доступ к геолокации запрещён (PERMISSION_DENIED).\n\n' +
+                      'Что делать в Brave на Android:\n' +
+                      '1) Нажмите 🔒 в адресной строке → Разрешения → Местоположение → Разрешить\n' +
+                      '2) Настройки Android → Приложения → Brave → Разрешения → Местоположение → Разрешить\n' +
+                      '3) Brave → Настройки → Brave Shields → выключите для этого сайта\n' +
+                      '4) Настройки Android → Местоположение → Режим → "Высокая точность"\n' +
+                      '5) Отключите «Точное местоположение» в настройках Android, если включено';
+                break;
+            case 2:
+                msg = '❌ Позиция недоступна (POSITION_UNAVAILABLE). GPS не отвечает. Попробуйте выйти на улицу или использовать кнопку "Определить по IP".';
+                break;
+            case 3:
+                msg = '❌ Таймаут (TIMEOUT). GPS не успел ответить за 20 секунд. Попробуйте ещё раз или используйте IP-определение.';
+                break;
+            default:
+                msg = '❌ Ошибка геолокации: ' + err.message;
+        }
+        setStatus(msg, 'error');
+        console.warn('Geolocation error:', err);
+    }
+
+    /* ============================================================
+       4. Резервное определение по IP (без GPS)
+       ============================================================ */
+    function requestIp() {
+        setStatus('⏳ Определяю по IP…');
+        btnIp.disabled = true;
+
+        // Публичный бесплатный API, работает без ключа
+        fetch('https://ipapi.co/json/')
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                btnIp.disabled = false;
+                if (!data.latitude || !data.longitude) throw new Error('Нет координат в ответе');
+                setStatus('✅ Определено по IP: ' + (data.city || '') + ', ' + (data.country_name || ''), 'ok');
+                placeMarker(data.latitude, data.longitude, 5000, 'Приблизительно (по IP)');
+            })
+            .catch(function (e) {
+                btnIp.disabled = false;
+                setStatus('❌ Не удалось определить по IP: ' + e.message, 'error');
+                showManual();
+            });
+    }
+
+    /* ============================================================
+       5. Ручной ввод координат
+       ============================================================ */
+    function showManual() {
+        document.getElementById('manual').classList.add('show');
+    }
+
+    function goManual() {
+        var lat = parseFloat(document.getElementById('lat').value);
+        var lon = parseFloat(document.getElementById('lon').value);
+        if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            setStatus('❌ Введите корректные координаты. Широта: -90…90, долгота: -180…180.', 'error');
+            return;
+        }
+        setStatus('✅ Переход к введённым координатам.', 'ok');
+        placeMarker(lat, lon, 0, 'Ручная точка');
+    }
+
+    /* ============================================================
+       6. Подписываем обработчики
+       ============================================================ */
+    btnGps.addEventListener('click', requestGps);
+    btnIp.addEventListener('click', requestIp);
+    document.getElementById('btnManual').addEventListener('click', goManual);
+    document.getElementById('toggleManual').addEventListener('click', function (e) {
+        e.preventDefault();
+        document.getElementById('manual').classList.toggle('show');
+    });
+    </script>
+
+</body>
+</html>
