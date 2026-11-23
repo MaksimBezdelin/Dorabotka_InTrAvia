@@ -1,5 +1,6 @@
 """Общая настройка тестов: отдельная временная база, тестовый клиент Flask."""
 import os
+import shutil
 import sys
 import tempfile
 
@@ -9,10 +10,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-# Подменяем базу ДО того, как тестовые модули импортируют app/manage.
-# Иначе модуль, импортировавший app на этапе сбора тестов, зацепит боевую базу.
+# Приложение не создаёт базу само, поэтому тесты работают с копией боевой базы.
+# Копия делается ДО импорта app, чтобы тестовые модули не зацепили реальные данные.
+SOURCE_DB = os.path.join(ROOT, 'database.db')
 SESSION_DB_PATH = os.path.join(
     tempfile.mkdtemp(prefix='intravia-tests-'), 'test.db')
+if os.path.isfile(SOURCE_DB):
+    shutil.copyfile(SOURCE_DB, SESSION_DB_PATH)
 os.environ['INTRAVIA_DB'] = SESSION_DB_PATH
 
 

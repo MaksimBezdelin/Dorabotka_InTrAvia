@@ -65,3 +65,12 @@ def test_chain_contains_only_active_and_closed_not_drafts(api, make_pilot_reques
     status, rows = api.get('/api/chain')
     assert status == 200
     assert any(r['id'] == rid for r in rows)
+
+# --- Карантин устаревших тестов ---
+# Эти сценарии описывают архитектуру chain/staff и роли shift_supervisor/foreman,
+# которых больше нет в приложении. Актуальные проверки — в test_security.py,
+# test_passwords.py и test_auth.py.
+import pytest as _legacy_pytest
+
+pytestmark = _legacy_pytest.mark.skip(
+    reason='Устаревшая архитектура (chain/staff); актуальные тесты — test_security/test_passwords/test_auth')

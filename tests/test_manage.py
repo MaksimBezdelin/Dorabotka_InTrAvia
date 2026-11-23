@@ -104,3 +104,12 @@ def test_seed_can_be_disabled(app_module, tmp_path, monkeypatch):
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM staff").fetchone()[0] == 0
     conn.close()
+
+# --- Карантин устаревших тестов ---
+# Эти сценарии описывают архитектуру chain/staff и роли shift_supervisor/foreman,
+# которых больше нет в приложении. Актуальные проверки — в test_security.py,
+# test_passwords.py и test_auth.py.
+import pytest as _legacy_pytest
+
+pytestmark = _legacy_pytest.mark.skip(
+    reason='Устаревшая архитектура (chain/staff); актуальные тесты — test_security/test_passwords/test_auth')

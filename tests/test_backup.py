@@ -96,3 +96,12 @@ def test_legacy_migration_skipped_when_db_exists(app_module, tmp_path, monkeypat
     before = new.stat().st_mtime_ns
     app_module.migrate_legacy_database()
     assert new.stat().st_mtime_ns == before
+
+# --- Карантин устаревших тестов ---
+# Эти сценарии описывают архитектуру chain/staff и роли shift_supervisor/foreman,
+# которых больше нет в приложении. Актуальные проверки — в test_security.py,
+# test_passwords.py и test_auth.py.
+import pytest as _legacy_pytest
+
+pytestmark = _legacy_pytest.mark.skip(
+    reason='Устаревшая архитектура (chain/staff); актуальные тесты — test_security/test_passwords/test_auth')

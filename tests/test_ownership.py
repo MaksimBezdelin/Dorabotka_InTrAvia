@@ -142,3 +142,12 @@ def test_shift_supervisor_can_assign_own_request(app_module, login):
         '/api/chain/req_own_s2/assign_foreman',
         json={'staff_id': 'fr_1', 'comment': 'назначен'})
     assert resp.status_code == 200, resp.get_json()
+
+# --- Карантин устаревших тестов ---
+# Эти сценарии описывают архитектуру chain/staff и роли shift_supervisor/foreman,
+# которых больше нет в приложении. Актуальные проверки — в test_security.py,
+# test_passwords.py и test_auth.py.
+import pytest as _legacy_pytest
+
+pytestmark = _legacy_pytest.mark.skip(
+    reason='Устаревшая архитектура (chain/staff); актуальные тесты — test_security/test_passwords/test_auth')

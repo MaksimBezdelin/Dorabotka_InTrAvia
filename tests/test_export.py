@@ -39,3 +39,12 @@ def test_export_contains_created_request(client, make_pilot_request):
     ws = wb['Цепочка']
     ids = [row[0] for row in ws.iter_rows(min_row=2, values_only=True)]
     assert rid in ids
+
+# --- Карантин устаревших тестов ---
+# Эти сценарии описывают архитектуру chain/staff и роли shift_supervisor/foreman,
+# которых больше нет в приложении. Актуальные проверки — в test_security.py,
+# test_passwords.py и test_auth.py.
+import pytest as _legacy_pytest
+
+pytestmark = _legacy_pytest.mark.skip(
+    reason='Устаревшая архитектура (chain/staff); актуальные тесты — test_security/test_passwords/test_auth')

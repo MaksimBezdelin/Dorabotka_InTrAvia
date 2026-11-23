@@ -5,6 +5,7 @@ import time
 import json
 import base64
 import queue
+import secrets
 import sqlite3
 import tempfile
 import hashlib
@@ -16,6 +17,7 @@ from flask_cors import CORS
 from flask import (Flask, request, jsonify, session,
                    render_template, redirect, url_for, Response, abort,
                    stream_with_context)
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     from openai import OpenAI
@@ -27,12 +29,42 @@ except ImportError:
 # Конфигурация
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'database.db')
+
+
+def _load_dotenv(path):
+    """Простой загрузчик .env без внешних зависимостей (не переопределяет окружение)."""
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, encoding='utf-8-sig') as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key:
+                    os.environ.setdefault(key, value)
+    except OSError as exc:
+        print(f'[ENV] Не удалось прочитать {path}: {exc}')
+
+
+_load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+# INTRAVIA_DB позволяет тестам и стендам работать с отдельной копией базы.
+DB_PATH = os.environ.get('INTRAVIA_DB', '').strip() or os.path.join(BASE_DIR, 'database.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
+
+# AUTH_REQUIRED=1 включает серверную проверку сессии и ролей (рекомендуется
+# для любого стенда, доступного не только с localhost).
+AUTH_REQUIRED = os.environ.get('AUTH_REQUIRED', '').strip().lower() in ('1', 'true', 'yes', 'on')
+# CORS по умолчанию выключен: дашборды и мобильные страницы работают с того же origin.
+CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 
 FFMPEG_PATH = r'C:\Users\deela\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe'
 if os.path.exists(FFMPEG_PATH):
@@ -42,9 +74,27 @@ if os.path.exists(FFMPEG_PATH):
         os.environ['PATH'] = ffmpeg_dir + os.pathsep + cp
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-app.secret_key = os.environ.get('SECRET_KEY', '').strip() or 'intravia-secret-key-change-in-production'
+
+# Без заданного SECRET_KEY подпись сессий была бы предсказуемой, поэтому
+# генерируем случайный ключ на процесс и явно предупреждаем администратора.
+_env_secret = os.environ.get('SECRET_KEY', '').strip()
+if _env_secret:
+    app.secret_key = _env_secret
+else:
+    app.secret_key = secrets.token_hex(32)
+    print('[SECURITY] SECRET_KEY не задан — сгенерирован временный ключ. '
+          'Сессии сбросятся при перезапуске.')
+
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
-CORS(app, resources={r"/*": {"origins": "*"}})
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '').strip() == '1'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
+
+if CORS_ORIGINS:
+    CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}}, supports_credentials=True)
+else:
+    print('[SECURITY] CORS выключен (same-origin). Разрешить домены: CORS_ORIGINS=https://a,https://b')
 
 
 # ------------------------------------------------------------
@@ -85,6 +135,144 @@ def _publish_mutation(response):
                                      'at': _utc_now_iso()})
     except Exception as exc:
         print(f'[SSE] publish error: {exc}')
+    return response
+
+
+# ------------------------------------------------------------
+# Пароли и ограничение попыток входа
+# ------------------------------------------------------------
+_LOGIN_ATTEMPTS = {}
+_LOGIN_LOCK = threading.Lock()
+_LOGIN_WINDOW_SEC = 300
+_LOGIN_MAX_FAILS = 10
+
+
+def hash_password(value):
+    return generate_password_hash(value)
+
+
+def is_password_hash(value):
+    return isinstance(value, str) and (value.startswith('pbkdf2:') or value.startswith('scrypt:'))
+
+
+def verify_password(stored, provided):
+    """Возвращает (пароль верен, нужна ли миграция из открытого текста)."""
+    if not stored or provided is None:
+        return False, False
+    if is_password_hash(stored):
+        try:
+            return check_password_hash(stored, provided), False
+        except ValueError:
+            return False, False
+    return secrets.compare_digest(str(stored), str(provided)), True
+
+
+def _login_key(email):
+    return f'{request.remote_addr}|{(email or "").lower()}'
+
+
+def _login_blocked(key):
+    now = time.time()
+    with _LOGIN_LOCK:
+        fails = [t for t in _LOGIN_ATTEMPTS.get(key, []) if now - t < _LOGIN_WINDOW_SEC]
+        _LOGIN_ATTEMPTS[key] = fails
+        return len(fails) >= _LOGIN_MAX_FAILS
+
+
+def _login_record_fail(key):
+    with _LOGIN_LOCK:
+        _LOGIN_ATTEMPTS.setdefault(key, []).append(time.time())
+
+
+def _login_clear(key):
+    with _LOGIN_LOCK:
+        _LOGIN_ATTEMPTS.pop(key, None)
+
+
+# ------------------------------------------------------------
+# Серверная авторизация (включается AUTH_REQUIRED=1)
+# ------------------------------------------------------------
+PUBLIC_API_PATHS = {
+    '/api/auth/login',
+    '/api/auth/logout',
+    # Контракт трекинга для полевых устройств и мобильных WebView.
+    '/api/v1/track',
+    '/api/v1/stream',
+    '/api/v1/agents',
+    '/api/v1/snapshot',
+}
+PUBLIC_PAGES = {'/login.html', '/m/engineer', '/m/agents'}
+
+DASHBOARD_ROLES = {
+    '/mcc/dashboard.html': {'mcc'},
+    '/cpu/dashboard.html': {'cpu'},
+    '/dispatcher/dashboard.html': {'dispatcher'},
+    '/pilot/dashboard.html': {'pilot'},
+    '/engineer/dashboard.html': {'engineer'},
+    '/admin/dashboard.html': {'admin'},
+}
+
+ROLE_HOME = {
+    'admin': '/admin/dashboard.html',
+    'mcc': '/mcc/dashboard.html',
+    'cpu': '/cpu/dashboard.html',
+    'dispatcher': '/dispatcher/dashboard.html',
+    'pilot': '/pilot/dashboard.html',
+    'engineer': '/engineer/dashboard.html',
+}
+
+# Изменять эти группы API может только соответствующая роль (admin — всегда).
+WRITE_ROLE_PREFIXES = (
+    ('/api/mcc/', {'mcc'}),
+    ('/api/cpu/', {'cpu'}),
+    ('/api/dispatcher/', {'dispatcher'}),
+    ('/api/pilot/', {'pilot'}),
+    ('/api/engineer/', {'engineer'}),
+    ('/api/users', {'admin'}),
+    ('/api/v1/import/', {'admin'}),
+    ('/api/clear_all_requests', {'admin'}),
+    ('/api/clear_all_pilot_requests', {'admin'}),
+)
+
+
+@app.before_request
+def _enforce_server_auth():
+    if not AUTH_REQUIRED:
+        return None
+    path = request.path
+    if path in PUBLIC_API_PATHS or path in PUBLIC_PAGES:
+        return None
+
+    if path.startswith('/api/'):
+        if not session.get('user_id'):
+            return jsonify({'error': 'Требуется авторизация'}), 401
+        role = session.get('role')
+        if role == 'admin':
+            return None
+        for prefix, roles in WRITE_ROLE_PREFIXES:
+            if path == prefix or path.startswith(prefix):
+                if role not in roles:
+                    return jsonify({'error': 'Недостаточно прав'}), 403
+                break
+        return None
+
+    if path in DASHBOARD_ROLES:
+        if not session.get('user_id'):
+            return redirect('/login.html')
+        role = session.get('role')
+        if role != 'admin' and role not in DASHBOARD_ROLES[path]:
+            return redirect(ROLE_HOME.get(role, '/login.html'))
+    return None
+
+
+@app.after_request
+def _security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    response.headers.setdefault('Permissions-Policy', 'geolocation=(self), microphone=(self), camera=()')
+    if request.path.startswith('/api/'):
+        response.headers.setdefault('Cache-Control', 'no-store')
     return response
 
 
@@ -1395,14 +1583,29 @@ def auth_login():
     password = (data.get('password') or '').strip()
     if not email or not password:
         return jsonify({'error': 'Заполните все поля'}), 400
+
+    attempt_key = _login_key(email)
+    if _login_blocked(attempt_key):
+        return jsonify({'error': 'Слишком много попыток входа. Повторите через 5 минут'}), 429
+
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,email,name,role,avatar FROM users WHERE email=? AND password=?",
-                (email, password))
+    cur.execute("SELECT id,email,name,role,avatar,password FROM users WHERE email=?",
+                (email,))
     u = cur.fetchone()
-    if not u:
+    ok, needs_upgrade = (False, False)
+    if u:
+        ok, needs_upgrade = verify_password(u['password'], password)
+    if not u or not ok:
+        _login_record_fail(attempt_key)
         conn.close()
         return jsonify({'error': 'Неверный email или пароль'}), 401
+
+    _login_clear(attempt_key)
+    if needs_upgrade:
+        # Прозрачная миграция: старый открытый пароль заменяется хэшем.
+        cur.execute("UPDATE users SET password=? WHERE id=?",
+                    (hash_password(password), u['id']))
     cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
     conn.commit()
     extra = {}
@@ -1413,10 +1616,43 @@ def auth_login():
             extra['aircraft'] = p['aircraft'] or ''
             extra['rank'] = p['rank'] or 'pilot'
     conn.close()
+
+    session.permanent = True
+    session['user_id'] = u['id']
+    session['role'] = u['role']
+    session['name'] = u['name']
+
     res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
            'role': u['role'], 'avatar': u['avatar'] or '👤'}
     res.update(extra)
     return jsonify({'success': True, 'user': res})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    conn = get_db()
+    user_id = session.get('user_id')
+    if user_id:
+        try:
+            conn.execute("UPDATE users SET status='offline' WHERE id=?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    else:
+        conn.close()
+    session.clear()
+    return jsonify({'success': True})
+
+
+@app.route('/api/auth/session', methods=['GET'])
+def auth_session():
+    """Текущая серверная сессия — для проверки состояния авторизации."""
+    if not session.get('user_id'):
+        return jsonify({'authenticated': False}), 401
+    return jsonify({'authenticated': True,
+                    'user': {'id': session.get('user_id'),
+                             'role': session.get('role'),
+                             'name': session.get('name')}})
 
 
 # ============================================================
@@ -1452,7 +1688,7 @@ def create_user():
     password = data.get('password') or default_pwd
     cur.execute("""INSERT INTO users (id,email,password,name,role,avatar,phone,shift,status)
                    VALUES (?,?,?,?,?,?,?,?,'offline')""",
-                (uid, email, password, name, role, avatar,
+                (uid, email, hash_password(password), name, role, avatar,
                  data.get('phone', ''), data.get('shift', 'day')))
     conn.commit()
     conn.close()
@@ -1470,7 +1706,10 @@ def update_user(user_id):
         conn.close()
         return jsonify({'error': 'Не найден'}), 404
     if data.get('password'):
-        cur.execute("UPDATE users SET password=? WHERE id=?", (data.get('password'), user_id))
+        new_password = data.get('password')
+        if not is_password_hash(new_password):
+            new_password = hash_password(new_password)
+        cur.execute("UPDATE users SET password=? WHERE id=?", (new_password, user_id))
     cur.execute("""UPDATE users SET name=?, phone=?, shift=?, status=? WHERE id=?""",
                 (data.get('name'), data.get('phone', ''), data.get('shift', 'day'),
                  data.get('status', 'offline'), user_id))
@@ -2292,7 +2531,8 @@ def mcc_clear(clear_type):
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
         conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f'[API] {request.path}: {e}')
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
     finally:
         conn.close()
 
@@ -4424,7 +4664,8 @@ def clear_all_requests():
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
         conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f'[API] {request.path}: {e}')
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
     finally:
         conn.close()
 
@@ -4443,7 +4684,8 @@ def clear_all_pilot_requests():
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
         conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f'[API] {request.path}: {e}')
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
     finally:
         conn.close()
 
