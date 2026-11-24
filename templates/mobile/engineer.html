@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b2545">
+<title>InTrAvia — инженер</title>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<style>
+  :root{
+    --navy:#0b2545; --blue:#1f6feb; --sky:#4d9fff; --gold:#f5b301;
+    --bg:#eef2f7; --card:#ffffff; --text:#16233a; --muted:#6b7a90;
+    --green:#15803d; --red:#dc2626; --amber:#b45309; --line:#dbe3ee;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif}
+  body{padding-bottom:calc(84px + var(--safe-bottom))}
+  header{position:sticky;top:0;z-index:1000;background:linear-gradient(135deg,#0b2545,#123b66);
+    color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 4px 18px rgba(11,37,69,.28)}
+  header .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--gold)}
+  header h1{font-size:15px;margin:0;line-height:1.2;font-weight:700}
+  header p{margin:2px 0 0;font-size:11px;color:#b9cbe2}
+  header .gear{margin-left:auto;background:rgba(255,255,255,.12);border:0;color:#fff;
+    border-radius:10px;padding:8px 10px;font-size:16px}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 3px 14px rgba(20,38,63,.06);overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+    font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#375273}
+  .card-body{padding:14px}
+  #map{height:44vh;min-height:280px;background:#dfe7f0}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;
+    font-size:11px;font-weight:700;background:#e8f0fb;color:#1f4f8a}
+  .pill.ok{background:#e7f7ed;color:var(--green)}
+  .pill.warn{background:#fff4d6;color:var(--amber)}
+  .pill.bad{background:#fde8e8;color:var(--red)}
+  .muted{color:var(--muted);font-size:12px}
+  .req-title{font-size:17px;font-weight:800;margin:0 0 4px}
+  .req-sub{font-size:12px;color:var(--muted);margin:0 0 10px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .kv{background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:9px 10px}
+  .kv b{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#8493a7;margin-bottom:3px}
+  .kv span{font-size:12px;font-weight:700;line-height:1.35}
+  .eta{display:flex;align-items:baseline;gap:6px;margin:10px 0 2px}
+  .eta strong{font-size:30px;line-height:1;color:var(--blue)}
+  .eta small{font-size:12px;color:var(--muted)}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .btn{border:0;border-radius:12px;padding:13px 10px;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px}
+  .btn:disabled{opacity:.45}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-green{background:var(--green);color:#fff}
+  .btn-red{background:#fde8e8;color:var(--red)}
+  .btn-ghost{background:#eef3fa;color:#24476f}
+  .btn-wide{grid-column:1 / -1}
+  .empty{text-align:center;padding:26px 14px;color:var(--muted);font-size:13px}
+  .empty .big{font-size:30px;display:block;margin-bottom:8px;opacity:.7}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + var(--safe-bottom));
+    z-index:4000;background:#0b2545;color:#fff;padding:11px 16px;border-radius:12px;
+    font-size:13px;font-weight:600;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.25);
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{background:#8f1d1d}
+  .toast.ok{background:#166534}
+  .gps{margin-top:10px;background:#f7f9fc;border:1px dashed #b9c9dd;border-radius:12px;
+    padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12px}
+  .gps .dot{width:9px;height:9px;border-radius:50%;background:#94a3b8}
+  .gps.on .dot{background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.16)}
+  .gps b{margin-left:auto;font-size:11px}
+  .switch{margin-left:auto}
+  .switch input{width:44px;height:24px;appearance:none;background:#cbd5e1;border-radius:999px;
+    position:relative;outline:none;transition:.2s}
+  .switch input:checked{background:var(--green)}
+  .switch input:before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;
+    background:#fff;top:3px;left:3px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .switch input:checked:before{left:23px}
+  nav.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:3000;display:grid;grid-template-columns:repeat(3,1fr);
+    background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border-top:1px solid var(--line);
+    padding:8px 10px calc(8px + var(--safe-bottom))}
+  nav.tabbar a{text-decoration:none;color:#7b8ba1;font-size:10px;font-weight:700;text-align:center;
+    display:flex;flex-direction:column;gap:3px;align-items:center;padding:4px}
+  nav.tabbar a b{font-size:18px;line-height:1}
+  nav.tabbar a.active{color:var(--blue)}
+  .sheet{position:fixed;inset:0;z-index:5000;background:rgba(8,20,36,.55);display:none;
+    align-items:flex-end;justify-content:center}
+  .sheet.show{display:flex}
+  .sheet-inner{background:#fff;width:100%;max-width:620px;border-radius:20px 20px 0 0;
+    padding:18px 16px calc(18px + var(--safe-bottom));max-height:86vh;overflow:auto}
+  .sheet h3{margin:0 0 12px;font-size:16px}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+  .field label{font-size:11px;font-weight:800;text-transform:uppercase;color:#6b7a90;letter-spacing:.04em}
+  .field input,.field select,.field textarea{border:1px solid #cfdae8;border-radius:11px;
+    padding:12px;font-size:14px;font-family:inherit;background:#fff;color:var(--text)}
+  .req-list{display:flex;flex-direction:column;gap:8px}
+  .req-option{border:1px solid var(--line);background:#f8fafc;border-radius:12px;padding:12px;
+    display:flex;align-items:center;gap:10px;font-size:13px}
+  .req-option .id{font-weight:800;color:var(--blue)}
+  .req-option small{color:var(--muted)}
+  .req-option .go{margin-left:auto;background:var(--blue);color:#fff;border:0;border-radius:9px;
+    padding:8px 12px;font-weight:800;font-size:12px}
+  .leaflet-container{font-family:inherit}
+  .badge-obj{position:absolute;left:12px;top:12px;z-index:800;background:rgba(11,37,69,.88);
+    color:#fff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700}
+  .map-wrap{position:relative}
+  .arrival{background:#e7f7ed;border:1px solid #86efac;color:#166534;border-radius:11px;
+    padding:10px 12px;font-size:12px;font-weight:800;margin-bottom:10px}
+  .login-note{font-size:12px;color:var(--muted);margin:-4px 0 12px}
+  .tool-block{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .tool-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#375273}
+  .tool-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px}
+  .tool-btn{border:1px solid #cfdae8;background:#f7f9fc;border-radius:11px;padding:11px 6px;
+    font-size:12px;font-weight:800;color:#24476f;font-family:inherit}
+  .tool-btn.on.ok{background:#e7f7ed;border-color:#86efac;color:var(--green)}
+  .tool-btn.on.bad{background:#fde8e8;border-color:#fca5a5;color:var(--red)}
+  .tool-btn.on.warn{background:#fff4d6;border-color:#fcd34d;color:var(--amber)}
+  .queue{margin-top:8px;font-size:11px;font-weight:700;color:var(--muted)}
+  .queue.warn{color:var(--amber)}
+  .queue.bad{color:var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">A</div>
+  <div>
+    <h1>InTrAvia · Инженер</h1>
+    <p id="who">Выбор инженера…</p>
+  </div>
+  <button class="gear" id="changeEngineer" title="Сменить инженера">⚙</button>
+</header>
+
+<main>
+  <section class="card map-wrap">
+    <div id="map"></div>
+    <div class="badge-obj" id="mapLegend">—</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Текущая заявка</div>
+    <div class="card-body" id="taskCard">
+      <div class="empty"><span class="big">🛠</span>Нет активной заявки</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Передача геопозиции</div>
+    <div class="card-body">
+      <div class="gps" id="gpsBox">
+        <span class="dot"></span>
+        <span id="gpsText">GPS выключен</span>
+        <label class="switch" title="Передавать GPS">
+          <input type="checkbox" id="gpsToggle">
+        </label>
+      </div>
+      <div class="queue" id="queueStatus">офлайн: 0 точек в очереди</div>
+      <p class="muted" style="margin:8px 0 0">Точки уходят на <code>/api/v1/track</code> не чаще раза в 2 секунды и сразу обновляют карту диспетчера.</p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <a href="#map" class="active"><b>🗺</b>Карта</a>
+  <a href="#task"><b>📋</b>Заявка</a>
+  <a href="/engineer/dashboard.html"><b>🖥</b>Полный вид</a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<div class="sheet" id="loginSheet">
+  <div class="sheet-inner">
+    <h3>Вход в InTrAvia</h3>
+    <p class="login-note">Сервер требует авторизацию. Войдите под своей учётной записью.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="ivanov@aeroflot.ru">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Пароль</label>
+      <input id="loginPassword" type="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn">Войти</button>
+  </div>
+</div>
+
+<div class="sheet" id="engineerSheet">
+  <div class="sheet-inner">
+    <h3>Выберите инженера</h3>
+    <p class="muted" style="margin-top:-6px">Этот выбор сохранится на устройстве.</p>
+    <div class="req-list" id="engineerList"><div class="empty">Загрузка…</div></div>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var LS_ENGINEER = 'intravia.mobile.engineer';
+  var LS_GPS = 'intravia.mobile.gps';
+  var LS_QUEUE = 'intravia.queue.engineer';
+  var LS_LAST_GPS = 'intravia.mobile.gps.last';
+  var LS_LAST_TRACK = 'intravia.mobile.lastTrackAt';
+  var LS_TOOL = 'intravia.mobile.toolStatus';
+  var MAX_QUEUE = 500;
+
+  var TOOL_LABELS = { available: 'Есть', missing: 'Нет', warehouse: 'На складе' };
+  var TOOL_PILLS = { available: 'ok', missing: 'bad', warehouse: 'warn' };
+
+  var state = {
+    engineerId: localStorage.getItem(LS_ENGINEER) || '',
+    engineer: null,
+    user: null,
+    request: null,
+    route: null,
+    parking: {},
+    positions: {},
+    markers: {},
+    refreshTimer: null,
+    lastGpsSentAt: 0,
+    lastGpsPoint: null,
+    gpsWatchId: null,
+    pendingGps: null,
+    gpsRetryTimer: null,
+    gpsOn: localStorage.getItem(LS_GPS) !== '0',
+    location: null,
+    parkings: {},
+    zoneLayers: {},
+    locationLayers: [],
+    arrival: null,
+    queue: loadQueue(),
+    queueFlushing: false,
+    lastTrackAt: Number(localStorage.getItem(LS_LAST_TRACK) || 0) || 0,
+    toolStatus: loadToolStatus()
+  };
+
+  var map = null;
+  var ownMarker = null;
+  var routeLine = null;
+  var targetMarker = null;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function num(value) {
+    var n = Number(value);
+    return isFinite(n) ? n : null;
+  }
+
+  // ---------- localStorage: офлайн-очередь / последняя GPS-точка ----------
+  function readStoredJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); }
+    catch (error) { console.warn('[STORAGE]', key, error); }
+  }
+
+  function loadQueue() {
+    var rows = readStoredJson(LS_QUEUE, []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(function (point) {
+      return point && typeof point === 'object' && point.obj != null &&
+        isFinite(Number(point.lat)) && isFinite(Number(point.lon));
+    }).slice(-MAX_QUEUE);
+  }
+
+  function saveQueue() {
+    writeStoredJson(LS_QUEUE, state.queue);
+  }
+
+  function normalizeQueuedPoint(point) {
+    var item = {
+      obj: String(point.obj),
+      lat: Number(point.lat),
+      lon: Number(point.lon),
+      t: point.t || new Date().toISOString()
+    };
+    if (point.acc != null && isFinite(Number(point.acc))) item.acc = Number(point.acc);
+    if (point.spd != null && isFinite(Number(point.spd))) item.spd = Number(point.spd);
+    return item;
+  }
+
+  function sameQueuedPoint(a, b) {
+    if (!a || !b) return false;
+    return String(a.obj) === String(b.obj) &&
+      Math.abs(Number(a.lat) - Number(b.lat)) < 1e-7 &&
+      Math.abs(Number(a.lon) - Number(b.lon)) < 1e-7;
+  }
+
+  function queueKey(point) {
+    return String(point.obj) + '|' + Number(point.lat).toFixed(7) + '|' +
+      Number(point.lon).toFixed(7) + '|' + String(point.t || '');
+  }
+
+  function enqueuePoint(point) {
+    if (!point || point.obj == null) return false;
+    var item = normalizeQueuedPoint(point);
+    if (!isFinite(item.lat) || !isFinite(item.lon)) return false;
+    var last = state.queue[state.queue.length - 1];
+    // Без дублей подряд: одна и та же позиция не попадает в очередь дважды.
+    if (last && sameQueuedPoint(last, item)) {
+      updateQueueStatus();
+      return false;
+    }
+    state.queue.push(item);
+    while (state.queue.length > MAX_QUEUE) state.queue.shift();
+    saveQueue();
+    updateQueueStatus();
+    return true;
+  }
+
+  function removeQueuedPoint(point) {
+    if (!point) return;
+    var key = queueKey(normalizeQueuedPoint(point));
+    var before = state.queue.length;
+    state.queue = state.queue.filter(function (item) { return queueKey(item) !== key; });
+    if (state.queue.length !== before) {
+      saveQueue();
+      updateQueueStatus();
+    }
+  }
+
+  function two(value) {
+    value = Number(value) || 0;
+    return value < 10 ? ('0' + value) : String(value);
+  }
+
+  function clockTime(ms, withSeconds) {
+    var date = new Date(Number(ms));
+    if (!isFinite(date.getTime())) return '—';
+    var text = two(date.getHours()) + ':' + two(date.getMinutes());
+    return withSeconds ? (text + ':' + two(date.getSeconds())) : text;
+  }
+
+  function lastPointTime() {
+    if (state.lastGpsPoint && state.lastGpsPoint.t) {
+      var parsed = Date.parse(state.lastGpsPoint.t);
+      if (isFinite(parsed)) return parsed;
+    }
+    if (state.lastGpsPoint && state.lastGpsPoint.savedAt) return state.lastGpsPoint.savedAt;
+    return state.lastTrackAt || 0;
+  }
+
+  function updateQueueStatus() {
+    var box = $('queueStatus');
+    if (!box) return;
+    var count = state.queue ? state.queue.length : 0;
+    var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    if (offline) {
+      var pointAt = lastPointTime();
+      box.textContent = 'офлайн: ' + count + ' точек в очереди · позиция от ' +
+        (pointAt ? clockTime(pointAt, false) : '—') + ' (нет связи)';
+      box.className = 'queue bad';
+      return;
+    }
+    box.textContent = 'офлайн: ' + count + ' точек в очереди · последняя отправка ' +
+      (state.lastTrackAt ? clockTime(state.lastTrackAt, true) : '—');
+    box.className = 'queue' + (count ? ' warn' : '');
+  }
+
+  function markTrackSuccess() {
+    state.lastTrackAt = Date.now();
+    try { localStorage.setItem(LS_LAST_TRACK, String(state.lastTrackAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function flushQueue() {
+    updateQueueStatus();
+    if (state.queueFlushing || !state.queue || !state.queue.length) return Promise.resolve();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
+    state.queueFlushing = true;
+    var sent = state.queue.slice();
+    var sentKeys = {};
+    sent.forEach(function (point) { sentKeys[queueKey(point)] = true; });
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: sent })
+    }).then(function (rows) {
+      state.queue = state.queue.filter(function (point) { return !sentKeys[queueKey(point)]; });
+      saveQueue();
+      markTrackSuccess();
+      var results = Array.isArray(rows) ? rows : [];
+      var discarded = 0;
+      sent.forEach(function (point, index) {
+        var row = results[index];
+        if (!row || row.applied !== true) {
+          discarded += 1;
+          console.warn('[QUEUE] точка снята с очереди: applied=' +
+            (row ? row.applied : 'нет ответа'), point.obj, point.t);
+        }
+      });
+      if (discarded) toast('Очередь: ' + discarded + ' точек не применены', 'err');
+      updateQueueStatus();
+      return rows;
+    }).catch(function (error) {
+      console.warn('[QUEUE] очередь не отправлена', error);
+      updateQueueStatus();
+    }).finally(function () {
+      state.queueFlushing = false;
+    });
+  }
+
+  function persistGpsPoint(body) {
+    writeStoredJson(LS_LAST_GPS, {
+      obj: body.obj, lat: body.lat, lon: body.lon,
+      acc: body.acc, spd: body.spd, t: body.t,
+      sent: false, savedAt: Date.now()
+    });
+  }
+
+  function markGpsDelivered(body, applied) {
+    var stored = readStoredJson(LS_LAST_GPS, null);
+    if (stored && String(stored.t) === String(body.t) &&
+        String(stored.obj) === String(body.obj)) {
+      stored.sent = true;
+      stored.applied = !!applied;
+      stored.savedAt = Date.now();
+      writeStoredJson(LS_LAST_GPS, stored);
+    }
+    state.lastGpsPoint = {
+      lat: Number(body.lat), lng: Number(body.lon),
+      t: body.t, savedAt: Date.now()
+    };
+  }
+
+  // Последняя GPS-точка переживает перезагрузку; недоставленная — досылается.
+  function restoreLastGps() {
+    var stored = readStoredJson(LS_LAST_GPS, null);
+    if (!stored) return;
+    var lat = Number(stored.lat);
+    var lon = Number(stored.lon);
+    if (!isFinite(lat) || !isFinite(lon)) return;
+    state.lastGpsPoint = {
+      lat: lat, lng: lon, t: stored.t || '',
+      savedAt: Number(stored.savedAt) || 0
+    };
+    setOwnPosition(lat, lon);
+    if (state.gpsOn && state.engineerId && stored.sent !== true &&
+        (!stored.obj || String(stored.obj) === String(state.engineerId))) {
+      var point = {
+        obj: String(stored.obj || state.engineerId),
+        lat: lat, lon: lon,
+        t: stored.t || new Date().toISOString()
+      };
+      if (stored.acc != null) point.acc = stored.acc;
+      if (stored.spd != null) point.spd = stored.spd;
+      enqueuePoint(point);
+    }
+    updateQueueStatus();
+  }
+
+  // ---------- инструмент ----------
+  function loadToolStatus() {
+    var data = readStoredJson(LS_TOOL, {});
+    return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+  }
+
+  function saveToolStatus() {
+    writeStoredJson(LS_TOOL, state.toolStatus);
+  }
+
+  function toolStatusForRequest(request) {
+    if (!request) return '';
+    var remote = request.tool_status || request.tool;
+    var status = (remote && TOOL_LABELS[remote]) ? remote :
+      (state.toolStatus[String(request.id)] || '');
+    return TOOL_LABELS[status] ? status : '';
+  }
+
+  function warehousePoint() {
+    var objects = (state.location && state.location.objects) || [];
+    for (var i = 0; i < objects.length; i++) {
+      var obj = objects[i] || {};
+      var isWarehouse = String(obj.role || '') === 'warehouse1' ||
+        String(obj.id || '') === 'warehouse1';
+      if (!isWarehouse || !obj.centroid) continue;
+      var lat = Number(obj.centroid.lat);
+      var lon = obj.centroid.lon != null ? obj.centroid.lon : obj.centroid.lng;
+      if (isFinite(lat) && isFinite(Number(lon))) {
+        return {
+          lat: lat, lng: Number(lon), role: 'warehouse1',
+          name: obj.name || 'Склад №1'
+        };
+      }
+    }
+    return null;
+  }
+
+  function toolStatusPill(status) {
+    var label = TOOL_LABELS[status] || 'не отмечен';
+    var kind = TOOL_PILLS[status] || '';
+    return '<span class="pill ' + kind + '">Инструмент: ' + esc(label) + '</span>';
+  }
+
+  function toolBlockHtml(status) {
+    function button(value, label, kind) {
+      return '<button class="tool-btn' + (status === value ? ' on ' + kind : '') +
+        '" data-tool="' + value + '">' + label + '</button>';
+    }
+    return '<div class="tool-block">' +
+      '<div class="tool-head">Инструмент' + toolStatusPill(status) + '</div>' +
+      '<div class="tool-btns">' +
+        button('available', 'Есть', 'ok') +
+        button('missing', 'Нет', 'bad') +
+        button('warehouse', 'На складе', 'warn') +
+      '</div></div>';
+  }
+
+  function setToolStatus(status) {
+    var request = state.request;
+    if (!request || !state.engineerId || !TOOL_LABELS[status]) return;
+    var rid = String(request.id);
+    api('/api/requests/' + encodeURIComponent(rid) + '/tool_status', {
+      method: 'POST',
+      body: JSON.stringify({ engineer_id: state.engineerId, status: status })
+    }).then(function () {
+      state.toolStatus[rid] = status;
+      saveToolStatus();
+      toast('Инструмент: ' + TOOL_LABELS[status], 'ok');
+      renderTask();
+      if (status === 'warehouse') return buildWarehouseRoute(request);
+      return null;
+    }).catch(function (error) {
+      toast('Инструмент: ' + error.message, 'err');
+    });
+  }
+
+  function buildWarehouseRoute(request) {
+    var start = ownPoint();
+    var target = zonePoint(request.parking_id);
+    var warehouse = warehousePoint();
+    if (!start || !target || !warehouse) {
+      toast('Маршрут через склад недоступен: нет геоданных', 'err');
+      return Promise.resolve();
+    }
+    return api('/api/route', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_type: 'engineer',
+        start: start,
+        waypoints: [{ lat: warehouse.lat, lng: warehouse.lng, role: 'warehouse1' }],
+        target: target
+      })
+    }).then(function (payload) {
+      if (payload && Array.isArray(payload.path) && payload.path.length > 1) {
+        drawRoute(payload);
+        toast('Маршрут через ' + warehouse.name, 'ok');
+        renderTask();
+      } else {
+        toast('Сервер не построил маршрут через склад', 'err');
+      }
+    }).catch(function (error) {
+      toast('Маршрут через склад: ' + error.message, 'err');
+    });
+  }
+
+  var toastTimer = null;
+  function toast(message, kind) {
+    var el = $('toast');
+    el.textContent = message;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = 'toast ' + (kind || ''); }, 3400);
+  }
+
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+    return fetch(path, options).then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) {
+          if (!response.ok) {
+            var error = new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+            error.status = response.status;
+            error.body = body;
+            throw error;
+          }
+          return body;
+        });
+    });
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') {
+      $('map').innerHTML = '<div class="empty">Карта недоступна: Leaflet не загрузился</div>';
+      return;
+    }
+    map = L.map('map', { zoomControl: false, attributionControl: true })
+      .setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+  }
+
+  function loadLocation() {
+    return Promise.all([
+      api('/api/location').catch(function () { return null; }),
+      api('/api/parking').catch(function () { return []; })
+    ]).then(function (results) {
+      var loc = results[0];
+      var parking = results[1];
+      if (!loc) {
+        $('mapLegend').textContent = 'Геоданные ВДНХ недоступны';
+        return;
+      }
+      state.location = loc;
+      var list = Array.isArray(parking) ? parking : (loc.parkings || []);
+      list.forEach(function (item) {
+        if (item && item.id) state.parkings[String(item.id)] = item;
+      });
+      (loc.parkings || []).forEach(function (item) {
+        if (item && item.id) state.parkings[String(item.id)] = item;
+      });
+      if (!map) return;
+      var center = loc.center;
+      if (!center && loc.bbox) {
+        center = { lat: (loc.bbox[1] + loc.bbox[3]) / 2, lon: (loc.bbox[0] + loc.bbox[2]) / 2 };
+      }
+      if (center) map.setView([Number(center.lat), Number(center.lon)], 16);
+      drawLocationLayers(loc);
+      highlightOwnZone(state.request && state.request.parking_id);
+    });
+  }
+
+  function clearLocationLayers() {
+    state.locationLayers.forEach(function (layer) {
+      try { map.removeLayer(layer); } catch (error) { /* уже удалён */ }
+    });
+    state.locationLayers = [];
+  }
+
+  function drawLocationLayers(loc) {
+    if (!map) return;
+    clearLocationLayers();
+    if (loc.boundary && loc.boundary.coordinates) {
+      var boundary = L.geoJSON(loc.boundary, {
+        style: { color: '#0b2545', weight: 2, dashArray: '6,4', fill: false, opacity: 0.7 }
+      }).addTo(map);
+      state.locationLayers.push(boundary);
+      try { map.fitBounds(boundary.getBounds(), { padding: [18, 18] }); } catch (error) { /* пустая граница */ }
+    }
+    var roadStyles = {
+      service: { color: '#94a3b8', weight: 2 },
+      pedestrian: { color: '#3b82f6', weight: 2, dashArray: '4,4' },
+      taxi: { color: '#f59e0b', weight: 2 },
+      runway: { color: '#ef4444', weight: 5 }
+    };
+    var roads = (loc.roads && loc.roads.features) ? loc.roads.features : [];
+    var byType = {};
+    roads.forEach(function (road) {
+      var type = (road.properties && road.properties.type) || 'service';
+      (byType[type] = byType[type] || []).push(road);
+    });
+    Object.keys(byType).forEach(function (type) {
+      if (!roadStyles[type]) return;
+      state.locationLayers.push(L.geoJSON(
+        { type: 'FeatureCollection', features: byType[type] },
+        { style: roadStyles[type], interactive: false }
+      ).addTo(map));
+    });
+    (loc.objects || []).forEach(function (obj) {
+      if (!obj.centroid) return;
+      var marker = L.marker([Number(obj.centroid.lat), Number(obj.centroid.lon)], {
+        icon: markerIcon('#0b2545', '•', 22), interactive: false, zIndexOffset: -100
+      }).addTo(map);
+      marker.bindTooltip(obj.name || obj.id, { direction: 'top' });
+      state.locationLayers.push(marker);
+    });
+    var zones = Array.isArray(loc.parkings) ? loc.parkings : [];
+    zones.forEach(function (zone) {
+      if (!zone.geometry) return;
+      var layer = L.geoJSON(zone.geometry, {
+        style: { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 }
+      }).addTo(map);
+      layer.bindTooltip(zone.label || zone.id, { sticky: true });
+      state.zoneLayers[String(zone.id)] = layer;
+      state.locationLayers.push(layer);
+    });
+  }
+
+  function sameParking(a, b) {
+    if (a == null || b == null) return false;
+    var sa = String(a), sb = String(b);
+    var strip = function (value) { return value.replace(/^SZ-/i, ''); };
+    return sa === sb || strip(sa) === strip(sb);
+  }
+
+  function highlightOwnZone(parkingId) {
+    Object.keys(state.zoneLayers).forEach(function (id) {
+      var layer = state.zoneLayers[id];
+      if (!layer || !layer.setStyle) return;
+      var on = sameParking(id, parkingId);
+      layer.setStyle(on
+        ? { color: '#b45309', weight: 3, fillColor: '#f59e0b', fillOpacity: 0.3 }
+        : { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 });
+      if (on) { try { layer.bringToFront(); } catch (error) { /* нет слоя */ } }
+    });
+  }
+
+  function zonePoint(parkingId) {
+    if (!parkingId) return null;
+    var key = String(parkingId);
+    var zone = state.parkings[key] || state.parkings['SZ-' + key] || null;
+    var centroid = zone && zone.centroid;
+    if (!centroid && state.location) {
+      var list = state.location.parkings || [];
+      for (var i = 0; i < list.length; i++) {
+        if (sameParking(list[i].id, key) || sameParking(list[i].zone_id, key)) {
+          centroid = list[i].centroid;
+          break;
+        }
+      }
+    }
+    if (!centroid) return null;
+    var lon = centroid.lon != null ? centroid.lon : centroid.lng;
+    return { lat: Number(centroid.lat), lng: Number(lon) };
+  }
+
+  function ownPoint() {
+    if (state.engineer && isFinite(Number(state.engineer.coords_lat)) &&
+        isFinite(Number(state.engineer.coords_lng))) {
+      return { lat: Number(state.engineer.coords_lat), lng: Number(state.engineer.coords_lng) };
+    }
+    if (state.lastGpsPoint) return { lat: state.lastGpsPoint.lat, lng: state.lastGpsPoint.lng };
+    return null;
+  }
+
+  function markerIcon(color, text) {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:34px;height:34px;border-radius:50%;background:' + color +
+            ';border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.3);display:flex;' +
+            'align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800">' +
+            text + '</div>',
+      iconSize: [34, 34], iconAnchor: [17, 17]
+    });
+  }
+
+  function setOwnPosition(lat, lng) {
+    if (!map || !isFinite(lat) || !isFinite(lng)) return;
+    if (!ownMarker) {
+      ownMarker = L.marker([lat, lng], { icon: markerIcon('#1f6feb', 'Я'), zIndexOffset: 900 }).addTo(map);
+      map.setView([lat, lng], 16);
+    } else {
+      ownMarker.setLatLng([lat, lng]);
+    }
+  }
+
+  function renderPositions(agents) {
+    if (!map) return;
+    var seen = {};
+    function put(kind, obj, lat, lng, label, color, text) {
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      if (kind === 'engineer' && state.engineerId && String(obj) === String(state.engineerId)) {
+        setOwnPosition(lat, lng);
+        return;
+      }
+      var key = kind + ':' + obj;
+      seen[key] = true;
+      var marker = state.markers[key];
+      if (!marker) {
+        marker = L.marker([lat, lng], { icon: markerIcon(color, text), title: label }).addTo(map);
+        marker.bindTooltip(label, { direction: 'top', offset: [0, -12] });
+        state.markers[key] = marker;
+      } else {
+        marker.setLatLng([lat, lng]);
+      }
+      state.positions[key] = { lat: lat, lng: lng, label: label, kind: kind, obj: obj };
+    }
+
+    (agents.engineers || []).forEach(function (item) {
+      put('engineer', item.id, num(item.lat), num(item.lng), item.label || item.name, '#64748b', 'И');
+    });
+    (agents.transport || []).forEach(function (item) {
+      put('transport', item.id, num(item.lat), num(item.lng), item.label, '#0ea5e9', 'Т');
+    });
+    (agents.aircraft || []).forEach(function (item) {
+      put('aircraft', item.obj || item.id, num(item.lat), num(item.lng),
+          item.label || item.callsign, '#f59e0b', 'ВС');
+    });
+    Object.keys(state.markers).forEach(function (key) {
+      if (!seen[key]) {
+        map.removeLayer(state.markers[key]);
+        delete state.markers[key];
+      }
+    });
+    if (state.engineer) {
+      $('mapLegend').textContent = (state.engineer.device_id || '') + ' · ' +
+        (state.engineer.name || '');
+    }
+  }
+
+  function drawRoute(route) {
+    if (!map || !route || !Array.isArray(route.path) || route.path.length < 2) return;
+    state.route = route;
+    var points = route.path.map(function (point) { return [point[0], point[1]]; });
+    if (routeLine) map.removeLayer(routeLine);
+    var modeColors = { walk: '#3b82f6', transport: '#f59e0b', aircraft: '#ef4444' };
+    var layers = [];
+    if (Array.isArray(route.legs) && route.legs.length) {
+      route.legs.forEach(function (leg) {
+        if (!leg || !Array.isArray(leg.path) || leg.path.length < 2) return;
+        layers.push(L.polyline(leg.path, {
+          color: modeColors[leg.mode] || '#1f6feb', weight: 6, opacity: 0.9,
+          dashArray: leg.mode === 'walk' ? '10,8' : null, lineJoin: 'round'
+        }));
+      });
+    }
+    if (!layers.length) {
+      layers.push(L.polyline(points, { color: '#1f6feb', weight: 6, opacity: 0.9, lineJoin: 'round' }));
+    }
+    routeLine = L.layerGroup(layers).addTo(map);
+    if (!targetMarker) {
+      targetMarker = L.marker(points[points.length - 1],
+        { icon: markerIcon('#15803d', 'Ц'), zIndexOffset: 700 }).addTo(map);
+      targetMarker.bindTooltip('Зона обслуживания', { direction: 'top' });
+    } else {
+      targetMarker.setLatLng(points[points.length - 1]);
+    }
+    map.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 17 });
+  }
+
+  function clearRoute() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+    state.route = null;
+  }
+
+  function statusLabel(status) {
+    return ({
+      assigned: 'Назначена', arriving: 'В пути', in_progress: 'В работе',
+      working: 'В работе', queued: 'В очереди', completed: 'Выполнена'
+    })[status] || status || '—';
+  }
+
+  function renderTask() {
+    var card = $('taskCard');
+    var request = state.request;
+    if (!request) {
+      card.innerHTML = '<div class="empty"><span class="big">✅</span>Активных заявок нет</div>';
+      clearRoute();
+      return;
+    }
+    var eta = state.route && isFinite(Number(state.route.tt)) ? Math.round(Number(state.route.tt)) : null;
+    var usingCar = state.route && state.route.uc;
+    var toolStatus = toolStatusForRequest(request);
+    var actions = '';
+
+    if (request.status === 'assigned') {
+      actions =
+        '<button class="btn btn-green" id="acceptBtn">Принять</button>' +
+        '<button class="btn btn-red" id="rejectBtn">Отклонить</button>';
+    } else if (request.status === 'arriving' || request.status === 'in_progress' || request.status === 'working') {
+      actions =
+        (request.using_car ? '<button class="btn btn-ghost" id="carBtn">Сел в транспорт</button>' : '') +
+        '<button class="btn btn-primary" id="arriveBtn">Я на месте</button>' +
+        '<button class="btn btn-green btn-wide" id="diagnoseBtn">Начать диагностику</button>';
+    }
+
+    var routeText = '—';
+    if (state.route) {
+      routeText = usingCar
+        ? (Math.round(Number(state.route.wc || 0)) + ' мин пешком + ' +
+           Math.round(Number(state.route.ct || 0)) + ' мин на транспорте')
+        : (Math.round(Number(state.route.tt || 0)) + ' мин пешком');
+    }
+
+    var arrived = (state.arrival && String(state.arrival.request_id) === String(request.id)) ||
+      (state.engineer && state.engineer.task_step === 'arrived');
+    card.innerHTML =
+      (arrived ? '<div class="arrival">✅ Прибытие зафиксировано · зона ' +
+        esc((state.arrival && state.arrival.zone) || request.parking_id || '—') + '</div>' : '') +
+      '<h2 class="req-title">ВС ' + esc(request.aircraft || '—') + '</h2>' +
+      '<p class="req-sub">' + esc(request.fault_type || 'неисправность') +
+        ' · стоянка ' + esc(request.parking_id || '—') +
+        ' · <span class="pill ' + (request.status === 'assigned' ? 'warn' : 'ok') + '">' +
+        esc(statusLabel(request.status)) + '</span>' +
+        ' · ' + toolStatusPill(toolStatus) + '</p>' +
+      '<div class="eta"><strong>' + (eta == null ? '—' : esc(eta)) + '</strong><small>мин до борта (ETA)</small></div>' +
+      '<div class="grid2">' +
+        '<div class="kv"><b>Маршрут</b><span>' + esc(routeText) + '</span></div>' +
+        '<div class="kv"><b>Спецтранспорт</b><span>' + (usingCar ? esc(state.route.bc || 'назначен') : 'не нужен') + '</span></div>' +
+        '<div class="kv"><b>Рейс</b><span>' + esc(request.flight_number || '—') + '</span></div>' +
+        '<div class="kv"><b>MEL / ATA</b><span>' + esc(request.mcc_mel_ref || '—') + ' / ' + esc(request.mcc_ata || '—') + '</span></div>' +
+      '</div>' +
+      (actions ? '<div class="actions">' + actions + '</div>' : '') +
+      toolBlockHtml(toolStatus) +
+      '<p class="muted" style="margin:12px 0 0">' + esc(request.description || '') + '</p>';
+
+    var accept = $('acceptBtn');
+    if (accept) accept.onclick = acceptRequest;
+    var reject = $('rejectBtn');
+    if (reject) reject.onclick = rejectRequest;
+    var car = $('carBtn');
+    if (car) car.onclick = function () { reportStep('in_car'); };
+    var arrive = $('arriveBtn');
+    if (arrive) arrive.onclick = function () { reportStep('arrived'); };
+    var diagnose = $('diagnoseBtn');
+    if (diagnose) diagnose.onclick = function () { reportStep('diagnosing'); };
+    card.querySelectorAll('button[data-tool]').forEach(function (button) {
+      button.onclick = function () { setToolStatus(button.getAttribute('data-tool')); };
+    });
+    highlightOwnZone(request.parking_id);
+  }
+
+  function activeRequests() {
+    return api('/api/requests').then(function (rows) {
+      if (!Array.isArray(rows)) return [];
+      var active = rows.filter(function (row) {
+        return String(row.engineer_id || '') === String(state.engineerId) &&
+          ['assigned', 'arriving', 'in_progress', 'working', 'queued'].indexOf(row.status) >= 0;
+      });
+      return active;
+    });
+  }
+
+  function refreshTask() {
+    if (!state.engineerId) return Promise.resolve();
+    return activeRequests().then(function (rows) {
+      state.request = rows[0] || null;
+      if (!state.request) {
+        renderTask();
+        return;
+      }
+      var request = state.request;
+      var routePromise = Promise.resolve();
+      if (['assigned', 'arriving', 'in_progress', 'working'].indexOf(request.status) >= 0) {
+        routePromise = buildRouteForRequest(request);
+      }
+      return routePromise.then(renderTask);
+    }).catch(function (error) {
+      console.warn('[TASK]', error);
+    });
+  }
+
+  function buildRouteForRequest(request) {
+    var start = ownPoint();
+    var target = zonePoint(request.parking_id);
+    var waypoints = Array.isArray(request.waypoints) ? request.waypoints.slice() : [];
+    if (toolStatusForRequest(request) === 'warehouse') {
+      var warehouse = warehousePoint();
+      var hasWarehouse = waypoints.some(function (wp) {
+        return wp && String(wp.role || '') === 'warehouse1';
+      });
+      if (warehouse && !hasWarehouse) {
+        waypoints.unshift({
+          lat: warehouse.lat, lng: warehouse.lng, role: 'warehouse1'
+        });
+      }
+    }
+    if (start && target) {
+      // Основной маршрут — серверный роутер с промежуточными точками.
+      return api('/api/route', {
+        method: 'POST',
+        body: JSON.stringify({
+          agent_type: 'engineer', start: start, waypoints: waypoints, target: target
+        })
+      }).then(function (payload) {
+        if (payload && Array.isArray(payload.path) && payload.path.length > 1) drawRoute(payload);
+      }).catch(function () {
+        return buildRouteFromDispatcher(request);
+      });
+    }
+    return buildRouteFromDispatcher(request);
+  }
+
+  function buildRouteFromDispatcher(request) {
+    return api('/api/dispatcher/requests/' + encodeURIComponent(request.id) + '/route')
+      .then(function (payload) { if (payload && payload.route) drawRoute(payload.route); })
+      .catch(function () { /* маршрут ещё не готов */ });
+  }
+
+  function refreshEngineer() {
+    if (!state.engineerId) return Promise.resolve();
+    return api('/api/engineers/' + encodeURIComponent(state.engineerId)).then(function (engineer) {
+      state.engineer = engineer;
+      $('who').textContent = (engineer.device_id || '') + ' · ' + (engineer.name || '');
+      if (num(engineer.coords_lat) != null) setOwnPosition(num(engineer.coords_lat), num(engineer.coords_lng));
+    }).catch(function () {
+      state.engineerId = '';
+      localStorage.removeItem(LS_ENGINEER);
+      openEngineerSheet();
+    });
+  }
+
+  function refreshAgents() {
+    return api('/api/v1/agents').then(function (payload) {
+      renderPositions(payload);
+      $('mapLegend').textContent = state.engineer
+        ? ((state.engineer.device_id || '') + ' · ' + (state.engineer.name || ''))
+        : 'Выберите инженера';
+    }).catch(function (error) { console.warn('[AGENTS]', error); });
+  }
+
+  function refreshAll() {
+    return Promise.all([refreshAgents(), refreshEngineer().then(refreshTask)]);
+  }
+
+  function scheduleRefresh() {
+    clearTimeout(state.refreshTimer);
+    state.refreshTimer = setTimeout(function () {
+      refreshAgents();
+      refreshTask();
+    }, 500);
+  }
+
+  function acceptRequest() {
+    if (!state.request) return;
+    api('/api/requests/' + encodeURIComponent(state.request.id) + '/accept', {
+      method: 'POST', body: JSON.stringify({ engineer_id: state.engineerId })
+    }).then(function () {
+      toast('Заявка принята, маршрут запущен', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function rejectRequest() {
+    if (!state.request) return;
+    var reason = prompt('Причина отказа:', 'Нет инструмента');
+    if (!reason) return;
+    api('/api/requests/' + encodeURIComponent(state.request.id) + '/reject', {
+      method: 'POST',
+      body: JSON.stringify({ engineer_id: state.engineerId, reason: reason })
+    }).then(function (result) {
+      toast(result.reassigned ? 'Заявка передана другому инженеру' : 'Заявка возвращена в очередь', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function reportStep(step) {
+    if (!state.engineerId) return;
+    api('/api/engineers/' + encodeURIComponent(state.engineerId) + '/step', {
+      method: 'PUT', body: JSON.stringify({ step: step })
+    }).then(function () {
+      toast(({ in_car: 'Отмечена посадка в транспорт', arrived: 'Прибытие зафиксировано',
+               diagnosing: 'Диагностика начата' })[step] || 'Статус обновлён', 'ok');
+      return refreshAll();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function sendGpsBody(body) {
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }).then(function (result) {
+      if (state.pendingGps && state.pendingGps.t === body.t) state.pendingGps = null;
+      if (result.applied) {
+        $('gpsText').textContent =
+          'GPS · ' + Number(body.lat).toFixed(5) + ', ' + Number(body.lon).toFixed(5);
+        markTrackSuccess();
+      } else {
+        $('gpsText').textContent = 'GPS: сервер не принял точку';
+        console.warn('[GPS] точка не применена', body.obj, body.t);
+      }
+      markGpsDelivered(body, result.applied);
+      removeQueuedPoint(body);
+      updateQueueStatus();
+      return result;
+    }).catch(function (error) {
+      // Нет связи: точка уходит в localStorage-очередь, последняя держится для повтора.
+      enqueuePoint(body);
+      $('gpsText').textContent = 'GPS: нет связи с сервером, повтор…';
+      scheduleGpsRetry();
+      updateQueueStatus();
+      return null;
+    });
+  }
+
+  function scheduleGpsRetry() {
+    if (state.gpsRetryTimer) return;
+    state.gpsRetryTimer = setTimeout(function () {
+      state.gpsRetryTimer = null;
+      if (state.pendingGps && state.gpsOn) sendGpsBody(state.pendingGps);
+    }, 4000);
+  }
+
+  function sendGps(position) {
+    if (!state.engineerId || !position || !position.coords) return;
+    var now = Date.now();
+    var coords = position.coords;
+    var last = state.lastGpsPoint;
+    var moved = !last || Math.abs(last.lat - coords.latitude) > 0.00002 ||
+      Math.abs(last.lng - coords.longitude) > 0.00002;
+    if (!moved && now - state.lastGpsSentAt < 5000) return;
+    state.lastGpsSentAt = now;
+    var pointTime = new Date().toISOString();
+    state.lastGpsPoint = { lat: coords.latitude, lng: coords.longitude, t: pointTime };
+    setOwnPosition(coords.latitude, coords.longitude);
+    state.pendingGps = {
+      obj: state.engineerId,
+      lat: coords.latitude,
+      lon: coords.longitude,
+      acc: coords.accuracy != null ? coords.accuracy : null,
+      spd: coords.speed != null ? coords.speed : null,
+      t: pointTime
+    };
+    persistGpsPoint(state.pendingGps);
+    updateQueueStatus();
+    sendGpsBody(state.pendingGps);
+  }
+
+  function startGps() {
+    if (!state.gpsOn || !navigator.geolocation) {
+      $('gpsBox').classList.remove('on');
+      $('gpsText').textContent = navigator.geolocation ? 'GPS выключен' : 'GPS недоступен в WebView';
+      return;
+    }
+    if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = navigator.geolocation.watchPosition(sendGps, function (error) {
+      $('gpsBox').classList.remove('on');
+      $('gpsText').textContent = 'GPS: ' + (error.message || 'нет сигнала');
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+    $('gpsBox').classList.add('on');
+    $('gpsText').textContent = 'GPS включён, ждём сигнал…';
+  }
+
+  function stopGps() {
+    if (state.gpsWatchId != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(state.gpsWatchId);
+    }
+    state.gpsWatchId = null;
+    if (state.gpsRetryTimer) { clearTimeout(state.gpsRetryTimer); state.gpsRetryTimer = null; }
+    state.pendingGps = null;
+    $('gpsBox').classList.remove('on');
+    $('gpsText').textContent = 'GPS выключен';
+  }
+
+  function openEngineerSheet() {
+    // Вошедшему инженеру выбор не нужен: работаем под его учётной записью.
+    if (state.user && state.user.role === 'engineer' && state.user.id) {
+      state.engineerId = state.user.id;
+      localStorage.setItem(LS_ENGINEER, state.engineerId);
+      refreshAll();
+      return;
+    }
+    if (state.user && state.user.role !== 'admin') {
+      // Чужая роль не выбирает инженера: это нарушает матрицу полномочий.
+      $('who').textContent = 'Нет доступа: требуется роль инженера';
+      toast('Выбор инженера доступен только администратору', 'err');
+      return;
+    }
+    var sheet = $('engineerSheet');
+    sheet.classList.add('show');
+    var list = $('engineerList');
+    list.innerHTML = '<div class="empty">Загрузка…</div>';
+    api('/api/engineers').then(function (rows) {
+      if (!Array.isArray(rows) || !rows.length) {
+        list.innerHTML = '<div class="empty">Инженеры не найдены</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function (engineer) {
+        return '<div class="req-option">' +
+          '<div><div class="id">' + esc(engineer.device_id || engineer.id) + '</div>' +
+          '<small>' + esc(engineer.name || '') + ' · ' + esc(engineer.specialization || '') +
+          ' · ' + esc(engineer.status || '') + '</small></div>' +
+          '<button class="go" data-id="' + esc(engineer.id) + '">Выбрать</button></div>';
+      }).join('');
+      list.querySelectorAll('button[data-id]').forEach(function (button) {
+        button.onclick = function () {
+          state.engineerId = button.getAttribute('data-id');
+          localStorage.setItem(LS_ENGINEER, state.engineerId);
+          sheet.classList.remove('show');
+          refreshAll().then(startGps);
+        };
+      });
+    }).catch(function (error) {
+      list.innerHTML = '<div class="empty">Ошибка: ' + esc(error.message) + '</div>';
+    });
+  }
+
+  function connectStream() {
+    if (!window.EventSource) return;
+    var source = new EventSource('/api/v1/stream');
+    source.addEventListener('position', function (event) {
+      try {
+        var point = JSON.parse(event.data);
+        var key = point.type + ':' + point.obj;
+        var marker = state.markers[key];
+        if (marker && isFinite(Number(point.lat)) && isFinite(Number(point.lon))) {
+          marker.setLatLng([Number(point.lat), Number(point.lon)]);
+        }
+        if (point.type === 'engineer' && String(point.obj) === String(state.engineerId)) {
+          setOwnPosition(Number(point.lat), Number(point.lon));
+        }
+      } catch (error) { /* ignore malformed */ }
+    });
+    source.addEventListener('warning', function (event) {
+      try {
+        var data = JSON.parse(event.data);
+        toast((data.breach ? 'Норматив 15 мин нарушен' : 'Норматив 15 мин истекает') +
+          ' · осталось ' + data.remaining_min + ' мин', data.breach ? 'err' : '');
+        scheduleRefresh();
+      } catch (error) { /* ignore malformed */ }
+    });
+    source.addEventListener('arrival', function (event) {
+      try {
+        state.arrival = JSON.parse(event.data);
+        toast('Прибытие зафиксировано · ' + (state.arrival.zone || 'зона'), 'ok');
+        scheduleRefresh();
+      } catch (error) { /* ignore malformed */ }
+    });
+    ['sync', 'request'].forEach(function (name) {
+      source.addEventListener(name, scheduleRefresh);
+    });
+    source.onerror = function () { setTimeout(function () { source.close(); connectStream(); }, 3000); };
+  }
+
+  function checkServerAuth() {
+    return fetch('/api/auth/session').then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) { return { ok: response.ok, body: body }; });
+    });
+  }
+
+  function openLoginSheet() {
+    $('loginSheet').classList.add('show');
+  }
+
+  // Инженер входит под своей учётной записью — свой профиль выбирается
+  // автоматически, список инженеров больше не требуется.
+  function applySessionUser(user) {
+    state.user = user || null;
+    if (user && user.role === 'engineer' && user.id) {
+      state.engineerId = user.id;
+      localStorage.setItem(LS_ENGINEER, user.id);
+    }
+  }
+
+  function submitLogin() {
+    var email = $('loginEmail').value.trim();
+    var password = $('loginPassword').value;
+    if (!email || !password) { toast('Введите email и пароль', 'err'); return; }
+    api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function (payload) {
+      applySessionUser(payload && payload.user);
+      $('loginSheet').classList.remove('show');
+      startUi();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function boot() {
+    $('loginBtn').onclick = submitLogin;
+    checkServerAuth().then(function (result) {
+      if (result.ok) {
+        applySessionUser(result.body && result.body.user);
+        startUi();
+        return;
+      }
+      if (result.body && result.body.auth_required) { openLoginSheet(); return; }
+      startUi();
+    }).catch(function () { startUi(); });
+  }
+
+  function startUi() {
+    initMap();
+    restoreLastGps();
+    $('changeEngineer').onclick = openEngineerSheet;
+    $('gpsToggle').checked = state.gpsOn;
+    $('gpsToggle').onchange = function () {
+      state.gpsOn = this.checked;
+      localStorage.setItem(LS_GPS, state.gpsOn ? '1' : '0');
+      if (state.gpsOn) startGps(); else stopGps();
+    };
+    if (!state.engineerId) openEngineerSheet();
+    loadLocation().then(refreshAll).then(function () {
+      if (state.gpsOn) startGps();
+      flushQueue();
+    });
+    connectStream();
+    setInterval(function () {
+      refreshAgents();
+      refreshTask();
+    }, 7000);
+    setInterval(flushQueue, 10000);
+    window.addEventListener('online', function () {
+      updateQueueStatus();
+      flushQueue();
+    });
+    window.addEventListener('offline', updateQueueStatus);
+    updateQueueStatus();
+    flushQueue();
+  }
+
+  // Точка входа для диагностики GPS и автотестов (не влияет на работу UI).
+  window.__intravia = {
+    state: state, sendGps: sendGps, sendGpsBody: sendGpsBody,
+    flushQueue: flushQueue, enqueuePoint: enqueuePoint,
+    updateQueueStatus: updateQueueStatus
+  };
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>

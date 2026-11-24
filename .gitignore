@@ -1,0 +1,51 @@
+# --- Python / окружение ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Базы данных ---
+# database.db содержит персональные данные и хэши паролей
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# --- Node / мобильная сборка ---
+node_modules/
+mobile/android/app/build/
+mobile/android/build/
+mobile/dist/
+*.apk
+*.aab
+
+# --- WebView-оболочки (Gradle) ---
+mobile/webview-*/.gradle/
+mobile/webview-*/build/
+mobile/webview-*/app/build/
+mobile/webview-*/local.properties
+local.properties
+
+# --- Аудио и модели Whisper ---
+*.wav
+*.mp3
+*.m4a
+*.pt
+
+# --- Сертификаты ---
+certs/
+*.pem
+
+# --- Прочее ---
+.env
+data/ingest_errors.log
+data/events.jsonl
+Thumbs.db
+Desktop.ini
+.DS_Store
+logs/

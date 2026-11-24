@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b2545">
+<title>InTrAvia — агенты и маяк</title>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<style>
+  :root{
+    --navy:#0b2545; --blue:#1f6feb; --gold:#f5b301; --bg:#eef2f7; --card:#fff;
+    --text:#16233a; --muted:#6b7a90; --green:#15803d; --red:#dc2626; --amber:#b45309;
+    --line:#dbe3ee; --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  body{padding-bottom:calc(16px + var(--safe-bottom))}
+  header{position:sticky;top:0;z-index:1000;background:linear-gradient(135deg,#0b2545,#123b66);
+    color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 4px 18px rgba(11,37,69,.28)}
+  header .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--gold)}
+  header h1{font-size:15px;margin:0;line-height:1.2}
+  header p{margin:2px 0 0;font-size:11px;color:#b9cbe2}
+  .live{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;
+    background:rgba(255,255,255,.12);padding:6px 9px;border-radius:999px}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:#94a3b8}
+  .live.on .dot{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.18)}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 3px 14px rgba(20,38,63,.06);overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+    font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#375273}
+  .card-body{padding:14px}
+  #map{height:42vh;min-height:270px;background:#dfe7f0}
+  .map-wrap{position:relative}
+  .badge-obj{position:absolute;left:12px;top:12px;z-index:800;background:rgba(11,37,69,.88);
+    color:#fff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .field label{font-size:10px;font-weight:800;text-transform:uppercase;color:#6b7a90;letter-spacing:.05em}
+  select,input{width:100%;border:1px solid #cfdae8;border-radius:11px;padding:12px;
+    font-size:14px;font-family:inherit;background:#fff;color:var(--text)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .btn{border:0;border-radius:12px;padding:13px 10px;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;gap:7px;min-height:46px;width:100%}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-green{background:var(--green);color:#fff}
+  .btn-red{background:#fde8e8;color:var(--red)}
+  .btn-ghost{background:#eef3fa;color:#24476f}
+  .btn:disabled{opacity:.45}
+  .beacon{margin-top:12px;border:1px dashed #b9c9dd;border-radius:13px;padding:12px;background:#f8fafc}
+  .beacon.on{border-color:#22c55e;background:#f0fdf4}
+  .beacon-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800}
+  .beacon-head .dot{width:9px;height:9px;border-radius:50%;background:#94a3b8}
+  .beacon.on .beacon-head .dot{background:#22c55e;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 7px rgba(34,197,94,0)}}
+  .beacon .meta{margin-left:auto;font-size:11px;color:var(--muted)}
+  .beacon-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .log{max-height:210px;overflow:auto;font-size:11px;line-height:1.5}
+  .log-item{padding:8px 0;border-bottom:1px solid #edf1f6;display:flex;gap:8px}
+  .log-item:last-child{border-bottom:0}
+  .log-time{color:#8a99ad;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .log-body{min-width:0}
+  .log-body b{display:block;overflow-wrap:anywhere}
+  .ok{color:var(--green)} .bad{color:var(--red)} .warn{color:var(--amber)}
+  .muted{color:var(--muted);font-size:12px}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + var(--safe-bottom));
+    z-index:4000;background:#0b2545;color:#fff;padding:11px 16px;border-radius:12px;
+    font-size:13px;font-weight:600;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.25);
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{background:#8f1d1d}
+  .toast.ok{background:#166534}
+  .leaflet-container{font-family:inherit}
+  .hint{background:#fff7e6;border:1px solid #f1d9a7;color:#7c5b13;border-radius:11px;
+    padding:10px 12px;font-size:11px;line-height:1.45;margin-top:10px}
+  .queue{margin-top:9px;font-size:11px;font-weight:700;color:var(--muted)}
+  .queue.warn{color:var(--amber)}
+  .queue.bad{color:var(--red)}
+  .login{position:fixed;inset:0;z-index:6000;background:rgba(8,20,36,.6);display:none;
+    align-items:flex-end;justify-content:center}
+  .login.show{display:flex}
+  .login-inner{background:#fff;width:100%;max-width:620px;border-radius:20px 20px 0 0;
+    padding:18px 16px calc(18px + var(--safe-bottom));max-height:88vh;overflow:auto}
+  .login-inner h3{margin:0 0 6px;font-size:16px}
+  .login-note{font-size:12px;color:var(--muted);margin:0 0 12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">A</div>
+  <div>
+    <h1>InTrAvia · Агенты</h1>
+    <p id="counts">Загрузка агентов…</p>
+  </div>
+  <div class="live" id="liveBadge"><span class="dot"></span><span id="liveText">LIVE</span></div>
+</header>
+
+<main>
+  <section class="card map-wrap">
+    <div id="map"></div>
+    <div class="badge-obj" id="selectedBadge">Точка не выбрана</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Агент и координаты</div>
+    <div class="card-body">
+      <div class="field">
+        <label for="agentSelect">Агент</label>
+        <select id="agentSelect"><option value="">Загрузка…</option></select>
+      </div>
+      <div class="field">
+        <label for="customObj">Или свой obj (например RA-73142)</label>
+        <input id="customObj" placeholder="e-01 / CAR-001 / RA-73142" autocomplete="off">
+      </div>
+      <div class="row">
+        <div class="field"><label for="latInput">Широта</label><input id="latInput" inputmode="decimal" placeholder="55.83367"></div>
+        <div class="field"><label for="lonInput">Долгота</label><input id="lonInput" inputmode="decimal" placeholder="37.62709"></div>
+      </div>
+      <p class="muted" style="margin:-2px 0 10px">Коснитесь карты или перетащите маркер, чтобы задать точку.</p>
+      <button class="btn btn-primary" id="sendBtn">Отправить точку</button>
+
+      <div class="beacon" id="beaconBox">
+        <div class="beacon-head"><span class="dot"></span><span id="beaconTitle">Маяк выключен</span>
+          <span class="meta" id="beaconMeta">0 отправок</span></div>
+        <div class="beacon-controls">
+          <div class="field" style="margin:0">
+            <label for="beaconInterval">Интервал</label>
+            <select id="beaconInterval">
+              <option value="1000">1 секунда</option>
+              <option value="2000" selected>2 секунды</option>
+              <option value="5000">5 секунд</option>
+              <option value="10000">10 секунд</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="beaconSource">Источник</label>
+            <select id="beaconSource">
+              <option value="map" selected>Точка на карте</option>
+              <option value="gps">GPS устройства</option>
+            </select>
+          </div>
+        </div>
+        <div class="beacon-controls">
+          <button class="btn btn-green" id="beaconStart">Включить маяк</button>
+          <button class="btn btn-red" id="beaconStop" disabled>Остановить</button>
+        </div>
+        <div class="hint">Режим маяка отправляет позицию выбранного агента на сервер с заданным интервалом. Остальные агенты при этом продолжают отображаться на карте в реальном времени.</div>
+        <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="batchToggle" checked style="width:auto">
+          <span>Пакетная отправка для спецтранспорта и ВС (по 5 точек за запрос)</span>
+        </label>
+        <div class="queue" id="queueStatus">офлайн: 0 точек в очереди</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Журнал отправок</div>
+    <div class="card-body"><div class="log" id="log"><div class="muted">Пока пусто</div></div></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<div class="login" id="loginSheet">
+  <div class="login-inner">
+    <h3>Вход в InTrAvia</h3>
+    <p class="login-note">Сервер требует авторизацию. Войдите, чтобы работать с агентами.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="dispatcher@aeroflot.ru">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Пароль</label>
+      <input id="loginPassword" type="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn">Войти</button>
+  </div>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var LS_QUEUE = 'intravia.queue.agents';
+  var LS_FORM = 'intravia.agents.form';
+  var LS_BATCH = 'intravia.agents.batch';
+  var LS_LAST_TRACK = 'intravia.agents.lastTrackAt';
+  var LS_LAST_POINT = 'intravia.agents.lastPointAt';
+  var MAX_QUEUE = 500;
+
+  var pendingForm = null;
+  var restoringForm = false;
+
+  var state = {
+    agents: { engineers: [], transport: [], aircraft: [] },
+    markers: {},
+    selectedObj: '',
+    selectedKind: '',
+    selectedPoint: null,
+    beaconTimer: null,
+    beaconSends: 0,
+    gpsWatchId: null,
+    gpsPoint: null,
+    sending: false,
+    location: null,
+    locationLayers: [],
+    batch: [],
+    batchMode: true,
+    queue: loadQueue(),
+    queueFlushing: false,
+    lastTrackAt: Number(localStorage.getItem(LS_LAST_TRACK) || 0) || 0,
+    lastPointAt: Number(localStorage.getItem(LS_LAST_POINT) || 0) || 0
+  };
+
+  var map = null;
+  var targetMarker = null;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // ---------- localStorage: офлайн-очередь, форма и пакет ----------
+  function readStoredJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); }
+    catch (error) { console.warn('[STORAGE]', key, error); }
+  }
+
+  function normalizePoint(point) {
+    var lon = point.lon != null ? point.lon : point.lng;
+    var item = {
+      obj: String(point.obj),
+      lat: Number(Number(point.lat).toFixed(7)),
+      lon: Number(Number(lon).toFixed(7)),
+      t: point.t || new Date().toISOString()
+    };
+    if (point.acc != null && isFinite(Number(point.acc))) item.acc = Number(point.acc);
+    if (point.spd != null && isFinite(Number(point.spd))) item.spd = Number(point.spd);
+    return item;
+  }
+
+  function isPointLike(point) {
+    if (!point || typeof point !== 'object' || point.obj == null) return false;
+    var lon = point.lon != null ? point.lon : point.lng;
+    return isFinite(Number(point.lat)) && isFinite(Number(lon));
+  }
+
+  function loadQueue() {
+    var rows = readStoredJson(LS_QUEUE, []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(isPointLike).map(normalizePoint).slice(-MAX_QUEUE);
+  }
+
+  function saveQueue() {
+    writeStoredJson(LS_QUEUE, state.queue);
+  }
+
+  function sameQueuedPoint(a, b) {
+    if (!a || !b) return false;
+    return String(a.obj) === String(b.obj) &&
+      Math.abs(Number(a.lat) - Number(b.lat)) < 1e-7 &&
+      Math.abs(Number(a.lon) - Number(b.lon)) < 1e-7;
+  }
+
+  function queueKey(point) {
+    return String(point.obj) + '|' + Number(point.lat).toFixed(7) + '|' +
+      Number(point.lon).toFixed(7) + '|' + String(point.t || '');
+  }
+
+  function enqueuePoint(point) {
+    if (!isPointLike(point)) return false;
+    var item = normalizePoint(point);
+    var last = state.queue[state.queue.length - 1];
+    // Без дублей подряд: одинаковая позиция не попадает в очередь дважды.
+    if (last && sameQueuedPoint(last, item)) {
+      updateQueueStatus();
+      return false;
+    }
+    state.queue.push(item);
+    while (state.queue.length > MAX_QUEUE) state.queue.shift();
+    saveQueue();
+    updateQueueStatus();
+    return true;
+  }
+
+  function removeQueuedPoint(point) {
+    if (!isPointLike(point)) return;
+    var key = queueKey(normalizePoint(point));
+    var before = state.queue.length;
+    state.queue = state.queue.filter(function (item) { return queueKey(item) !== key; });
+    if (state.queue.length !== before) {
+      saveQueue();
+      updateQueueStatus();
+    }
+  }
+
+  function two(value) {
+    value = Number(value) || 0;
+    return value < 10 ? ('0' + value) : String(value);
+  }
+
+  function clockTime(ms, withSeconds) {
+    var date = new Date(Number(ms));
+    if (!isFinite(date.getTime())) return '—';
+    var text = two(date.getHours()) + ':' + two(date.getMinutes());
+    return withSeconds ? (text + ':' + two(date.getSeconds())) : text;
+  }
+
+  function updateQueueStatus() {
+    var box = $('queueStatus');
+    if (!box) return;
+    var count = state.queue ? state.queue.length : 0;
+    var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    if (offline) {
+      box.textContent = 'офлайн: ' + count + ' точек в очереди · позиция от ' +
+        (state.lastPointAt ? clockTime(state.lastPointAt, false) : '—') + ' (нет связи)';
+      box.className = 'queue bad';
+      return;
+    }
+    box.textContent = 'офлайн: ' + count + ' точек в очереди · последняя отправка ' +
+      (state.lastTrackAt ? clockTime(state.lastTrackAt, true) : '—');
+    box.className = 'queue' + (count ? ' warn' : '');
+  }
+
+  function markTrackSuccess() {
+    state.lastTrackAt = Date.now();
+    try { localStorage.setItem(LS_LAST_TRACK, String(state.lastTrackAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function touchPointTime() {
+    state.lastPointAt = Date.now();
+    try { localStorage.setItem(LS_LAST_POINT, String(state.lastPointAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function flushQueue() {
+    updateQueueStatus();
+    if (state.queueFlushing || !state.queue || !state.queue.length) return Promise.resolve();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
+    state.queueFlushing = true;
+    var sent = state.queue.slice();
+    var sentKeys = {};
+    sent.forEach(function (point) { sentKeys[queueKey(point)] = true; });
+    var started = performance.now();
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: sent })
+    }).then(function (rows) {
+      state.queue = state.queue.filter(function (point) { return !sentKeys[queueKey(point)]; });
+      saveQueue();
+      markTrackSuccess();
+      var results = Array.isArray(rows) ? rows : [];
+      var applied = 0;
+      var discarded = 0;
+      sent.forEach(function (point, index) {
+        var row = results[index];
+        if (row && row.applied === true) { applied += 1; return; }
+        discarded += 1;
+        addLog(point.obj, {
+          accepted: !!(row && row.accepted),
+          applied: false,
+          error: row ? row.error : 'нет ответа'
+        }, 0);
+        console.warn('[QUEUE] точка снята с очереди: applied=' +
+          (row ? row.applied : 'нет ответа'), point.obj, point.t);
+      });
+      addLog('очередь ×' + sent.length,
+        { accepted: true, applied: applied > 0 },
+        Math.round(performance.now() - started));
+      if (discarded) toast('Очередь: ' + discarded + ' точек не применены', 'err');
+      updateQueueStatus();
+      return rows;
+    }).catch(function (error) {
+      console.warn('[QUEUE] очередь не отправлена', error);
+      updateQueueStatus();
+    }).finally(function () {
+      state.queueFlushing = false;
+    });
+  }
+
+  function saveBatch() {
+    writeStoredJson(LS_BATCH, state.batch);
+  }
+
+  function restoreBatch() {
+    var rows = readStoredJson(LS_BATCH, []);
+    if (!Array.isArray(rows)) return;
+    state.batch = rows.filter(isPointLike).map(normalizePoint).slice(-MAX_QUEUE);
+    saveBatch();
+    if (state.batch.length) {
+      $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
+    }
+  }
+
+  // Введённую точку и выбранного агента не теряем при перезагрузке страницы.
+  function saveForm() {
+    if (restoringForm) return;
+    if (!$('agentSelect') || !$('customObj')) return;
+    writeStoredJson(LS_FORM, {
+      obj: $('agentSelect').value,
+      custom: $('customObj').value,
+      lat: $('latInput').value,
+      lon: $('lonInput').value,
+      savedAt: state.lastPointAt
+    });
+  }
+
+  function restoreForm() {
+    var form = readStoredJson(LS_FORM, null);
+    if (!form || typeof form !== 'object') return;
+    pendingForm = form;
+    $('customObj').value = form.custom || '';
+    $('latInput').value = form.lat || '';
+    $('lonInput').value = form.lon || '';
+    var lat = Number(form.lat);
+    var lon = Number(form.lon);
+    if (form.lat !== '' && form.lon !== '' && isFinite(lat) && isFinite(lon)) {
+      var savedAt = Number(form.savedAt) || 0;
+      restoringForm = true;
+      setPoint(lat, lon, true);
+      restoringForm = false;
+      if (savedAt) {
+        state.lastPointAt = savedAt;
+        try { localStorage.setItem(LS_LAST_POINT, String(savedAt)); }
+        catch (error) { console.warn('[STORAGE]', error); }
+        updateQueueStatus();
+      }
+    }
+    updateSelectedBadge();
+  }
+
+  var toastTimer = null;
+  function toast(message, kind) {
+    var el = $('toast');
+    el.textContent = message;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = 'toast ' + (kind || ''); }, 3200);
+  }
+
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+    return fetch(path, options).then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) {
+          if (!response.ok) {
+            var error = new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+            error.body = body;
+            throw error;
+          }
+          return body;
+        });
+    });
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') {
+      $('map').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Карта недоступна: Leaflet не загрузился</div>';
+      return;
+    }
+    map = L.map('map', { zoomControl: false, attributionControl: true }).setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    map.on('click', function (event) {
+      setPoint(event.latlng.lat, event.latlng.lng, true);
+    });
+  }
+
+  function loadLocation() {
+    return api('/api/location').then(function (loc) {
+      state.location = loc;
+      if (!map) return;
+      var center = loc.center;
+      if (!center && loc.bbox) {
+        center = { lat: (loc.bbox[1] + loc.bbox[3]) / 2, lon: (loc.bbox[0] + loc.bbox[2]) / 2 };
+      }
+      if (center) map.setView([Number(center.lat), Number(center.lon)], 16);
+      drawLocationLayers(loc);
+    }).catch(function () {
+      $('counts').textContent = 'Геоданные ВДНХ недоступны';
+    });
+  }
+
+  function drawLocationLayers(loc) {
+    if (!map) return;
+    state.locationLayers.forEach(function (layer) {
+      try { map.removeLayer(layer); } catch (error) { /* уже удалён */ }
+    });
+    state.locationLayers = [];
+
+    if (loc.boundary && loc.boundary.coordinates) {
+      var boundary = L.geoJSON(loc.boundary, {
+        style: { color: '#0b2545', weight: 2, dashArray: '6,4', fill: false, opacity: 0.65 },
+        interactive: false
+      }).addTo(map);
+      state.locationLayers.push(boundary);
+      try { map.fitBounds(boundary.getBounds(), { padding: [18, 18] }); } catch (error) { /* пустая граница */ }
+    }
+
+    var roadStyles = {
+      service: { color: '#94a3b8', weight: 2 },
+      pedestrian: { color: '#3b82f6', weight: 2, dashArray: '4,4' },
+      taxi: { color: '#f59e0b', weight: 2 },
+      runway: { color: '#ef4444', weight: 5 }
+    };
+    var roads = (loc.roads && loc.roads.features) ? loc.roads.features : [];
+    var byType = {};
+    roads.forEach(function (road) {
+      var type = (road.properties && road.properties.type) || 'service';
+      (byType[type] = byType[type] || []).push(road);
+    });
+    Object.keys(byType).forEach(function (type) {
+      if (!roadStyles[type]) return;
+      state.locationLayers.push(L.geoJSON(
+        { type: 'FeatureCollection', features: byType[type] },
+        { style: roadStyles[type], interactive: false }
+      ).addTo(map));
+    });
+
+    (loc.objects || []).forEach(function (obj) {
+      if (!obj.centroid) return;
+      var marker = L.marker([Number(obj.centroid.lat), Number(obj.centroid.lon)], {
+        icon: markerIcon('#0b2545', '•', 22), interactive: false, zIndexOffset: -100
+      }).addTo(map);
+      marker.bindTooltip(obj.name || obj.id, { direction: 'top' });
+      state.locationLayers.push(marker);
+    });
+
+    (loc.parkings || []).forEach(function (zone) {
+      if (!zone.geometry) return;
+      var layer = L.geoJSON(zone.geometry, {
+        style: { color: '#1f6feb', weight: 1, fillColor: '#4d9fff', fillOpacity: 0.14 },
+        interactive: false
+      }).addTo(map);
+      layer.bindTooltip(zone.label || zone.id, { sticky: true });
+      state.locationLayers.push(layer);
+    });
+  }
+
+  function markerIcon(color, text, size) {
+    size = size || 32;
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color +
+        ';border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.3);display:flex;' +
+        'align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800">' + text + '</div>',
+      iconSize: [size, size], iconAnchor: [size / 2, size / 2]
+    });
+  }
+
+  function setPoint(lat, lng, moveMarker) {
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    state.selectedPoint = { lat: lat, lng: lng };
+    $('latInput').value = lat.toFixed(6);
+    $('lonInput').value = lng.toFixed(6);
+    if (moveMarker && map) {
+      if (!targetMarker) {
+        targetMarker = L.marker([lat, lng], { draggable: true, icon: markerIcon('#dc2626', 'Ц', 38), zIndexOffset: 1200 }).addTo(map);
+        targetMarker.on('dragend', function () {
+          var point = targetMarker.getLatLng();
+          setPoint(point.lat, point.lng, false);
+        });
+      } else {
+        targetMarker.setLatLng([lat, lng]);
+      }
+    }
+    touchPointTime();
+    saveForm();
+    updateSelectedBadge();
+  }
+
+  function updateSelectedBadge() {
+    var label = $('agentSelect');
+    var custom = $('customObj').value.trim();
+    var obj = custom || state.selectedObj;
+    var name = label.options[label.selectedIndex] ? label.options[label.selectedIndex].textContent : '';
+    $('selectedBadge').textContent = obj ? (obj + (name && !custom ? ' · ' + name : '')) : 'Точка не выбрана';
+  }
+
+  function renderAgents(payload) {
+    state.agents = payload;
+    $('counts').textContent = (payload.engineers || []).length + ' инженеров · ' +
+      (payload.transport || []).length + ' ТС · ' + (payload.aircraft || []).length + ' ВС';
+    if (!map) return;
+    var seen = {};
+    function put(kind, obj, lat, lng, label, color, text) {
+      if (!isFinite(Number(lat)) || !isFinite(Number(lng))) return;
+      var key = kind + ':' + obj;
+      seen[key] = true;
+      var marker = state.markers[key];
+      if (!marker) {
+        marker = L.marker([Number(lat), Number(lng)], { icon: markerIcon(color, text, 30), title: label }).addTo(map);
+        marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
+        state.markers[key] = marker;
+      } else {
+        marker.setLatLng([Number(lat), Number(lng)]);
+      }
+    }
+    (payload.engineers || []).forEach(function (item) { put('engineer', item.id, item.lat, item.lng, item.label || item.name, '#64748b', 'И'); });
+    (payload.transport || []).forEach(function (item) { put('transport', item.id, item.lat, item.lng, item.label, '#0ea5e9', 'Т'); });
+    (payload.aircraft || []).forEach(function (item) { put('aircraft', item.obj || item.id, item.lat, item.lng, item.label || item.callsign, '#f59e0b', 'ВС'); });
+    Object.keys(state.markers).forEach(function (key) {
+      if (!seen[key]) { map.removeLayer(state.markers[key]); delete state.markers[key]; }
+    });
+    rebuildSelect(payload);
+  }
+
+  function rebuildSelect(payload) {
+    var select = $('agentSelect');
+    var current = select.value || state.selectedObj;
+    var html = '<option value="">— выберите агента —</option>';
+    function group(title, items, kind) {
+      if (!items || !items.length) return;
+      html += '<optgroup label="' + esc(title) + '">';
+      items.forEach(function (item) {
+        var obj = kind === 'aircraft' ? (item.obj || item.id) : String(item.id);
+        var label = (item.label || item.callsign || item.name || obj) +
+          (item.device_id && item.device_id !== label ? ' · ' + item.device_id : '');
+        html += '<option value="' + esc(obj) + '" data-kind="' + kind + '">' + esc(label) + '</option>';
+      });
+      html += '</optgroup>';
+    }
+    group('Инженеры', payload.engineers, 'engineer');
+    group('Спецтранспорт', payload.transport, 'transport');
+    group('Воздушные суда', payload.aircraft, 'aircraft');
+    select.innerHTML = html;
+    if (current) {
+      var found = Array.prototype.slice.call(select.options).some(function (option) { return option.value === current; });
+      if (found) select.value = current;
+    }
+    if (pendingForm && pendingForm.obj) {
+      var savedObj = String(pendingForm.obj);
+      var restored = Array.prototype.slice.call(select.options).some(function (option) {
+        return option.value === savedObj;
+      });
+      if (restored) {
+        select.value = savedObj;
+        state.selectedObj = savedObj;
+      }
+      pendingForm = null;
+      saveForm();
+    }
+    updateSelectedBadge();
+  }
+
+  function selectedAgent() {
+    var select = $('agentSelect');
+    var custom = $('customObj').value.trim();
+    if (custom) return { obj: custom, kind: 'custom' };
+    if (!select.value) return null;
+    var option = select.options[select.selectedIndex];
+    return { obj: select.value, kind: option.getAttribute('data-kind') || 'custom' };
+  }
+
+  function setGpsPoint(position) {
+    state.gpsPoint = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      acc: position.coords.accuracy != null ? position.coords.accuracy : null,
+      spd: position.coords.speed != null ? position.coords.speed : null
+    };
+    setPoint(state.gpsPoint.lat, state.gpsPoint.lng, true);
+  }
+
+  function startGps() {
+    if (!navigator.geolocation) {
+      toast('GPS недоступен на этом устройстве', 'err');
+      return false;
+    }
+    if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = navigator.geolocation.watchPosition(setGpsPoint, function (error) {
+      toast('GPS: ' + (error.message || 'нет сигнала'), 'err');
+    }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    return true;
+  }
+
+  function stopGps() {
+    if (state.gpsWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = null;
+  }
+
+  function currentPoint() {
+    var source = $('beaconSource').value;
+    if (source === 'gps' && state.gpsPoint) return state.gpsPoint;
+    if (state.selectedPoint) return state.selectedPoint;
+    var lat = Number($('latInput').value);
+    var lon = Number($('lonInput').value);
+    if (isFinite(lat) && isFinite(lon)) return { lat: lat, lng: lon };
+    return null;
+  }
+
+  function flushBatch(silent) {
+    if (!state.batch.length) return Promise.resolve();
+    var points = state.batch.splice(0, state.batch.length);
+    saveBatch();
+    var agent = selectedAgent();
+    var started = performance.now();
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: points })
+    }).then(function (rows) {
+      var results = Array.isArray(rows) ? rows : [];
+      var applied = results.filter(function (row) { return row && row.applied; }).length;
+      results.forEach(function (row, index) {
+        if (row && row.applied === true) return;
+        addLog(points[index] ? points[index].obj : 'пакет', {
+          accepted: !!(row && row.accepted),
+          applied: false,
+          error: row ? row.error : 'нет ответа'
+        }, 0);
+      });
+      addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
+        { accepted: true, applied: applied > 0 }, Math.round(performance.now() - started));
+      $('beaconMeta').textContent = state.beaconSends + ' отправок · пакет ' + points.length;
+      markTrackSuccess();
+      if (!silent) toast('Пакет: ' + applied + ' из ' + points.length + ' принято', applied ? 'ok' : 'err');
+      return rows;
+    }).catch(function (error) {
+      // Пакет не ушёл — сохраняем точки в офлайн-очередь, а не теряем.
+      points.forEach(enqueuePoint);
+      addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
+        { accepted: false, applied: false, error: error.message }, 0);
+      if (!silent) toast(error.message + ' · точки в очереди', 'err');
+    });
+  }
+
+  function sendPoint(silent) {
+    var agent = selectedAgent();
+    var point = currentPoint();
+    if (!agent) { if (!silent) toast('Выберите агента или укажите obj', 'err'); return Promise.resolve(); }
+    if (!point) { if (!silent) toast('Укажите точку на карте', 'err'); return Promise.resolve(); }
+    if (state.sending) return Promise.resolve();
+    if (state.batchMode && (agent.kind === 'transport' || agent.kind === 'aircraft')) {
+      var batchPoint = {
+        obj: agent.obj,
+        lat: Number(point.lat.toFixed(7)),
+        lon: Number(point.lng.toFixed(7)),
+        t: new Date().toISOString()
+      };
+      if (point.acc != null) batchPoint.acc = point.acc;
+      if (point.spd != null) batchPoint.spd = point.spd;
+      state.batch.push(batchPoint);
+      saveBatch();
+      $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
+      return state.batch.length >= 5 ? flushBatch(silent) : Promise.resolve();
+    }
+    state.sending = true;
+    var started = performance.now();
+    var payload = {
+      obj: agent.obj,
+      lat: Number(point.lat.toFixed(7)),
+      lon: Number(point.lng.toFixed(7)),
+      t: new Date().toISOString()
+    };
+    if (point.acc != null) payload.acc = point.acc;
+    if (point.spd != null) payload.spd = point.spd;
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }).then(function (result) {
+      var ms = Math.round(performance.now() - started);
+      addLog(agent.obj, result, ms);
+      if (result.applied) {
+        markTrackSuccess();
+      } else {
+        console.warn('[TRACK] точка не применена', agent.obj, payload.t);
+      }
+      removeQueuedPoint(payload);
+      if (!silent) {
+        toast(result.applied ? 'Точка принята' : 'Сервер не знает такого агента', result.applied ? 'ok' : 'err');
+      }
+      return result;
+    }).catch(function (error) {
+      // Неудачную отправку складываем в localStorage-очередь для повтора.
+      enqueuePoint(payload);
+      addLog(agent.obj, { accepted: false, applied: false, error: error.message }, Math.round(performance.now() - started));
+      if (!silent) toast(error.message + ' · точка в очереди', 'err');
+    }).finally(function () {
+      state.sending = false;
+    });
+  }
+
+  function addLog(obj, result, ms) {
+    var log = $('log');
+    if (log.querySelector('.muted')) log.innerHTML = '';
+    var time = new Date().toLocaleTimeString('ru-RU');
+    var status = result.applied ? 'принята' : (result.accepted ? 'объект неизвестен' : 'ошибка');
+    var css = result.applied ? 'ok' : (result.accepted ? 'warn' : 'bad');
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = '<span class="log-time">' + esc(time) + '</span>' +
+      '<span class="log-body"><b>' + esc(obj) + ' → ' + esc(status) + '</b>' +
+      '<span class="muted">' + esc(ms) + ' мс · accepted=' + esc(result.accepted) +
+      ' · applied=' + esc(result.applied) + (result.error ? ' · ' + esc(result.error) : '') + '</span></span>';
+    log.insertBefore(item, log.firstChild);
+    while (log.children.length > 40) log.removeChild(log.lastChild);
+  }
+
+  function startBeacon() {
+    var agent = selectedAgent();
+    if (!agent) { toast('Сначала выберите агента', 'err'); return; }
+    if ($('beaconSource').value === 'gps' && !startGps()) return;
+    var interval = Number($('beaconInterval').value) || 2000;
+    state.beaconSends = 0;
+    if (state.batch.length) flushBatch(true);
+    $('beaconBox').classList.add('on');
+    $('beaconTitle').textContent = 'Маяк: ' + agent.obj;
+    $('beaconMeta').textContent = '0 отправок';
+    $('beaconStart').disabled = true;
+    $('beaconStop').disabled = false;
+    sendPoint(true);
+    state.beaconTimer = setInterval(function () {
+      if (!state.selectedPoint && $('beaconSource').value === 'gps' && !state.gpsPoint) return;
+      sendPoint(true).then(function () {
+        state.beaconSends += 1;
+        $('beaconMeta').textContent = state.beaconSends + ' отправок';
+      });
+    }, interval);
+    toast('Маяк включён: ' + agent.obj, 'ok');
+  }
+
+  function stopBeacon() {
+    if (state.beaconTimer) clearInterval(state.beaconTimer);
+    state.beaconTimer = null;
+    flushBatch(true);
+    stopGps();
+    $('beaconBox').classList.remove('on');
+    $('beaconTitle').textContent = 'Маяк выключен';
+    $('beaconStart').disabled = false;
+    $('beaconStop').disabled = true;
+  }
+
+  function refreshAgents() {
+    return api('/api/v1/agents').then(renderAgents).catch(function (error) {
+      console.warn('[AGENTS]', error);
+    });
+  }
+
+  function connectStream() {
+    if (!window.EventSource) return;
+    var source = new EventSource('/api/v1/stream');
+    source.addEventListener('hello', function () {
+      $('liveBadge').classList.add('on');
+      $('liveText').textContent = 'LIVE';
+    });
+    source.addEventListener('position', function (event) {
+      try {
+        var point = JSON.parse(event.data);
+        var key = point.type + ':' + point.obj;
+        var marker = state.markers[key];
+        if (marker) marker.setLatLng([Number(point.lat), Number(point.lon)]);
+      } catch (error) { /* ignore */ }
+    });
+    source.addEventListener('sync', function () { refreshAgents(); });
+    source.onerror = function () {
+      $('liveBadge').classList.remove('on');
+      $('liveText').textContent = '…';
+      setTimeout(function () { source.close(); connectStream(); }, 3000);
+    };
+  }
+
+  function checkServerAuth() {
+    return fetch('/api/auth/session').then(function (response) {
+      return response.json().catch(function () { return {}; })
+        .then(function (body) { return { ok: response.ok, body: body }; });
+    });
+  }
+
+  function openLoginSheet() {
+    $('loginSheet').classList.add('show');
+  }
+
+  function submitLogin() {
+    var email = $('loginEmail').value.trim();
+    var password = $('loginPassword').value;
+    if (!email || !password) { toast('Введите email и пароль', 'err'); return; }
+    api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function () {
+      $('loginSheet').classList.remove('show');
+      startUi();
+    }).catch(function (error) { toast(error.message, 'err'); });
+  }
+
+  function boot() {
+    $('loginBtn').onclick = submitLogin;
+    checkServerAuth().then(function (result) {
+      if (result.ok) { startUi(); return; }
+      if (result.body && result.body.auth_required) { openLoginSheet(); return; }
+      startUi();
+    }).catch(function () { startUi(); });
+  }
+
+  function startUi() {
+    initMap();
+    restoreBatch();
+    restoreForm();
+    $('agentSelect').onchange = function () {
+      state.selectedObj = this.value;
+      saveForm();
+      updateSelectedBadge();
+      var agent = selectedAgent();
+      if (agent) {
+        var item = null;
+        if (agent.kind === 'engineer') item = state.agents.engineers.find(function (x) { return String(x.id) === agent.obj; });
+        if (agent.kind === 'transport') item = state.agents.transport.find(function (x) { return String(x.id) === agent.obj; });
+        if (agent.kind === 'aircraft') item = state.agents.aircraft.find(function (x) { return String(x.obj || x.id) === agent.obj; });
+        if (item && isFinite(Number(item.lat))) setPoint(Number(item.lat), Number(item.lng), true);
+      }
+    };
+    $('customObj').oninput = function () {
+      saveForm();
+      updateSelectedBadge();
+    };
+    $('latInput').onchange = function () { setPoint(Number(this.value), Number($('lonInput').value), true); };
+    $('lonInput').onchange = function () { setPoint(Number($('latInput').value), Number(this.value), true); };
+    $('sendBtn').onclick = function () { sendPoint(false); };
+    $('beaconStart').onclick = startBeacon;
+    $('beaconStop').onclick = stopBeacon;
+    $('batchToggle').onchange = function () {
+      state.batchMode = this.checked;
+      toast(this.checked ? 'Пакетная отправка включена' : 'Пакетная отправка выключена', 'ok');
+      if (!this.checked) flushBatch(true);
+    };
+    loadLocation().then(refreshAgents);
+    connectStream();
+    setInterval(refreshAgents, 10000);
+    setInterval(flushQueue, 10000);
+    window.addEventListener('online', function () {
+      updateQueueStatus();
+      flushQueue();
+    });
+    window.addEventListener('offline', updateQueueStatus);
+    updateQueueStatus();
+    if (state.batch.length) flushBatch(true);
+    flushQueue();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>
