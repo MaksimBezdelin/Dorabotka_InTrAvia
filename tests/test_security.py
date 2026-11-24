@@ -60,7 +60,9 @@ def test_dashboard_redirects_anonymous(anon_client, auth_on, path):
 
 def test_public_routes_without_session(anon_client, auth_on):
     assert anon_client.get('/login.html').status_code == 200
-    assert anon_client.get('/m/engineer').status_code == 200
+    # Мобильный клиент main отдаёт /m/engineer редиректом на mobile/www/login.html.
+    assert anon_client.get('/m/engineer').status_code in (200, 302)
+    assert anon_client.get('/m/engineer', follow_redirects=True).status_code == 200
     assert anon_client.get('/m/agents').status_code == 200
     assert anon_client.post('/api/v1/track', json={
         'obj': 'eng_1', 'lat': 55.97, 'lon': 37.40}).status_code in (200, 400)

@@ -49,3 +49,4 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 logs/
+*.bak_fim_*

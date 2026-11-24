@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 from flask_cors import CORS
 from flask import (Flask, request, jsonify, session,
                    render_template, redirect, url_for, Response, abort,
-                   stream_with_context)
+                   send_from_directory, stream_with_context)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
@@ -431,7 +431,7 @@ AIRPORTS = {
     'svo': 'Шереметьево (SVO)',
     'vdnh': 'ВДНХ',
 }
-DEFAULT_AIRPORT = 'svo'
+DEFAULT_AIRPORT = 'vdnh'
 SYSTEM_SETTINGS_PATH = os.path.join(BASE_DIR, 'data', 'system_settings.json')
 
 
@@ -1958,6 +1958,235 @@ def normalize_fault_type(raw):
         if any(syn in raw_lower for syn in synonyms):
             return code
     return 'other'
+
+
+MEL_AOG_ATA_CATEGORY = {
+    '21': ('C', 10), '22': ('B', 3), '23': ('C', 10), '24': ('B', 3),
+    '25': ('D', 120), '26': ('B', 3), '27': ('A', 1), '28': ('B', 3),
+    '29': ('A', 1), '30': ('B', 3), '31': ('C', 10), '32': ('A', 1),
+    '33': ('D', 120), '34': ('C', 10), '35': ('A', 1), '36': ('B', 3),
+    '38': ('D', 120), '44': ('D', 120), '45': ('C', 10), '46': ('C', 10),
+    '47': ('C', 10), '49': ('C', 10), '52': ('A', 1), '53': ('A', 1),
+    '71': ('B', 3), '73': ('B', 3), '74': ('B', 3), '75': ('B', 3),
+    '76': ('B', 3), '77': ('C', 10), '78': ('B', 3), '79': ('B', 3),
+    '80': ('B', 3),
+}
+MEL_AOG_CRITICAL_ATA = {'27', '32', '35', '52',
+                        '71', '73', '74', '75', '76', '78', '79', '80'}
+MEL_AOG_ACTUAL_FIRE = re.compile(
+    r'пожар\s+(двигател|вс|самолет|отсек|кабин|гондол)|возгоран|взрыв')
+MEL_AOG_FAULT_WORDS = re.compile(r'отказ|потер|утечк|заклиниван|не выпуска|не убира|не запуска')
+
+
+ATA_TEXT_HINTS = (
+    ('26', r'пожар|огнетуш|дым'),
+    ('27', r'элерон|руль|закрылк|предкрылк|управлен.*(самолет|элерон|рул|закрыл|предкрыл)'),
+    ('29', r'гидросистем|гидравлич'),
+    ('32', r'шасси|тормоз'),
+    ('73', r'топлив.*двигател'),
+    ('28', r'топлив'),
+    ('24', r'генератор|электропитан|аккумулятор|контактор|азс|шина питания'),
+    ('35', r'кислород'),
+    ('52', r'двер|люк'),
+    ('23', r'связ|радио|антенн'),
+    ('34', r'навигац|курс|ils|vor|dme|adf|gnss'),
+    ('30', r'обледен|противооблед'),
+    ('21', r'кондицион|наддув|герметизац'),
+    ('22', r'автопилот|автомат.*управлен'),
+    ('31', r'индикац|дисплей|регистратор'),
+    ('33', r'освещен|фар'),
+    ('38', r'водоснабж|унитаз|кухн'),
+    ('44', r'салон'),
+    ('49', r'всу|вспомогательн.*установк'),
+    ('36', r'пневматич'),
+    ('25', r'кресл|багаж'),
+    ('77', r'индикац.*двигател'),
+    ('71', r'двигател'),
+)
+
+
+def _infer_ata_from_text(low):
+    for ata, pattern in ATA_TEXT_HINTS:
+        if re.search(pattern, low):
+            return ata
+    return ''
+
+
+def classify_mel_aog(text, ata=None, conn=None):
+    """Классифицирует формулировку как AOG или MEL по словарю в БД.
+
+    Правила читаются из fault_classification_rules; при отсутствии таблиц
+    используется тот же встроенный набор. Результат — рекомендация,
+    требует подтверждения инженером/MCC.
+    """
+    raw = str(text or '').strip()
+    if not raw:
+        raise ValueError('Укажите текст неисправности')
+    low = raw.lower()
+    ata = str(ata or '').strip()
+    if not ata:
+        ata = _infer_ata_from_text(low) or ''
+    own_conn = conn is None
+    if own_conn:
+        conn = get_db()
+    try:
+        try:
+            rules = [dict(row) for row in conn.execute(
+                'SELECT rule_code, rule_type, pattern, decision, category, '
+                'interval_days, note FROM fault_classification_rules '
+                'ORDER BY priority')]
+        except sqlite3.Error:
+            rules = []
+        if not rules:
+            rules = [
+                {'rule_code': 'MEL-IND', 'rule_type': 'mel',
+                 'pattern': r'индикац|сигнализац|датчик|кнопк|табло|лампа|подсвет|дисплей|панель|пульт|разъем|провод|цепь',
+                 'decision': 'MEL', 'category': 'C', 'interval_days': 10,
+                 'note': 'Отказ индикации/датчика/цепи'},
+                {'rule_code': 'AOG-ENGINE', 'rule_type': 'aog',
+                 'pattern': r'отказ двигател|не запускается двигател',
+                 'decision': 'AOG', 'category': '', 'interval_days': 0,
+                 'note': 'Отказ двигателя'},
+                {'rule_code': 'AOG-DEPRESS', 'rule_type': 'aog',
+                 'pattern': r'разгерметизац|полная потеря|полный отказ|обесточ',
+                 'decision': 'AOG', 'category': '', 'interval_days': 0,
+                 'note': 'Потеря герметизации/полное обесточивание'},
+            ]
+        mel_rule = None
+        for rule in rules:
+            if rule.get('rule_type') != 'mel':
+                continue
+            try:
+                matched = re.search(rule['pattern'], low, re.IGNORECASE)
+            except re.error:
+                matched = None
+            if matched:
+                mel_rule = rule
+                break
+        if mel_rule and not MEL_AOG_ACTUAL_FIRE.search(low):
+            return _mel_aog_result(raw, ata, mel_rule['decision'],
+                                   mel_rule.get('category') or 'C',
+                                   int(mel_rule.get('interval_days') or 10),
+                                   mel_rule.get('note') or '',
+                                   mel_rule['rule_code'], 'high', conn)
+        for rule in rules:
+            if rule.get('rule_type') != 'aog':
+                continue
+            try:
+                matched = re.search(rule['pattern'], low, re.IGNORECASE)
+            except re.error:
+                matched = None
+            if matched:
+                return _mel_aog_result(raw, ata, 'AOG', '', 0,
+                                       rule.get('note') or '',
+                                       rule['rule_code'], 'high', conn)
+        if ata in MEL_AOG_CRITICAL_ATA and MEL_AOG_FAULT_WORDS.search(low):
+            return _mel_aog_result(raw, ata, 'AOG', '', 0,
+                                   f'Критическая глава ATA {ata}',
+                                   'ATA-CRITICAL', 'medium', conn)
+        category, days = MEL_AOG_ATA_CATEGORY.get(ata, ('C', 10))
+        return _mel_aog_result(raw, ata, 'MEL', category, days,
+                               'Отложимый пункт MEL', 'ATA-DEFAULT',
+                               'medium', conn)
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _mel_aog_result(text, ata, decision, category, days, reason, rule,
+                    confidence, conn):
+    interval = '—' if decision == 'AOG' else (f'{days} дней' if days else '—')
+    if decision == 'AOG':
+        conditions = ('Эксплуатация запрещена до устранения; оформить AOG, '
+                      'уведомить MCC и диспетчера.')
+    else:
+        conditions = (f'Допускается отложить по MEL категории {category or "C"} '
+                      f'на {interval} с выполнением ограничений и процедур MEL.')
+    matches = []
+    tokens = [tok for tok in re.findall(r'[А-Яа-яA-Za-z]{5,}', text)][:4]
+    if tokens:
+        try:
+            where = ' AND '.join(['lower(title) LIKE ?'] * len(tokens))
+            params = ['%' + tok.lower() + '%' for tok in tokens]
+            sql = ('SELECT fim_code, ata, title, decision, mel_category '
+                   'FROM fault_classification WHERE ' + where)
+            if ata:
+                sql += ' AND ata=?'
+                params.append(ata)
+            sql += ' LIMIT 5'
+            matches = [dict(row) for row in conn.execute(sql, params)]
+        except sqlite3.Error:
+            matches = []
+    return {
+        'text': text,
+        'ata': ata or None,
+        'decision': decision,
+        'mel_category': category,
+        'interval_days': days,
+        'interval_text': interval,
+        'reason': reason,
+        'rule': rule,
+        'confidence': confidence,
+        'conditions': conditions,
+        'needs_review': True,
+        'matches': matches,
+        'source': 'FIM 007-00 + правила MEL/AOG (требует сверки с MEL ВС)',
+    }
+
+
+@app.route('/api/faults/classify', methods=['GET'])
+def api_faults_classify():
+    text = (request.args.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'Параметр text обязателен'}), 400
+    conn = get_db()
+    try:
+        result = classify_mel_aog(text, request.args.get('ata'), conn)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    finally:
+        conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/faults/catalog', methods=['GET'])
+def api_faults_catalog():
+    ata = (request.args.get('ata') or '').strip()
+    decision = (request.args.get('decision') or '').upper().strip()
+    query = (request.args.get('q') or '').strip()
+    try:
+        limit = max(1, min(int(request.args.get('limit', 50)), 500))
+    except (TypeError, ValueError):
+        limit = 50
+    where = []
+    params = []
+    if ata:
+        where.append('ata=?')
+        params.append(ata)
+    if decision in ('AOG', 'MEL'):
+        where.append('decision=?')
+        params.append(decision)
+    if query:
+        where.append('lower(title) LIKE ?')
+        params.append('%' + query.lower() + '%')
+    sql = ('SELECT fim_code, ata, title, decision, mel_category, interval_text, '
+           'conditions, reason, matched_rule, confidence, needs_review '
+           'FROM fault_classification')
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY ata, fim_code LIMIT ?'
+    params.append(limit)
+    conn = get_db()
+    try:
+        rows = [dict(row) for row in conn.execute(sql, params)]
+        total = conn.execute('SELECT COUNT(*) FROM fault_classification').fetchone()[0]
+        counts = {row['decision']: row['n'] for row in conn.execute(
+            'SELECT decision, COUNT(*) AS n FROM fault_classification GROUP BY decision')}
+    except sqlite3.Error:
+        conn.close()
+        return jsonify({'error': 'Словарь не собран. Запустите tools/build_fim_mel_aog.py'}), 503
+    conn.close()
+    return jsonify({'total': total, 'counts': counts, 'items': rows})
 
 
 def get_free_engineer_for(conn, fault_type, required_skill_map,
@@ -7266,11 +7495,6 @@ def api_v1_events_export():
     return Response(payload,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     headers={'Content-Disposition': 'attachment; filename="' + filename + '"'})
-
-
-@app.route('/m/engineer')
-def mobile_engineer_app():
-    return render_template('mobile/engineer.html')
 
 
 @app.route('/m/agents')
