@@ -1964,7 +1964,6 @@ function init() {
             state.coordsInterval = setInterval(function() {
                 if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
             }, 500);
-        });
 }
 
 function connectEventStream() {
@@ -1987,6 +1986,35 @@ function connectEventStream() {
     source.addEventListener('sync', function() {
         if (typeof loadRequestsOnly === 'function' && !state.isUpdating && !state.isDragging) {
             loadRequestsOnly();
+        }
+    });
+    // Живая позиция с телефона инженера / из JSON-контракта /api/v1/track.
+    source.addEventListener('position', function(event) {
+        var point;
+        try { point = JSON.parse(event.data); } catch (_) { return; }
+        if (!point || point.lat == null || point.lon == null) return;
+        var lat = Number(point.lat), lng = Number(point.lon);
+        if (!isFinite(lat) || !isFinite(lng)) return;
+        if (point.type === 'engineer') {
+            var emp = null;
+            for (var i = 0; i < state.employees.length; i++) {
+                if (String(state.employees[i].realId) === String(point.obj)) { emp = state.employees[i]; break; }
+            }
+            if (!emp) return;
+            emp.lat = lat; emp.lng = lng;
+            emp.gpsLat = lat; emp.gpsLng = lng;
+            if (point.heading != null) emp.gpsHeading = Number(point.heading);
+            var marker = state.mapMarkers['emp_' + emp.realId];
+            if (marker) marker.setLatLng([lat, lng]);
+        } else if (point.type === 'transport') {
+            var car = null;
+            for (var j = 0; j < state.transport.length; j++) {
+                if (String(state.transport[j].id) === String(point.obj)) { car = state.transport[j]; break; }
+            }
+            if (!car) return;
+            car.lat = lat; car.lng = lng;
+            var carMarker = state.mapMarkers['car_' + car.id];
+            if (carMarker) carMarker.setLatLng([lat, lng]);
         }
     });
     source.onerror = function() {

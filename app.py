@@ -861,6 +861,19 @@ def prune_stale_map_positions():
                           OR lat < ? OR lat > ? OR lng < ? OR lng > ?""",
                     (min_lat, max_lat, min_lon, max_lon))
         removed = cur.rowcount
+        # Базовые координаты инженеров вне полигона (легаси SVO) переносим
+        # в центр ВДНХ, чтобы до прихода GPS они не висели в Шереметьево.
+        center = load_location_config().get('center') or {}
+        if center.get('lat') is not None and center.get('lon') is not None:
+            cur.execute("""UPDATE engineers SET coords_lat=?, coords_lng=?
+                           WHERE coords_lat IS NULL OR coords_lng IS NULL
+                              OR coords_lat < ? OR coords_lat > ?
+                              OR coords_lng < ? OR coords_lng > ?""",
+                        (float(center['lat']), float(center['lon']),
+                         min_lat, max_lat, min_lon, max_lon))
+            moved = cur.rowcount
+            if moved:
+                print(f'[LOCATION] Инженеров переставлено в центр ВДНХ: {moved}')
         conn.commit()
     finally:
         conn.close()
@@ -4794,8 +4807,8 @@ def get_engineers():
     conn.commit()
     cur = conn.cursor()
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
-                   COALESCE(p.lat,e.coords_lat) AS coords_lat,
-                   COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   COALESCE(gps.lat,p.lat,e.coords_lat) AS coords_lat,
+                   COALESCE(gps.lng,p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
                    gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
@@ -4837,8 +4850,8 @@ def get_engineer(eng_id):
     conn.commit()
     cur = conn.cursor()
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
-                   COALESCE(p.lat,e.coords_lat) AS coords_lat,
-                   COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   COALESCE(gps.lat,p.lat,e.coords_lat) AS coords_lat,
+                   COALESCE(gps.lng,p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
                    gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
@@ -5144,8 +5157,15 @@ def engineer_gps_location(eng_id):
                     (str(eng_id), heading, accuracy if accuracy is not None else 0.0))
     conn.commit()
     conn.close()
+    # Единый конвейер: фактическая позиция телефона сразу применяется как
+    # позиция инженера — маршрут/ETA/автоприбытие/SSE работают так же,
+    # как для POST /api/v1/track (контракт организаторов).
+    applied = _track_apply_position('engineer', str(eng_id), lat, lng,
+                                    _utc_now_iso(), acc=accuracy, heading=heading,
+                                    update_coords=False, recalc=False)
     return jsonify({'success': True, 'engineer_id': str(eng_id), 'lat': lat,
-                    'lng': lng, 'accuracy': accuracy, 'heading': heading})
+                    'lng': lng, 'accuracy': accuracy, 'heading': heading,
+                    'applied': bool(applied)})
 
 
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])
@@ -6834,13 +6854,15 @@ def _stamp_route_arrival(cur, request_id, comment, at, elapsed_min, eta_min, del
     return 'ROUTE:' + json.dumps(payload, ensure_ascii=False) + rest[end:]
 
 
-def _remember_track_meta(kind, object_id, acc, spd, when):
-    """Запоминает acc/spd последней точки агента (без изменения схемы БД)."""
+def _remember_track_meta(kind, object_id, acc, spd, when, heading=None):
+    """Запоминает acc/spd/heading последней точки агента (без изменения схемы БД)."""
     with _TRACK_META_LOCK:
-        _TRACK_META[(kind, str(object_id))] = {'acc': acc, 'spd': spd, 't': when}
+        _TRACK_META[(kind, str(object_id))] = {'acc': acc, 'spd': spd,
+                                               'heading': heading, 't': when}
 
 
-def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None):
+def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None,
+                          heading=None, update_coords=True, recalc=True):
     conn = get_db()
     arrival_event = None
     active_request_id = None
@@ -6848,10 +6870,15 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None):
         cur = conn.cursor()
         assigned_request = None
         if kind == 'engineer':
-            cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
-                        (lat, lng, object_id))
-            if cur.rowcount == 0:
-                return False
+            if update_coords:
+                cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
+                            (lat, lng, object_id))
+                if cur.rowcount == 0:
+                    return False
+            else:
+                cur.execute("SELECT id FROM engineers WHERE id=?", (object_id,))
+                if not cur.fetchone():
+                    return False
 
             # Автоматическое прибытие: точка внутри полигона зоны обслуживания.
             cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
@@ -6925,21 +6952,23 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None):
                             "WHERE id=?", (lat, lng, row['id']))
                 object_id = str(row['id'])
 
-        cur.execute("""INSERT INTO map_object_positions
-                       (object_type, object_id, lat, lng, updated_at)
-                       VALUES (?,?,?,?,?)
-                       ON CONFLICT(object_type, object_id) DO UPDATE SET
-                         lat=excluded.lat, lng=excluded.lng, updated_at=excluded.updated_at""",
-                    (kind, str(object_id), lat, lng, when))
+        if update_coords:
+            cur.execute("""INSERT INTO map_object_positions
+                           (object_type, object_id, lat, lng, updated_at)
+                           VALUES (?,?,?,?,?)
+                           ON CONFLICT(object_type, object_id) DO UPDATE SET
+                             lat=excluded.lat, lng=excluded.lng, updated_at=excluded.updated_at""",
+                        (kind, str(object_id), lat, lng, when))
         conn.commit()
     finally:
         conn.close()
 
     if kind == 'engineer':
-        try:
-            _recalc_routes_for_engineer(object_id, force=True)
-        except Exception as exc:
-            print(f'[TRACK] route recalc engineer: {exc}')
+        if recalc:
+            try:
+                _recalc_routes_for_engineer(object_id, force=True)
+            except Exception as exc:
+                print(f'[TRACK] route recalc engineer: {exc}')
         if active_request_id and not arrival_event:
             _check_regulation_warning(active_request_id)
     elif kind == 'transport' and assigned_request:
@@ -6948,10 +6977,10 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None):
         except Exception as exc:
             print(f'[TRACK] route recalc request: {exc}')
 
-    _remember_track_meta(kind, object_id, acc, spd, when)
+    _remember_track_meta(kind, object_id, acc, spd, when, heading)
     sse_publish('position', {'type': kind, 'obj': str(object_id),
                              'lat': lat, 'lon': lng, 't': when,
-                             'acc': acc, 'spd': spd})
+                             'acc': acc, 'spd': spd, 'heading': heading})
     if arrival_event:
         append_event('arrival', **arrival_event)
         sse_publish('arrival', arrival_event)
@@ -7082,9 +7111,12 @@ def _agents_snapshot():
         cur = conn.cursor()
         cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization,
                               e.status, e.task_step, e.task,
-                              COALESCE(p.lat, e.coords_lat) AS lat,
-                              COALESCE(p.lng, e.coords_lng) AS lng
+                              COALESCE(g.lat, p.lat, e.coords_lat) AS lat,
+                              COALESCE(g.lng, p.lng, e.coords_lng) AS lng,
+                              g.updated_at AS gps_updated_at
                        FROM engineers e
+                       LEFT JOIN map_object_positions g
+                         ON g.object_type='engineer_gps' AND g.object_id=e.id
                        LEFT JOIN map_object_positions p
                          ON p.object_type='engineer' AND p.object_id=e.id
                        ORDER BY e.device_id""")

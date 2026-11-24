@@ -2466,6 +2466,25 @@
             source.addEventListener('sync', function() {
                 if (!moveInterval) loadTasks();
             });
+            // Телефон инженера (та же учётная запись) шлёт GPS — метка на
+            // ноутбуке двигается сразу, без ожидания 5-секундного опроса.
+            source.addEventListener('position', function(event) {
+                var point;
+                try { point = JSON.parse(event.data); } catch (_) { return; }
+                if (!point || point.type !== 'engineer') return;
+                if (String(point.obj) !== String(engineerId)) return;
+                var lat = Number(point.lat), lng = Number(point.lon);
+                if (!isFinite(lat) || !isFinite(lng)) return;
+                if (engineerData) {
+                    engineerData.coords_lat = lat;
+                    engineerData.coords_lng = lng;
+                    engineerData.gps_lat = lat;
+                    engineerData.gps_lng = lng;
+                }
+                if (typeof updateOwnGpsMarker === 'function') {
+                    updateOwnGpsMarker(lat, lng, point.heading, point.t);
+                }
+            });
             source.onerror = function() {
                 setTimeout(function() { source.close(); connectEngineerEventStream(); }, 5000);
             };
@@ -2484,6 +2503,7 @@
                     setInterval(refreshEngineerRequestAircraft, 5000);
                     airportRefreshTimer = setInterval(refreshEngineerAirport, 7000);
                 });
+            });
         });
     })();
 </script>
