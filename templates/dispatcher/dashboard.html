@@ -401,6 +401,10 @@
         }
         .request-item:hover { background: #f8fafc; }
         .request-item:last-child { border-bottom: none; }
+        .candidates-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .candidates-table th { text-align: left; padding: 7px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--aero-gray); border-bottom: 1px solid var(--aero-gray-light); }
+        .candidates-table td { padding: 7px 8px; border-bottom: 1px solid var(--aero-gray-light); vertical-align: top; }
+        .candidates-table tr:last-child td { border-bottom: none; }
         .request-item .req-title { font-weight: 600; font-size: 13px; }
         .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
         .request-item .req-delete-btn {
@@ -3799,7 +3803,7 @@ function updateActiveRequests() {
 
         // В активной карточке показываем только факт назначения.
         // Длительность маршрута отображается на карте рядом с линией маршрута.
-        var statusText = req.engineerId ? 'Назначен' : 'Автоподбор инженера';
+        var statusText = req.engineerId ? 'Назначен' : (req.status === 'queued' ? 'Ожидает назначения' : 'Автоподбор инженера');
         var statusColor = req.engineerId ? 'var(--aero-blue)' : 'var(--aero-orange)';
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
         var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
@@ -3875,6 +3879,13 @@ function openRequestModal(ticketId) {
         reportBlock = '<div class="report-block"><div class="report-label"><i class="fas fa-clipboard-check"></i> Отчёт инженера</div><div class="report-body">' + escapeHtml(reportText) + '</div></div>';
     }
 
+    var needsAssignment = (ticket.routing_stage === 'dispatcher') ||
+        (activeReq && !activeReq.engineerId);
+    var assignBlock = needsAssignment
+        ? '<div class="form-group" style="grid-column:1/-1;"><label>Кандидаты на назначение</label>' +
+          '<div id="candidatesTable" style="max-height:260px;overflow:auto;"><div class="empty-state"><p>Загрузка кандидатов…</p></div></div></div>'
+        : '';
+
     document.getElementById('requestModalTitle').textContent = 'Заявка: ' + (ticket.aircraft || ticket.id);
     document.getElementById('requestModalContent').innerHTML =
         '<div class="form-group"><label>Рейс</label><input type="text" value="' + escapeHtml(ticket.aircraft || '') + '" disabled style="background:#f8fafc;"></div>' +
@@ -3882,6 +3893,7 @@ function openRequestModal(ticketId) {
         '<div class="form-group"><label>Стоянка</label><input type="text" value="' + escapeHtml(ticket.parking_id || '') + '" disabled style="background:#f8fafc;"></div>' +
         '<div class="form-group"><label>Инженер</label><input type="text" value="' + escapeHtml(activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
         '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + escapeHtml(routeBreakdown) + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
+        assignBlock +
         reportBlock +
         '<div class="form-group"><label>Статус</label><select id="statusSelect">' +
         '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
@@ -3895,6 +3907,67 @@ function openRequestModal(ticketId) {
         '</select></div>' +
         '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + ticket.id + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
     document.getElementById('requestModal').classList.add('show');
+    if (needsAssignment) loadDispatcherCandidates(ticket.id);
+}
+
+function loadDispatcherCandidates(ticketId) {
+    var box = document.getElementById('candidatesTable');
+    if (!box) return;
+    fetch(API_URL + '/dispatcher/candidates/' + encodeURIComponent(ticketId))
+        .then(function(res) { return res.json().then(function(body) { return { ok: res.ok, body: body }; }); })
+        .then(function(result) {
+            if (!result.ok) throw new Error(result.body.error || 'Не удалось получить кандидатов');
+            var rows = (result.body && result.body.candidates) || [];
+            if (!rows.length) {
+                box.innerHTML = '<div class="empty-state"><p>Кандидатов нет</p></div>';
+                return;
+            }
+            var html = '<table class="candidates-table"><thead><tr>' +
+                '<th>Инженер</th><th>Допуск</th><th>Занятость</th><th>В пути</th>' +
+                '<th>Загрузка</th><th>Оценка</th><th>Основание</th><th></th></tr></thead><tbody>';
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var eligible = !!row.eligible;
+                html += '<tr style="' + (eligible ? '' : 'opacity:0.55;') + '">' +
+                    '<td><b>' + escapeHtml(row.device_id || row.engineer_id) + '</b><br>' +
+                    '<span style="font-size:11px;color:#8a9bb5;">' + escapeHtml(row.name || '') + '</span></td>' +
+                    '<td>' + escapeHtml(row.specialization || '—') + '</td>' +
+                    '<td>' + (eligible ? 'свободен' : '—') + '</td>' +
+                    '<td>' + (eligible ? escapeHtml(row.travel_time) + ' мин' : '—') + '</td>' +
+                    '<td>' + (eligible ? escapeHtml(row.workload) : '—') + '</td>' +
+                    '<td>' + (eligible ? '<b>' + escapeHtml(row.score) + '</b>' : '—') + '</td>' +
+                    '<td style="font-size:11px;max-width:260px;">' + escapeHtml(row.reason || '') + '</td>' +
+                    '<td>' + (eligible
+                        ? '<button class="btn-sm btn-primary" onclick="assignCandidate(\'' + ticketId + '\',\'' + escapeHtml(row.engineer_id) + '\',\'' + escapeHtml(row.name || row.device_id) + '\')">Назначить</button>'
+                        : '') + '</td></tr>';
+            }
+            html += '</tbody></table>';
+            box.innerHTML = html;
+        })
+        .catch(function(error) {
+            box.innerHTML = '<div class="empty-state"><p>' + escapeHtml(error.message) + '</p></div>';
+        });
+}
+
+function assignCandidate(ticketId, engineerId, engineerName) {
+    fetch(API_URL + '/dispatcher/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            request_id: ticketId,
+            engineer_id: engineerId,
+            comment: 'Назначено диспетчером: ' + (engineerName || engineerId)
+        })
+    }).then(function(res) { return res.json().then(function(body) { return { ok: res.ok, body: body }; }); })
+      .then(function(result) {
+          if (!result.ok || !result.body.success) {
+              throw new Error(result.body.error || 'Не удалось назначить инженера');
+          }
+          showToast('Инженер ' + (engineerName || engineerId) + ' назначен', 'success');
+          closeRequestModal();
+          loadDataOnce();
+      })
+      .catch(function(error) { showToast(error.message, 'error'); });
 }
 
 function saveTicketChanges(ticketId) {
