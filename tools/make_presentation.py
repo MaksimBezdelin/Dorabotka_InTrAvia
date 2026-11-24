@@ -173,9 +173,14 @@ def add_top_brand(slide, right='Авиаперевозки · финал'):
               color=ACCENT, align=PP_ALIGN.RIGHT)
 
 
+def ball_word(count):
+    # После «до» для 1 — родительный падеж «балла», для остальных — «баллов».
+    return 'балла' if count == 1 else 'баллов'
+
+
 def add_criterion_header(slide, title, jury):
     add_top_brand(slide)
-    add_label(slide, 0.45, 0.30, 12.45, 0.78,
+    add_label(slide, 0.45, 0.34, 12.45, 0.74,
               [(title, 19.5, True, BLUE)])
     add_rule(slide, 0.50, 1.12, 12.33, 0.035, ACCENT)
     add_box(slide, 0.50, 1.20, 12.33, 0.54,
@@ -202,8 +207,8 @@ def add_criterion_slide(presentation, spec):
     slide = presentation.slides.add_slide(presentation.slide_layouts[12])
     add_criterion_header(
         slide,
-        'Критерий %s. %s — до %d баллов' % (
-            spec['num'], spec['title'], spec['max']),
+        'Критерий %s. %s — до %d %s' % (
+            spec['num'], spec['title'], spec['max'], ball_word(spec['max'])),
         spec['jury'])
     impl = [('ЧТО РЕАЛИЗОВАНО', 9.0, True, BLUE)]
     impl += [('• ' + line, 9.6, False, DARK) for line in spec['impl']]
@@ -327,22 +332,12 @@ def build_team(presentation):
     shot = r'C:\Users\Вячеслав\Desktop\admin-agent-map.png'
     if os.path.isfile(shot):
         s.shapes.add_picture(shot, Inches(7.15), Inches(1.65), width=Inches(5.15))
-        caption = s.shapes.add_textbox(Inches(7.25), Inches(5.05),
-                                       Inches(4.95), Inches(0.9))
-        caption.text_frame.word_wrap = True
-        paragraph = caption.text_frame.paragraphs[0]
-        paragraph.alignment = PP_ALIGN.CENTER
-        run = paragraph.add_run()
-        run.text = ('Карта агентов: кандидаты, статусы, MEL/AOG и отправка\n'
-                    'координат по контракту /api/v1/track')
-        run.font.size = Pt(12)
-        run.font.color.rgb = GREY
 
 
 def build_overview(presentation):
     slide = presentation.slides.add_slide(presentation.slide_layouts[12])
     add_top_brand(slide)
-    add_label(slide, 0.45, 0.30, 12.45, 0.62,
+    add_label(slide, 0.45, 0.34, 12.45, 0.58,
               [('ЧТО ЗА СИСТЕМА', 26, True, BLUE)])
     add_rule(slide, 0.50, 1.02, 12.33, 0.035, ACCENT)
     add_label(slide, 0.52, 1.10, 12.2, 0.36,
@@ -507,8 +502,9 @@ def build_c2(presentation):
          'templates/, mobile/www, APK', 'да'],
     ], widths=[1.90, 5.35, 3.95, 1.10], top=1.82, height=4.46,
         header_size=9.5, body_size=8.7)
-    add_status(slide, 'ЗАКРЫТ — каждая строка проверена; live 20/20, pytest '
-                      '75 passed / 104 skipped / 0 failed.', 'closed')
+    add_status(slide, 'ЗАКРЫТ — live 20/20 + сценарный прогон 33/33, pytest '
+                      '75 passed / 104 skipped / 0 failed; каждая строка '
+                      'проверена.', 'closed')
     return slide
 
 
@@ -564,7 +560,7 @@ def build_c3(presentation):
 def build_final(presentation):
     slide = presentation.slides.add_slide(presentation.slide_layouts[12])
     add_top_brand(slide)
-    add_label(slide, 0.45, 0.30, 12.45, 0.62,
+    add_label(slide, 0.45, 0.34, 12.45, 0.58,
               [('ДЕМО И КОНТАКТЫ', 26, True, BLUE)])
     add_rule(slide, 0.50, 1.02, 12.33, 0.035, ACCENT)
 
@@ -588,8 +584,7 @@ def build_final(presentation):
         '• Репозиторий Dorabotka_InTrAvia, ветки SlavasTest / main / merged.',
         '• 124 маршрута, 10 модулей intravia/, pytest 75/104/0.',
         '• БД: integrity ok; MEL 3553 / AOG 278 / FIM 3831.',
-        '• Контакты команды: —',
-        '• Заполнить контакты и данные наставника.',
+        '• Контакты команды: — (заполнить до защиты)',
     ], size=10.5, space=7)
     for paragraph in contacts.text_frame.paragraphs:
         if 'Контакты команды' in paragraph.text or 'Заполнить контакты' in paragraph.text:
@@ -670,14 +665,15 @@ CRITERIA = [
          impl=[
              '_track_apply_position(..., recalc=True) → _recalc_routes_for_engineer.',
              'Пересчёт при обновлении GPS/трека; SSE position двигает метку.',
-             'Полевой GPS инженера (PUT /location) вызывает recalc=False — ограничение.',
+             'Полевой GPS инженера (PUT /location) пересчитывает маршрут: recalc=True (app.py:2849).',
          ],
          proof=[
              'pytest: маршрут пересчитывается после track.',
              'live /api/v1/track: applied:true, SSE position.',
+             'Живой проход на ВДНХ — впереди.',
          ],
-         status='ЗАКРЫТ, ЖДЁТ ПОЛЕВОГО ПРОГОНА — общий контур пересчитывает; '
-                'полевой GPS проверить на ВДНХ.',
+         status='ЗАКРЫТ, ЖДЁТ ПОЛЕВОГО ПРОГОНА — пересчёт работает; живой '
+                'проход на ВДНХ впереди.',
          kind='field'),
     dict(num=9, title='Применение спецтранспорта', max=5,
          jury='Система учитывает необходимость спецтранспорта, а не использует '
@@ -720,7 +716,7 @@ CRITERIA = [
              'pytest: автоприбытие по зоне стоянки.',
              'Live на ВДНХ не проводился — следующий этап.',
          ],
-         status='ЗАКРЫТ, ЖДЁТ ПОЛЕВОГО ПРОГОНА — механика готова, живой '
+         status='ГОТОВО К ПОЛЕВОМУ ПРОГОНУ — механика готова, живой '
                 'проход впереди.',
          kind='field'),
     dict(num=12, title='Приём геопозиции', max=5,
@@ -745,8 +741,8 @@ CRITERIA = [
              'Очереди MCC и диспетчера; история переходов.',
          ],
          proof=[
-             'pytest test_chain.',
-             'live: заявка проходит цепочку; прямой маршрут — опция MCC.',
+             'live-сценарий 33/33: полная цепочка MCC→ЦПУ→диспетчер→инженер→отчёт.',
+             'Прямой маршрут MCC→диспетчер — опция, не замена цепочки.',
          ],
          status='ЗАКРЫТ — цепочка воспроизведена, диспетчера не миновать.'),
     dict(num=14, title='Права и полномочия ролей', max=5,
@@ -771,12 +767,11 @@ CRITERIA = [
              'Снятие после «В работе» — диспетчер/MCC с подтверждением; история в заявке.',
          ],
          proof=[
-             'pytest test_dispatch / test_chain.',
+             'pytest test_dispatch.',
              'live: переходы и история статусов.',
          ],
-         status='ЗАКРЫТ, ЖДЁТ ПОЛЕВОГО ПРОГОНА — переходы проверены API, '
-                'полевой цикл впереди.',
-         kind='field'),
+         status='ЗАКРЫТ — переходы проверены live.',
+         kind='closed'),
     dict(num=16, title='Многокритериальный подбор', max=5,
          jury='Учитываются срочность, местоположение, квалификация, загрузка '
               'и начатая работа; выбирается лучший по совокупности.',
@@ -826,8 +821,8 @@ CRITERIA = [
              'critical первым; смена исполнителя — через диспетчера.',
          ],
          proof=[
-             'pytest test_dispatch.',
-             'live candidates: awaiting_parts excluded.',
+             'код+pytest: awaiting_parts исключён.',
+             'live: eta/workload в кандидатах.',
          ],
          status='ЗАКРЫТ — параллельные заявки и возврат в пул подтверждены.'),
     dict(num=20, title='Контроль норматива 15 минут', max=5,
@@ -835,12 +830,12 @@ CRITERIA = [
               'обновляется, факт фиксируется по зоне стоянки.',
          impl=[
              'Норматив от created_at (фиксация заявки), не от принятия.',
-             'Фоновый тикер warning/breach без GPS.',
+             'Тикер warning/breach без GPS (не чаще 10 с).',
              'ETA по маршруту; факт прибытия — по геозоне.',
          ],
          proof=[
              'live: warning 3.8 мин, breach −1.2 без телеметрии.',
-             'live: тикер пишет события в журнал.',
+             'live: тикер пишет события (throttle 10 с).',
          ],
          status='ЗАКРЫТ — норматив от фиксации и тикер подтверждены.'),
     dict(num=21, title='Упреждающее оповещение', max=5,
@@ -849,7 +844,7 @@ CRITERIA = [
          impl=[
              '_check_regulation_warning: за 5 мин, SSE warning.',
              'В уведомлении nearest_free и can_make_it — кто ещё успевает.',
-             'Тикер работает без GPS-точек.',
+             'Тикер без GPS (не чаще 10 с).',
          ],
          proof=[
              'live: warning 3.8 мин, breach −1.2.',
@@ -897,8 +892,7 @@ CRITERIA = [
              'Код готов; pytest зелёный.',
              'Живой прогон на ВДНХ — впереди.',
          ],
-         status='ЗАКРЫТ, ЖДЁТ ПОЛЕВОГО ПРОГОНА — код готов, проверка обрыва '
-                'связи на ВДНХ.',
+         status='ГОТОВО К ПРОГОНУ — код готов, проверка обрыва связи на ВДНХ.',
          kind='field'),
     dict(num='Д3', title='Оригинальность', max=2,
          jury='Наличие и уместность авторских идей, органично расширяющих '
