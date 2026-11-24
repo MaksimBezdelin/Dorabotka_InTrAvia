@@ -227,10 +227,11 @@
         .employee-marker.status-busy { border-color: #e74c3c; }
         .employee-marker.status-free .marker-icon { color: #2ecc71; }
         .employee-marker.status-busy .marker-icon { color: #e74c3c; }
+        .dispatcher-gps-marker-wrap.leaflet-div-icon { background: transparent !important; border: 0 !important; }
         .dispatcher-gps-marker { width: 48px; height: 56px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow: visible; }
-        .dispatcher-gps-marker .gps-direction-arrow { width: 34px; height: 40px; transform-origin: 50% 50%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.32)); }
-        .dispatcher-gps-marker .gps-direction-arrow svg { display: block; width: 100%; height: 100%; }
-        .dispatcher-gps-marker .gps-direction-arrow path { fill: #1677f8; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
+        .dispatcher-gps-marker .dispatcher-gps-arrow { display: block; width: 39px; height: 44px; transform-origin: 50% 50%; transition: transform .12s linear; filter: drop-shadow(0 2px 3px rgba(0,0,0,.42)); }
+        .dispatcher-gps-marker .dispatcher-gps-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+        .dispatcher-gps-marker .dispatcher-gps-arrow path { fill: #0866dc; stroke: #fff; stroke-width: 3; stroke-linejoin: round; }
         .dispatcher-gps-marker .gps-marker-id { margin-top: -1px; font-size: 8px; line-height: 10px; padding: 1px 4px; border-radius: 5px; color: #fff; background: #0f4c9a; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 
         .car-marker {
@@ -915,6 +916,10 @@
             .page-header h1 { font-size: 16px; }
             .card { padding: 16px; }
         }
+    
+    .geojson-number-label-icon { background: transparent !important; border: 0 !important; }
+    .geojson-number-label { display: flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px; background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72); color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none; }
+
     </style>
 </head>
 <body>
@@ -1023,6 +1028,31 @@
                     <p>Нет активных заявок</p>
                 </div>
             </div>
+        </div>
+
+        <div class="card" id="dispatcherPriorityCard">
+            <div class="card-header">
+                <div>
+                    <h3><i class="fas fa-ranking-star" style="color:var(--aero-gold);margin-right:7px;"></i>Таблица приоритетов назначения инженеров</h3>
+                    <div style="font-size:11px;color:var(--aero-gray);margin-top:5px;">Сначала учитывается критичность заявки, затем совместимость специализации, доступность и расчётное время прибытия.</div>
+                </div>
+                <span class="badge-ai" id="dispatcherPriorityCount">0</span>
+            </div>
+            <div class="priority-table-wrap" style="width:100%;overflow-x:auto;">
+                <table class="priority-table" style="width:100%;min-width:980px;border-collapse:collapse;font-size:12px;">
+                    <thead><tr style="background:#f8fafc;text-align:left;">
+                        <th style="padding:11px 10px;">Приоритет</th>
+                        <th style="padding:11px 10px;">Заявка / стоянка</th>
+                        <th style="padding:11px 10px;">Инженер</th>
+                        <th style="padding:11px 10px;">Специализация</th>
+                        <th style="padding:11px 10px;">Прибытие</th>
+                        <th style="padding:11px 10px;">Почему рекомендован</th>
+                        <th style="padding:11px 10px;">Действие</th>
+                    </tr></thead>
+                    <tbody id="dispatcherPriorityBody"><tr><td colspan="7" style="padding:18px;text-align:center;color:var(--aero-gray);">Загрузка рекомендаций…</td></tr></tbody>
+                </table>
+            </div>
+            <div style="font-size:10px;color:var(--aero-gray);margin-top:10px;">Норматив подбора — не более 15 минут. Назначение выполняется только после выбора диспетчером; рекомендации не назначают инженера автоматически.</div>
         </div>
 
     </div>
@@ -1502,6 +1532,8 @@ var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
 
 var pilotTableSignature = '';
 var workflowQueueInterval = null;
+var dispatcherPriorityInterval = null;
+var dispatcherPriorityBusy = false;
 var pilotAudioState = {};
 
 var transcriptionQueue = [];
@@ -1713,7 +1745,8 @@ function Employee(data) {
     // Реальный GPS телефона приоритетен для отображения значка инженера.
     this.gpsLat = data.gps_lat == null ? null : Number(data.gps_lat);
     this.gpsLng = data.gps_lng == null ? null : Number(data.gps_lng);
-    this.gpsHeading = data.gps_heading == null ? null : Number(data.gps_heading);
+    var rawGpsHeading = data.gps_heading != null ? data.gps_heading : (data.heading != null ? data.heading : data.gpsHeading);
+    this.gpsHeading = rawGpsHeading == null ? null : Number(rawGpsHeading);
     this.gpsUpdatedAt = data.gps_updated_at || null;
     this.hasGps = this.gpsLat != null && this.gpsLng != null && isFinite(this.gpsLat) && isFinite(this.gpsLng);
     this.lat = this.hasGps ? this.gpsLat : ((data.coords_lat !== undefined && data.coords_lat !== null) ? Number(data.coords_lat) : 55.975);
@@ -1999,8 +2032,105 @@ function init() {
             state.coordsInterval = setInterval(function() {
                 if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
             }, 500);
+            loadDispatcherPriorityTable();
+            if (dispatcherPriorityInterval) clearInterval(dispatcherPriorityInterval);
+            dispatcherPriorityInterval = setInterval(loadDispatcherPriorityTable, 5000);
         });
 }
+
+
+function loadDispatcherPriorityTable() {
+    if (dispatcherPriorityBusy) return;
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    if (!tbody) return;
+    dispatcherPriorityBusy = true;
+    fetch(API_URL + '/dispatcher/priorities', {cache: 'no-store'})
+        .then(function(response) { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
+        .then(function(payload) {
+            if (!payload || !payload.success || !Array.isArray(payload.requests)) throw new Error('Некорректный ответ приоритета');
+            renderDispatcherPriorityTable(payload.requests);
+        })
+        .catch(function(error) {
+            tbody.innerHTML = '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--aero-red);">Не удалось загрузить таблицу приоритетов: ' + escapeHtml(error.message) + '</td></tr>';
+        })
+        .finally(function() { dispatcherPriorityBusy = false; });
+}
+
+function renderDispatcherPriorityTable(items) {
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    var badge = document.getElementById('dispatcherPriorityCount');
+    if (!tbody) return;
+    if (badge) badge.textContent = String(items.length);
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--aero-gray);"><i class="fas fa-circle-check" style="color:var(--aero-green);"></i> Нет заявок, ожидающих назначения инженера</td></tr>';
+        return;
+    }
+    var html = '';
+    items.forEach(function(item) {
+        var ranking = item.ranking || {};
+        var candidates = ranking.candidates || [];
+        var priorityColor = item.priority === 'high' ? '#dc2626' : (item.priority === 'low' ? '#64748b' : '#d97706');
+        var priorityHtml = '<span style="display:inline-block;padding:4px 7px;border-radius:5px;background:' + priorityColor + '18;color:' + priorityColor + ';font-weight:800;">' + escapeHtml(item.priority_label || 'Средний') + '</span>';
+        var reqHtml = '<strong>' + escapeHtml(item.aircraft || 'ВС') + '</strong>' +
+            (item.flight_number ? '<div style="color:var(--aero-gray);margin-top:3px;">Рейс ' + escapeHtml(item.flight_number) + '</div>' : '') +
+            '<div style="margin-top:3px;">Стоянка ' + escapeHtml(item.parking_id || '—') + '</div>' +
+            '<div style="color:var(--aero-gray);margin-top:3px;">' + escapeHtml(item.description || item.fault_type || '—') + '</div>';
+        if (!candidates.length) {
+            html += '<tr style="border-top:1px solid var(--aero-gray-light);">' +
+                '<td style="padding:12px 10px;">' + priorityHtml + '</td>' +
+                '<td style="padding:12px 10px;">' + reqHtml + '</td>' +
+                '<td colspan="4" style="padding:12px 10px;color:var(--aero-red);">' + escapeHtml(ranking.no_candidate_reason || 'Нет доступного кандидата') + '</td>' +
+                '<td style="padding:12px 10px;color:var(--aero-gray);">Ожидание</td></tr>';
+            return;
+        }
+        candidates.forEach(function(candidate) {
+            var eta = Number(candidate.travel_time || 0);
+            var transportText = candidate.using_car ? ('Спецтранспорт ' + (candidate.best_car || '')) : 'Пешком';
+            html += '<tr style="border-top:1px solid var(--aero-gray-light);">' +
+                '<td style="padding:12px 10px;">' + priorityHtml + '<div style="font-size:10px;color:var(--aero-gray);margin-top:4px;">Кандидат №' + candidate.rank + '</div></td>' +
+                '<td style="padding:12px 10px;">' + reqHtml + '</td>' +
+                '<td style="padding:12px 10px;"><strong>' + escapeHtml(candidate.engineer_name || 'Инженер') + '</strong><div style="font-size:10px;color:var(--aero-gray);margin-top:3px;">' + escapeHtml(candidate.device_id || '') + '</div></td>' +
+                '<td style="padding:12px 10px;">' + escapeHtml(candidate.specialization_label || ranking.required_skill_label || '—') + '</td>' +
+                '<td style="padding:12px 10px;white-space:nowrap;"><strong>' + eta.toFixed(1) + ' мин</strong><div style="font-size:10px;color:var(--aero-gray);margin-top:3px;">' + escapeHtml(transportText) + '</div></td>' +
+                '<td style="padding:12px 10px;min-width:270px;max-width:420px;line-height:1.45;">' + escapeHtml(candidate.reason || 'Совпадение специализации и минимальное ETA') + '</td>' +
+                '<td style="padding:12px 10px;"><button class="btn btn-primary btn-sm priority-assign-btn" data-request-id="' + encodeURIComponent(item.request_id) + '" data-engineer-id="' + encodeURIComponent(candidate.engineer_id) + '" data-engineer-name="' + encodeURIComponent(candidate.engineer_name || 'Инженер') + '" data-eta="' + eta + '" data-rank="' + candidate.rank + '"><i class="fas fa-user-check"></i> Назначить</button></td>' +
+                '</tr>';
+        });
+    });
+    tbody.innerHTML = html;
+}
+
+function assignPriorityCandidate(requestId, engineerId, engineerName, eta, rank) {
+    var comment = 'Выбран из таблицы приоритетов: кандидат №' + rank + ', совпадает специализация, расчётное прибытие ' + Number(eta).toFixed(1) + ' мин.';
+    if (!confirm('Назначить ' + engineerName + ' на заявку?\n\nОснование: ' + comment)) return;
+    fetch(API_URL + '/dispatcher/assign', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({request_id: requestId, engineer_id: engineerId, comment: comment})
+    })
+    .then(function(response) { return response.json().then(function(data) { if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось назначить инженера'); return data; }); })
+    .then(function() {
+        showToast('Назначен инженер: ' + engineerName, 'success');
+        loadRequestsOnly();
+        loadDispatcherPriorityTable();
+    })
+    .catch(function(error) { showToast('Ошибка назначения: ' + error.message, 'error'); });
+}
+
+(function bindDispatcherPriorityActions() {
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    if (!tbody) return;
+    tbody.addEventListener('click', function(event) {
+        var button = event.target.closest('.priority-assign-btn');
+        if (!button) return;
+        assignPriorityCandidate(
+            decodeURIComponent(button.getAttribute('data-request-id') || ''),
+            decodeURIComponent(button.getAttribute('data-engineer-id') || ''),
+            decodeURIComponent(button.getAttribute('data-engineer-name') || 'Инженер'),
+            Number(button.getAttribute('data-eta') || 0),
+            Number(button.getAttribute('data-rank') || 1)
+        );
+    });
+})();
 
 function loadDataOnce() {
     var promises = [];
@@ -2390,14 +2520,18 @@ function refreshCoordsOnly() {
                 var e = data[i];
                 for (var j = 0; j < state.employees.length; j++) {
                     var emp = state.employees[j];
-                    if (emp.realId !== e.id) continue;
+                    if (String(emp.realId) !== String(e.id)) continue;
 
                     // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
-                    emp.gpsLat = e.gps_lat == null ? null : Number(e.gps_lat);
-                    emp.gpsLng = e.gps_lng == null ? null : Number(e.gps_lng);
+                    var gpsPayload = e.location || e.gps || {};
+                    var rawGpsLat = e.gps_lat != null ? e.gps_lat : gpsPayload.lat;
+                    var rawGpsLng = e.gps_lng != null ? e.gps_lng : gpsPayload.lng;
+                    emp.gpsLat = rawGpsLat == null ? null : Number(rawGpsLat);
+                    emp.gpsLng = rawGpsLng == null ? null : Number(rawGpsLng);
                     var previousGpsHeading = emp.gpsHeading;
                     var previousHasGps = emp.hasGps;
-                    emp.gpsHeading = e.gps_heading == null ? null : Number(e.gps_heading);
+                    var rawGpsHeading = e.gps_heading != null ? e.gps_heading : (e.heading != null ? e.heading : (e.gpsHeading != null ? e.gpsHeading : gpsPayload.heading));
+                    emp.gpsHeading = rawGpsHeading == null ? null : Number(rawGpsHeading);
                     emp.gpsUpdatedAt = e.gps_updated_at || null;
                     emp.hasGps = emp.gpsLat != null && emp.gpsLng != null && isFinite(emp.gpsLat) && isFinite(emp.gpsLng);
                     if (previousGpsHeading !== emp.gpsHeading || previousHasGps !== emp.hasGps) changed = true;
@@ -2433,23 +2567,17 @@ function refreshCoordsOnly() {
                     var mk = state.mapMarkers['emp_' + empK.realId];
                     if (mk && empK.lat != null && empK.lng != null) {
                         mk.setLatLng([empK.lat, empK.lng]);
-                        if (empK.hasGps && !mk._usesGpsIcon) {
-                            mk.setIcon(createEmployeeMapIcon(empK));
-                            mk._usesGpsIcon = true;
-                            if (mk.dragging && mk.dragging.disable) mk.dragging.disable();
-                        } else if (!empK.hasGps && mk._usesGpsIcon) {
-                            mk.setIcon(createEmployeeMapIcon(empK));
-                            mk._usesGpsIcon = false;
-                            if (mk.dragging && mk.dragging.enable) mk.dragging.enable();
-                        } else if (empK.hasGps) {
-                            var markerEl = mk.getElement && mk.getElement();
-                            var arrowEl = markerEl && markerEl.querySelector('.gps-direction-arrow');
-                            if (arrowEl) arrowEl.style.transform = 'rotate(' + (empK.gpsHeading == null ? 0 : empK.gpsHeading) + 'deg)';
-                        }
+                        syncDispatcherGpsDirection(empK, mk);
                     }
                 }
                 // Пересчитываем оставшееся время в карточках
                 if (typeof updateActiveRequests === 'function') updateActiveRequests();
+            }
+            // Keep the live direction arrow visible and synchronized on every engineer refresh.
+            for (var gpsIndex = 0; gpsIndex < state.employees.length; gpsIndex++) {
+                var gpsEmployee = state.employees[gpsIndex];
+                var gpsMarker = state.mapMarkers['emp_' + gpsEmployee.realId];
+                if (gpsMarker && gpsEmployee.hasGps) syncDispatcherGpsDirection(gpsEmployee, gpsMarker);
             }
         })
         .catch(function(err) { console.error('[SYNC] refresh engineers', err); });
@@ -3107,6 +3235,32 @@ function vdnhObjectStyle(name) {
     return { color: '#0f766e', weight: 1.5, opacity: 0.9, fillColor: '#14b8a6', fillOpacity: 0.3 };
 }
 
+
+    function createGeoJsonNumberIcon(rawId) {
+        var safeId = String(rawId).replace(/[&<>\"']/g, function(ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[ch] || ch);
+        });
+        return L.divIcon({
+        className: 'geojson-number-label-icon',
+        html: '<span class="geojson-number-label">' + safeId + '</span>',
+        iconSize: [29, 23],
+        iconAnchor: [14, 11]
+        });
+    }
+
+    function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId) {
+        if (rawId === undefined || rawId === null || rawId === '') return;
+        if (!featureLayer || typeof featureLayer.getBounds !== 'function') return;
+        var bounds = featureLayer.getBounds();
+        if (!bounds || !bounds.isValid()) return;
+        L.marker(bounds.getCenter(), {
+        icon: createGeoJsonNumberIcon(rawId),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 1800
+        }).addTo(targetLayer);
+    }
+
 function loadVdnhAirportMap() {
     var layer = state.vdnhLayer = L.layerGroup().addTo(map);
 
@@ -3132,7 +3286,10 @@ function loadVdnhAirportMap() {
                 },
                 onEachFeature: function(f, lyr) {
                     var id = f.properties && f.properties.id;
-                    if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                    if (id != null) {
+                        lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                        addGeoJsonNumberLabel(layer, lyr, id);
+                    }
                 }
             }).addTo(layer);
         }
@@ -3158,7 +3315,9 @@ function loadVdnhAirportMap() {
             L.geoJSON(objects, {
                 style: function(f) { return vdnhObjectStyle(f.properties && f.properties.name); },
                 onEachFeature: function(f, lyr) {
-                    if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                    var props = f.properties || {};
+                    if (props.name) lyr.bindTooltip(props.name, { sticky: true });
+                    if (props.id != null) addGeoJsonNumberLabel(layer, lyr, props.id);
                 }
             }).addTo(layer);
         }
@@ -3183,12 +3342,44 @@ function loadVdnhAirportMap() {
 function createEmployeeMapIcon(employee) {
     var statusClass = employee.isFree() ? 'free' : 'busy';
     if (employee.hasGps) {
-        var heading = employee.gpsHeading != null && isFinite(employee.gpsHeading) ? employee.gpsHeading : 0;
-        var html = '<div class="dispatcher-gps-marker"><div class="gps-direction-arrow" style="transform:rotate(' + heading + 'deg)"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div><span class="gps-marker-id">' + String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '') + '</span></div>';
+        var rawHeading = employee.gpsHeading;
+        var heading = rawHeading != null && isFinite(Number(rawHeading)) ? ((Number(rawHeading) % 360) + 360) % 360 : 0;
+        var safeDeviceId = String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '');
+        var html = '<div class="dispatcher-gps-marker">' +
+            '<div class="dispatcher-gps-arrow" style="transform:rotate(' + heading + 'deg)">' +
+                '<svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg>' +
+            '</div>' +
+            '<span class="gps-marker-id">' + safeDeviceId + '</span>' +
+        '</div>';
         return L.divIcon({ className: 'dispatcher-gps-marker-wrap status-' + statusClass, html: html, iconSize: [48, 56], iconAnchor: [24, 25] });
     }
-    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + employee.deviceId + '</span>';
+    var safeId = String(employee.deviceId || '').replace(/[&<>\"]/g, '');
+    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + safeId + '</span>';
     return L.divIcon({ className: 'employee-marker status-' + statusClass, html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18] });
+}
+
+function syncDispatcherGpsDirection(employee, marker) {
+    if (!employee || !marker) return;
+    if (!employee.hasGps) {
+        if (marker._usesGpsIcon) {
+            marker.setIcon(createEmployeeMapIcon(employee));
+            marker._usesGpsIcon = false;
+            if (marker.dragging && marker.dragging.enable) marker.dragging.enable();
+        }
+        return;
+    }
+    var element = marker.getElement && marker.getElement();
+    var arrow = element && element.querySelector('.dispatcher-gps-arrow');
+    if (!marker._usesGpsIcon || !arrow) {
+        marker.setIcon(createEmployeeMapIcon(employee));
+        marker._usesGpsIcon = true;
+        if (marker.dragging && marker.dragging.disable) marker.dragging.disable();
+        element = marker.getElement && marker.getElement();
+        arrow = element && element.querySelector('.dispatcher-gps-arrow');
+    }
+    var heading = employee.gpsHeading != null && isFinite(Number(employee.gpsHeading))
+        ? ((Number(employee.gpsHeading) % 360) + 360) % 360 : 0;
+    if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
 }
 
 function renderMapMarkers() {
@@ -3236,6 +3427,7 @@ function renderMapMarkers() {
             .addTo(map).bindPopup(createEmployeePopup(employee));
             marker._usesGpsIcon = !!employee.hasGps;
             state.mapMarkers['emp_' + employee.realId] = marker;
+            if (employee.hasGps) syncDispatcherGpsDirection(employee, marker);
         })(emp);
     }
 

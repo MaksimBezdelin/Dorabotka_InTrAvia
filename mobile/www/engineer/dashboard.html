@@ -196,6 +196,113 @@
             .stats-grid { grid-template-columns: 1fr; }
             .page-header h1 { font-size: 20px; }
         }
+    
+
+        /* Mobile-only full-screen map workspace */
+        .mobile-map-screen { position: relative; width: 100%; min-height: 420px; }
+        .mobile-map-topbar, .mobile-map-tools, .mobile-task-panel, .mobile-bottom-nav { display: none; }
+        .mobile-subpage-header { display: none; }
+        .mobile-map-screen .map-container { margin: 0; }
+        .map-layer-switch {
+            position: relative; isolation: isolate; display: grid; grid-template-columns: 1fr 1fr;
+            gap: 2px; width: 164px; padding: 4px; overflow: hidden;
+            background: rgba(15,23,42,.88); border: 1px solid rgba(255,255,255,.18);
+            border-radius: 13px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 6px 20px rgba(0,0,0,.2);
+        }
+        .map-layer-switch::before {
+            content: ""; position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 4px;
+            width: calc(50% - 6px); border-radius: 9px; background: #fff;
+            box-shadow: 0 2px 7px rgba(0,0,0,.2);
+            transform: translateX(0);
+            transition: transform 280ms cubic-bezier(.22,.8,.25,1);
+            will-change: transform;
+        }
+        .map-layer-switch.is-satellite::before { transform: translateX(calc(100% + 2px)); }
+        .map-layer-btn {
+            position: relative; z-index: 1; width: 100%; min-width: 0; border: 0; border-radius: 9px;
+            padding: 9px 7px; min-height: 38px; background: transparent; color: #e2e8f0;
+            font: 700 11px Inter,sans-serif; cursor: pointer; white-space: nowrap;
+            transition: color 180ms ease, transform 180ms ease; touch-action: manipulation;
+        }
+        .map-layer-btn:active { transform: scale(.96); }
+        .map-layer-btn.active { background: transparent; color: #0f2744; }
+        .leaflet-tile-pane .leaflet-layer { transition: opacity 300ms ease; }
+        .mobile-map-tool-btn { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.18); border-radius: 12px; color: #fff; background: rgba(15,23,42,.86); backdrop-filter: blur(12px); font-size: 16px; cursor: pointer; box-shadow: 0 5px 18px rgba(0,0,0,.18); }
+        .mobile-map-tool-btn.active { background: #0b67d1; }
+        .mobile-map-topbar .status-badge { box-shadow: 0 3px 12px rgba(0,0,0,.16); }
+        .mobile-task-panel { background: rgba(255,255,255,.97); border: 1px solid rgba(15,23,42,.12); border-radius: 18px; box-shadow: 0 12px 38px rgba(15,23,42,.24); backdrop-filter: blur(14px); overflow: hidden; }
+        .mobile-task-panel-header { width: 100%; min-height: 48px; border: 0; background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; color: #16263b; font: 800 14px Inter,sans-serif; cursor: pointer; }
+        .mobile-task-panel-header .task-heading-left { display: flex; align-items: center; gap: 9px; }
+        .mobile-task-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 7px; background: #e8f0fe; color: #0757a6; border-radius: 999px; font-size: 11px; font-weight: 800; }
+        .mobile-task-panel-content { padding: 0 12px 12px; overflow-y: auto; overscroll-behavior: contain; }
+        .mobile-task-panel-content #taskList { max-height: 34dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .mobile-task-panel-content .task-item { padding: 14px; gap: 9px; }
+        .mobile-task-panel-content .task-item .task-title { font-size: 14px; }
+        .mobile-task-panel-content .steps-progress { padding: 10px; margin-bottom: 10px; }
+        .mobile-task-panel-content .step-item { min-width: 80px; font-size: 10px; gap: 5px; }
+        .mobile-task-panel-content .step-item .step-num { width: 23px; height: 23px; font-size: 11px; }
+        .mobile-task-panel-content .step-connector { flex-basis: 10px; }
+        .mobile-route-info { font-size: 11px; color: #475569; padding: 8px 4px 2px; text-align: left; }
+        .mobile-task-panel.collapsed .mobile-task-panel-content { display: none; }
+        .mobile-bottom-nav button { border: 0; background: transparent; color: #64748b; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font: 700 9px Inter,sans-serif; padding: 6px 2px; cursor: pointer; }
+        .mobile-bottom-nav button i { font-size: 17px; }
+        .mobile-bottom-nav button.active { color: #0757a6; }
+        .mobile-bottom-nav button.active i { transform: translateY(-1px); }
+        .mobile-page-panel { display: none; }
+        .leaflet-control-attribution { display: block !important; font-size: 8px !important; background: rgba(255,255,255,.8) !important; }
+
+        @media (max-width: 768px) {
+            html, body { width: 100%; height: 100%; min-height: 100%; overflow: hidden; overscroll-behavior: none; }
+            body { display: block; background: #e8edf3; }
+            .sidebar { display: none !important; }
+            .main { position: fixed; inset: 0; width: 100%; height: 100dvh; min-height: 100dvh; padding: 0; margin: 0; overflow: hidden; display: block; background: #e8edf3; }
+            .page-header, .profile-bar { display: none !important; }
+            #tasksPanel { position: fixed; inset: 0; display: block; overflow: hidden; }
+            .mobile-map-screen { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+            .mobile-map-screen .map-container { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; margin: 0; }
+            #map { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 100%; }
+            .mobile-map-topbar { position: absolute; z-index: 1200; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
+            .mobile-map-topbar > * { pointer-events: auto; }
+            .mobile-map-brand { min-width: 0; display: flex; flex-direction: column; gap: 2px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75); }
+            .mobile-map-brand strong { font-size: 13px; letter-spacing: .1px; }
+            .mobile-map-brand span { font-size: 10px; color: #e2e8f0; }
+            .mobile-top-actions { display: flex; align-items: center; gap: 6px; }
+            .mobile-top-actions .status-badge { font-size: 9px; padding: 6px 8px; background: rgba(15,23,42,.82); color: #fff; border: 1px solid rgba(255,255,255,.16); }
+            .mobile-top-actions .btn { min-height: 36px; padding: 8px 10px; font-size: 10px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+            .mobile-map-tools { position: absolute; z-index: 1200; top: calc(env(safe-area-inset-top, 0px) + 66px); right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+            .mobile-task-panel { display: block; position: absolute; z-index: 1300; left: 10px; right: 10px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); max-height: 48dvh; }
+            .mobile-task-panel-content { max-height: calc(48dvh - 50px); }
+            .mobile-task-panel-content #taskList { max-height: 31dvh; }
+            .mobile-task-panel-content .empty-state { padding: 18px 10px; }
+            .mobile-task-panel-content .empty-state i { font-size: 28px; margin-bottom: 6px; }
+            .mobile-task-panel-content .empty-state p { font-size: 12px; }
+            .mobile-task-panel-content .empty-state span { font-size: 10px; }
+            .mobile-bottom-nav { position: fixed; z-index: 1500; left: 0; right: 0; bottom: 0; height: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 5px 8px calc(5px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; justify-content: space-around; background: rgba(255,255,255,.97); border-top: 1px solid rgba(15,23,42,.1); box-shadow: 0 -5px 20px rgba(15,23,42,.08); backdrop-filter: blur(14px); }
+            .mobile-page-panel { position: fixed; z-index: 1100; inset: 0 0 calc(64px + env(safe-area-inset-bottom, 0px)); display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(env(safe-area-inset-top, 0px) + 18px) 16px 22px; background: #f0f2f5; border: 0 !important; border-radius: 0 !important; }
+            .mobile-page-panel.panel-hidden { display: none !important; }
+            .mobile-subpage-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+            .mobile-subpage-header h2 { font-size: 20px; color: #17263b; }
+            .mobile-subpage-header .btn { padding: 9px 11px; }
+            #statsPanel .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+            #statsPanel .stat-card { padding: 18px; }
+            #statsPanel .stat-card .stat-value { font-size: 30px; }
+            #reportsPanel { margin: 0; }
+            #reportsPanel .card-header { position: sticky; top: -1px; background: #f0f2f5; padding: 4px 0 12px; z-index: 2; }
+            .notification-container { top: calc(env(safe-area-inset-top, 0px) + 12px); right: 10px; max-width: calc(100% - 20px); }
+            .toast { top: calc(env(safe-area-inset-top, 0px) + 12px); right: 10px; left: 10px; max-width: none; }
+            .modal-overlay { padding: 12px; }
+            .modal-body { padding: 16px; }
+            .modal-header { padding: 16px; }
+            .leaflet-bottom.leaflet-right { bottom: 70px; }
+            .leaflet-control-zoom { margin-left: 12px !important; margin-top: calc(env(safe-area-inset-top, 0px) + 82px) !important; }
+            .leaflet-control-attribution { max-width: 58vw; }
+        }
+
+    
+        .geojson-number-label-icon { background: transparent !important; border: 0 !important; }
+        .geojson-number-label { display: flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px; background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72); color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none; }
+
     </style>
 </head>
 <body>
@@ -247,42 +354,78 @@
     </div>
 
     <div id="tasksPanel">
-    <div class="stats-grid">
-        <div class="stat-card"><div class="stat-value" id="taskCount">0</div><div class="stat-label">Активных задач</div></div>
-        <div class="stat-card"><div class="stat-value" id="doneToday">0</div><div class="stat-label">Выполнено сегодня</div></div>
-        <div class="stat-card"><div class="stat-value" id="avgTime">0 мин</div><div class="stat-label">Среднее время</div></div>
-    </div>
-
-    <div class="card">
-        <div class="card-header"><h3>Текущие задачи</h3></div>
-        <div id="taskList">
-            <div class="empty-state">
-                <i class="fas fa-check-circle"></i>
-                <p>Нет активных задач</p>
-                <span>Вы свободны для новых назначений</span>
+        <div class="mobile-map-screen" id="mobileMapScreen">
+            <div class="map-container">
+                <div id="map"></div>
             </div>
+            <div class="mobile-map-topbar">
+                <div class="mobile-map-brand">
+                    <strong>InTrAvia · Инженер</strong>
+                    <span id="mobileEngineerName">Мои задачи</span>
+                </div>
+                <div class="mobile-top-actions">
+                    <span class="status-badge free" id="mobileStatusBadge">Свободен</span>
+                    <button class="btn btn-secondary" type="button" onclick="changeServerAddress()" title="Изменить сервер"><i class="fas fa-server"></i></button>
+                    <button class="btn btn-secondary" type="button" onclick="openProfileModal()" title="Профиль"><i class="fas fa-user"></i></button>
+                </div>
+            </div>
+            <div class="mobile-map-tools">
+                <div class="map-layer-switch" role="group" aria-label="Тип карты">
+                    <button type="button" class="map-layer-btn active" id="mapLayerStreet" onclick="setMobileMapLayer('street')">Обычная</button>
+                    <button type="button" class="map-layer-btn" id="mapLayerSatellite" onclick="setMobileMapLayer('satellite')">Спутник</button>
+                </div>
+                <button type="button" class="mobile-map-tool-btn" id="mobileCompassButton" onclick="enableMobileCompass(true)" title="Включить компас"><i class="fas fa-compass"></i></button>
+                <button type="button" class="mobile-map-tool-btn" onclick="centerOnEngineer()" title="Моё местоположение"><i class="fas fa-location-crosshairs"></i></button>
+            </div>
+            <section class="mobile-task-panel" id="mobileTaskPanel">
+                <button type="button" class="mobile-task-panel-header" onclick="toggleMobileTaskPanel()" aria-expanded="true">
+                    <span class="task-heading-left"><i class="fas fa-tasks"></i> Мои задачи <span class="mobile-task-count" id="mobileActiveCount">0</span></span>
+                    <i class="fas fa-chevron-down" id="mobileTaskChevron"></i>
+                </button>
+                <div class="mobile-task-panel-content" id="mobileTaskPanelContent">
+                    <div id="taskList">
+                        <div class="empty-state">
+                            <i class="fas fa-check-circle"></i>
+                            <p>Нет активных задач</p>
+                            <span>Вы свободны для новых назначений</span>
+                        </div>
+                    </div>
+                    <div id="routeInfo" class="mobile-route-info"><span style="color:var(--aero-gray);">Нет активного маршрута</span></div>
+                </div>
+            </section>
         </div>
     </div>
 
-    <div class="card">
-        <div class="card-header"><h3>Карта маршрута</h3></div>
-        <div class="map-container">
-            <div id="map"></div>
+    <div class="card panel-hidden mobile-page-panel" id="statsPanel">
+        <div class="mobile-subpage-header">
+            <h2>Статистика</h2>
+            <button class="btn btn-secondary" type="button" onclick="showEngineerSection('tasks')"><i class="fas fa-map"></i> К карте</button>
         </div>
-        <div id="routeInfo" style="font-size:13px;color:var(--aero-text-light);text-align:center;padding:8px;">
-            <span style="color:var(--aero-gray);">Нет активного маршрута</span>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-value" id="taskCount">0</div><div class="stat-label">Активных задач</div></div>
+            <div class="stat-card"><div class="stat-value" id="doneToday">0</div><div class="stat-label">Выполнено сегодня</div></div>
+            <div class="stat-card"><div class="stat-value" id="avgTime">0 мин</div><div class="stat-label">Среднее время выполнения</div></div>
         </div>
-        <div id="geoStatus" role="status" aria-live="polite" style="font-size:12px;color:var(--aero-text-light);text-align:center;padding:2px 8px 4px;">
-            Ожидание разрешения геолокации…
+        <div class="card" style="margin-top:14px;">
+            <div class="card-header"><h3>Сводка работы</h3></div>
+            <p style="font-size:13px;color:var(--aero-text-light);line-height:1.6;">Статистика рассчитывается по задачам и завершённым отчётам этого мобильного профиля.</p>
         </div>
-    </div>
     </div>
 
-    <div class="card panel-hidden" id="reportsPanel">
+    <div class="card panel-hidden mobile-page-panel" id="reportsPanel">
+        <div class="mobile-subpage-header"><h2>Прошлые отчёты</h2><button class="btn btn-secondary" type="button" onclick="showEngineerSection('tasks')"><i class="fas fa-map"></i> К карте</button></div>
         <div class="card-header"><h3>Прошлые отчёты</h3><button class="btn btn-secondary" type="button" onclick="loadPastReports()"><i class="fas fa-sync-alt"></i> Обновить</button></div>
         <div id="pastReportsList"><div class="empty-state"><i class="fas fa-clipboard-list"></i><p>Загрузка отчётов…</p></div></div>
     </div>
 </div>
+
+<nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="Разделы инженера">
+    <button type="button" class="active" id="mobileNavTasks" onclick="showEngineerSection('tasks')"><i class="fas fa-map-marked-alt"></i><span>Задачи</span></button>
+    <button type="button" id="mobileNavStats" onclick="showEngineerSection('stats')"><i class="fas fa-chart-column"></i><span>Статистика</span></button>
+    <button type="button" id="mobileNavReports" onclick="showEngineerSection('reports')"><i class="fas fa-clipboard-list"></i><span>Отчёты</span></button>
+    <button type="button" onclick="openProfileModal()"><i class="fas fa-user-circle"></i><span>Профиль</span></button>
+    <button type="button" onclick="logout()"><i class="fas fa-sign-out-alt"></i><span>Выход</span></button>
+</nav>
 
 <div class="notification-container" id="notificationContainer"></div>
 
@@ -312,8 +455,14 @@
         var engineerId = null;
         var map = null;
         var mapInitialized = false;
+        var mapBaseLayers = {};
+        var activeMapBaseLayer = null;
+        var mobileMapLayerPreference = (function() { try { return localStorage.getItem('intravia_mobile_map_layer') === 'satellite' ? 'satellite' : 'street'; } catch (_) { return 'street'; } })();
+        var compassListening = false;
+        var compassSource = null;
         var currentAirport = (function() { try { return localStorage.getItem('intravia_current_airport') === 'vdnh' ? 'vdnh' : 'svo'; } catch (_) { return 'svo'; } })();
         var engineerAirportLayer = null;
+        var engineerParkingIdLayer = null;
         var engineerAirportInitialized = false;
         var airportRefreshInFlight = false;
         var airportRefreshTimer = null;
@@ -341,10 +490,10 @@
         var geoErrorShown = false;
         var geoCentered = false;
         var geoWatchId = null;
-        var lastGpsHeading = null;
+        var lastGpsHeading = null; // курс от гироскопического компаса либо GPS fallback
         var gpsDeviceHeading = null;
-        var lastGpsSpeed = null;
-        var lastGpsCourseAt = 0;
+        var gpsHeadingFallback = false;
+        var gpsHeadingAnchor = null;
         var PARKING_COORDS = {};
         // Полноценная симуляция самолётов инженера по связанной сети руления.
         var engineerAircraftMarkers={}, engineerAircraftSimulations={}, engineerTaxiGraph=null;
@@ -391,6 +540,46 @@
                 .catch(function(err) { console.warn('[PARKING] load failed', err); });
         }
 
+
+        function clearEngineerParkingIdLayer() {
+            if (engineerParkingIdLayer && map && map.hasLayer(engineerParkingIdLayer)) {
+                map.removeLayer(engineerParkingIdLayer);
+            }
+            engineerParkingIdLayer = null;
+        }
+
+        function loadEngineerSvoParkingIdLabels() {
+            clearEngineerParkingIdLayer();
+            if (!mapInitialized || !map || currentAirport !== 'svo') return Promise.resolve();
+            engineerParkingIdLayer = L.layerGroup().addTo(map);
+            var targetLayer = engineerParkingIdLayer;
+            return fetch('/static/svo_all.geojson', { cache: 'no-store' })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('svo_all.geojson · HTTP ' + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    (data.features || []).forEach(function(feature) {
+                        var props = feature.properties || {};
+                        var geometry = feature.geometry || {};
+                        var coords = geometry.coordinates;
+                        if (props.category !== 'parking' || props.ref == null || geometry.type !== 'Point' || !coords || coords.length < 2) return;
+                        var ref = String(props.ref);
+                        var marker = L.marker([Number(coords[1]), Number(coords[0])], {
+                            icon: createGeoJsonNumberIcon(ref),
+                            interactive: true,
+                            keyboard: false,
+                            zIndexOffset: 1450
+                        });
+                        if (props.name) marker.bindTooltip(String(props.name), { direction: 'top', offset: [0, -7] });
+                        marker.addTo(targetLayer);
+                    });
+                })
+                .catch(function(error) {
+                    console.warn('[PARKING LABELS] Не удалось загрузить номера стоянок SVO:', error);
+                });
+        }
+
         var session = sessionStorage.getItem('userSession');
         if (!session) { window.location.href = '/login.html'; return; }
 
@@ -402,6 +591,7 @@
         } catch (_) { window.location.href = '/login.html'; return; }
 
         document.getElementById('userName').textContent = user.name || 'Инженер';
+        var mobileEngineerName = document.getElementById('mobileEngineerName'); if (mobileEngineerName) mobileEngineerName.textContent = user.name || 'Мои задачи';
         document.getElementById('userAvatar').innerHTML = '<i class="fas fa-wrench"></i>';
         document.getElementById('userRole').textContent = 'Инженер ОТО';
         document.getElementById('profileName').textContent = user.name || 'Инженер';
@@ -419,10 +609,139 @@
             var initialZoom = currentAirport === 'vdnh' ? 14 : 13;
             map = L.map('map', {
                 center: initialCenter, zoom: initialZoom,
-                zoomControl: true, attributionControl: false
+                zoomControl: false, attributionControl: true
             });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+            mapBaseLayers.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+            });
+            mapBaseLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 19, attribution: 'Tiles &copy; Esri'
+            });
+            activeMapBaseLayer = mapBaseLayers[mobileMapLayerPreference] || mapBaseLayers.street;
+            activeMapBaseLayer.addTo(map);
+            L.control.zoom({ position: 'topleft' }).addTo(map);
             mapInitialized = true;
+            updateMobileMapLayerButtons();
+        }
+
+        var mapLayerTransitionTimer = null;
+        var mapLayerTransitionSequence = 0;
+
+        function updateMobileMapLayerButtons() {
+            var street = document.getElementById('mapLayerStreet');
+            var satellite = document.getElementById('mapLayerSatellite');
+            var switcher = document.querySelector('.map-layer-switch');
+            var isSatellite = mobileMapLayerPreference === 'satellite';
+            if (street) {
+                street.classList.toggle('active', !isSatellite);
+                street.setAttribute('aria-pressed', isSatellite ? 'false' : 'true');
+            }
+            if (satellite) {
+                satellite.classList.toggle('active', isSatellite);
+                satellite.setAttribute('aria-pressed', isSatellite ? 'true' : 'false');
+            }
+            if (switcher) switcher.classList.toggle('is-satellite', isSatellite);
+        }
+
+        function setMobileMapLayer(type) {
+            var requested = type === 'satellite' ? 'satellite' : 'street';
+            mobileMapLayerPreference = requested;
+            try { localStorage.setItem('intravia_mobile_map_layer', mobileMapLayerPreference); } catch (_) {}
+            updateMobileMapLayerButtons();
+
+            if (!mapInitialized || !mapBaseLayers[requested]) return;
+            var nextLayer = mapBaseLayers[requested];
+            var previousLayer = activeMapBaseLayer;
+            if (nextLayer === previousLayer) {
+                if (!map.hasLayer(nextLayer)) nextLayer.addTo(map);
+                nextLayer.setOpacity(1);
+                return;
+            }
+
+            // Keep both tile layers briefly and cross-fade them instead of flashing
+            // to an empty map while the newly selected tiles are loading.
+            if (mapLayerTransitionTimer) {
+                clearTimeout(mapLayerTransitionTimer);
+                mapLayerTransitionTimer = null;
+            }
+            var transitionId = ++mapLayerTransitionSequence;
+            Object.keys(mapBaseLayers).forEach(function(key) {
+                var layer = mapBaseLayers[key];
+                if (layer !== previousLayer && layer !== nextLayer && map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            if (previousLayer && map.hasLayer(previousLayer)) previousLayer.setOpacity(1);
+            nextLayer.setOpacity(0);
+            if (!map.hasLayer(nextLayer)) nextLayer.addTo(map);
+            activeMapBaseLayer = nextLayer;
+
+            requestAnimationFrame(function() {
+                if (transitionId !== mapLayerTransitionSequence) return;
+                nextLayer.setOpacity(1);
+                if (previousLayer && map.hasLayer(previousLayer)) previousLayer.setOpacity(0);
+            });
+
+            mapLayerTransitionTimer = setTimeout(function() {
+                if (transitionId !== mapLayerTransitionSequence) return;
+                Object.keys(mapBaseLayers).forEach(function(key) {
+                    var layer = mapBaseLayers[key];
+                    if (layer !== activeMapBaseLayer && map.hasLayer(layer)) map.removeLayer(layer);
+                });
+                if (activeMapBaseLayer) activeMapBaseLayer.setOpacity(1);
+                mapLayerTransitionTimer = null;
+                if (engineerAirportLayer && map.hasLayer(engineerAirportLayer)) engineerAirportLayer.bringToFront();
+            }, 340);
+        }
+        window.setMobileMapLayer = setMobileMapLayer;
+
+        function centerOnEngineer() {
+            if (!mapInitialized || !currentPosition) {
+                showToast('Ожидаем координаты GPS', 'warning');
+                return;
+            }
+            map.setView([currentPosition.lat, currentPosition.lng], Math.max(map.getZoom() || 17, 17), { animate: true, duration: 0.35 });
+        }
+        window.centerOnEngineer = centerOnEngineer;
+
+        function toggleMobileTaskPanel() {
+            var panel = document.getElementById('mobileTaskPanel');
+            var button = panel && panel.querySelector('.mobile-task-panel-header');
+            var chevron = document.getElementById('mobileTaskChevron');
+            if (!panel) return;
+            panel.classList.toggle('collapsed');
+            var expanded = !panel.classList.contains('collapsed');
+            if (button) button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            if (chevron) chevron.className = expanded ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+            if (map) setTimeout(function() { map.invalidateSize(); }, 120);
+        }
+        window.toggleMobileTaskPanel = toggleMobileTaskPanel;
+
+        
+        function createGeoJsonNumberIcon(rawId) {
+            var safeId = String(rawId).replace(/[&<>\"']/g, function(ch) {
+                return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[ch] || ch);
+            });
+            return L.divIcon({
+                className: 'geojson-number-label-icon',
+                html: '<span class="geojson-number-label">' + safeId + '</span>',
+                iconSize: [29, 23],
+                iconAnchor: [14, 11]
+            });
+        }
+
+        function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId) {
+            if (rawId === undefined || rawId === null || rawId === '') return;
+            if (!featureLayer || typeof featureLayer.getBounds !== 'function') return;
+            var bounds = featureLayer.getBounds();
+            if (!bounds || !bounds.isValid()) return;
+            L.marker(bounds.getCenter(), {
+                icon: createGeoJsonNumberIcon(rawId),
+                interactive: false,
+                keyboard: false,
+                zIndexOffset: 1800
+            }).addTo(targetLayer);
         }
 
         function engineerVdnhObjectStyle(name) {
@@ -455,7 +774,10 @@
                         style: function() { return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
                         onEachFeature: function(f, lyr) {
                             var id = f.properties && f.properties.id;
-                            if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                            if (id != null) {
+                                lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                                addGeoJsonNumberLabel(engineerAirportLayer, lyr, id);
+                            }
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -479,7 +801,9 @@
                     L.geoJSON(objects, {
                         style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
                         onEachFeature: function(f, lyr) {
-                            if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                            var props = f.properties || {};
+                            if (props.name) lyr.bindTooltip(props.name, { sticky: true });
+                            if (props.id != null) addGeoJsonNumberLabel(engineerAirportLayer, lyr, props.id);
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -512,6 +836,7 @@
             currentAirport = nextAirport;
             engineerAirportInitialized = true;
             if (nextAirport === 'vdnh') {
+                clearEngineerParkingIdLayer();
                 stopEngineerAirportAircraft();
                 map.setView([55.8330, 37.6287], 14, { animate: false });
                 return loadEngineerVdnhMap();
@@ -519,7 +844,7 @@
             if (engineerAirportLayer && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
             engineerAirportLayer = null;
             map.setView([55.981349, 37.388359], 13, { animate: false });
-            return loadParkingCoords().then(function() {
+            return Promise.all([loadParkingCoords(), loadEngineerSvoParkingIdLabels()]).then(function() {
                 startEngineerAmbientAircraft();
                 refreshEngineerRequestAircraft();
             });
@@ -536,12 +861,6 @@
         }
 
 
-        function setGeoStatus(message, isError) {
-            var el = document.getElementById('geoStatus');
-            if (!el) return;
-            el.textContent = message;
-            el.style.color = isError ? '#dc2626' : 'var(--aero-text-light)';
-        }
 
         function updateEngineerGpsMarker(lat, lng, heading) {
             var previousAccuracy = currentPosition && currentPosition.accuracy != null ? currentPosition.accuracy : null;
@@ -570,21 +889,6 @@
             }
         }
 
-        function gpsDistanceMeters(a, b) {
-            if (!a || !b) return 0;
-            var r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
-            var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-            return 6371000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-        }
-
-        function gpsBearingDegrees(a, b) {
-            var r = Math.PI / 180, lat1 = a.lat * r, lat2 = b.lat * r, dLng = (b.lng - a.lng) * r;
-            var y = Math.sin(dLng) * Math.cos(lat2);
-            var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-        }
-
         function scheduleEngineerGpsSend() {
             if (gpsSendTimer || gpsPostInFlight || !gpsPendingPayload) return;
             var delay = Math.max(0, GPS_SYNC_INTERVAL_MS - (Date.now() - lastGeoSentAt));
@@ -598,7 +902,6 @@
             gpsPendingPayload = null;
             gpsPostInFlight = true;
             lastGeoSentAt = Date.now();
-            setGeoStatus('Отправка координат на сервер…');
             fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/location', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -611,16 +914,12 @@
                 if (!result.ok || !result.data || !result.data.success) {
                     if (result.status === 404) {
                         console.error('[ENGINEER GPS] API route missing:', result.data && result.data.path, result.data);
-                        setGeoStatus('Маршрут GPS не найден на сервере. Обновите app.py и перезапустите Flask.', true);
                     } else {
-                        setGeoStatus((result.data && result.data.error) || 'Не удалось отправить координаты', true);
                     }
                     return;
                 }
-                setGeoStatus('Геолокация обновляется на сервере');
             }).catch(function(error) {
                 console.warn('[ENGINEER GPS] Не удалось отправить координаты:', error);
-                setGeoStatus('Нет связи с сервером. Проверьте HTTPS-ссылку Cloudflare Tunnel', true);
             }).finally(function() {
                 gpsPostInFlight = false;
                 if (gpsPendingPayload) scheduleEngineerGpsSend();
@@ -643,48 +942,220 @@
             var lat = Number(position.coords.latitude);
             var lng = Number(position.coords.longitude);
             if (!isFinite(lat) || !isFinite(lng)) return;
-            var next = { lat: lat, lng: lng };
-            var previous = currentPosition;
-            var rawHeading = position.coords.heading;
-            var heading = rawHeading == null ? NaN : Number(rawHeading);
-            lastGpsSpeed = (position.coords.speed == null || !isFinite(Number(position.coords.speed))) ? null : Number(position.coords.speed);
-            if (!isFinite(heading) || heading < 0 || heading >= 360) {
-                if (previous && gpsDistanceMeters(previous, next) >= 2) {
-                    heading = gpsBearingDegrees(previous, next);
-                    lastGpsCourseAt = Date.now();
-                } else if (gpsDeviceHeading != null && (lastGpsSpeed == null || lastGpsSpeed < 0.8)) {
-                    heading = gpsDeviceHeading;
-                } else {
-                    heading = lastGpsHeading;
+            var accuracy = position.coords.accuracy == null ? null : Number(position.coords.accuracy);
+            currentPosition = { lat: lat, lng: lng, accuracy: accuracy, heading: lastGpsHeading };
+            // Передаём координаты в Android: по ним вычисляется поправка склонения
+            // магнитного севера, чтобы стрелка показывала истинный север.
+            if (window.AndroidCompass && typeof window.AndroidCompass.setLocation === 'function') {
+                try {
+                    var altitude = position.coords.altitude == null ? 0 : Number(position.coords.altitude);
+                    window.AndroidCompass.setLocation(lat, lng, isFinite(altitude) ? altitude : 0);
+                } catch (compassLocationError) {
+                    console.warn('[ENGINEER COMPASS] Не удалось обновить магнитное склонение:', compassLocationError);
                 }
-            } else {
-                lastGpsCourseAt = Date.now();
             }
-            if (heading != null && isFinite(heading)) lastGpsHeading = (heading + 360) % 360;
+            // Coordinates always come from GPS. Heading uses Android gyro when present;
+            // otherwise it is derived from GNSS course / movement between GPS fixes.
+            if (gpsHeadingFallback) updateGpsFallbackHeading(position, lat, lng, accuracy);
             updateEngineerGpsMarker(lat, lng, lastGpsHeading);
-            currentPosition.accuracy = position.coords.accuracy == null ? null : Number(position.coords.accuracy);
-            sendEngineerGps(lat, lng, !lastGeo, position.coords.accuracy, lastGpsHeading);
+            sendEngineerGps(lat, lng, !lastGeo, accuracy, lastGpsHeading);
         }
+
+        function setCompassStatus(message, active) {
+            var status = document.getElementById('compassStatus');
+            var button = document.getElementById('mobileCompassButton');
+            if (status) status.textContent = message;
+            if (button) button.classList.toggle('active', !!active);
+        }
+
+        function applyCompassHeading(value, sourceLabel, smoothingFactor) {
+            if (value == null || !isFinite(Number(value))) return;
+            value = (Number(value) + 360) % 360;
+            // Smooth circularly while retaining fast response to turns.
+            var blend = smoothingFactor == null ? 0.88 : Math.max(0.05, Math.min(1, smoothingFactor));
+            if (gpsDeviceHeading != null) {
+                var delta = ((value - gpsDeviceHeading + 540) % 360) - 180;
+                value = (gpsDeviceHeading + delta * blend + 360) % 360;
+            }
+            gpsDeviceHeading = value;
+            lastGpsHeading = value;
+            setCompassStatus((sourceLabel || 'Компас') + ' · ' + Math.round(value) + '°', true);
+            if (currentPosition) {
+                currentPosition.heading = value;
+                updateEngineerGpsMarker(currentPosition.lat, currentPosition.lng, value);
+                sendEngineerGps(currentPosition.lat, currentPosition.lng, true, currentPosition.accuracy, value);
+            }
+        }
+
+        function gpsDistanceMeters(a, b) {
+            var rad = Math.PI / 180, earth = 6371000;
+            var dLat = (b.lat - a.lat) * rad;
+            var dLng = (b.lng - a.lng) * rad;
+            var lat1 = a.lat * rad, lat2 = b.lat * rad;
+            var q = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            return 2 * earth * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
+        }
+
+        function gpsBearingDegrees(a, b) {
+            var rad = Math.PI / 180;
+            var lat1 = a.lat * rad, lat2 = b.lat * rad;
+            var dLng = (b.lng - a.lng) * rad;
+            var y = Math.sin(dLng) * Math.cos(lat2);
+            var x = Math.cos(lat1) * Math.sin(lat2) -
+                Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+
+        function updateGpsFallbackHeading(position, lat, lng, accuracy) {
+            if (!gpsHeadingFallback) return;
+            var coords = position && position.coords ? position.coords : {};
+            var speed = coords.speed == null ? null : Number(coords.speed);
+            var reportedHeading = coords.heading == null ? null : Number(coords.heading);
+            var currentFix = { lat: lat, lng: lng };
+
+            // Prefer the GNSS receiver's own course when the phone is clearly moving.
+            if (reportedHeading != null && isFinite(reportedHeading) && reportedHeading >= 0 &&
+                    speed != null && isFinite(speed) && speed >= 0.7) {
+                gpsHeadingAnchor = currentFix;
+                applyCompassHeading(reportedHeading, 'GPS · направление движения', 0.48);
+                return;
+            }
+
+            if (!gpsHeadingAnchor) {
+                gpsHeadingAnchor = currentFix;
+                if (lastGpsHeading == null) setCompassStatus('GPS · ожидаем движения для определения курса', false);
+                return;
+            }
+
+            // When the GNSS API does not provide a course, derive bearing from two
+            // sufficiently separated fixes. Ignore stationary drift and poor fixes.
+            if (accuracy != null && isFinite(accuracy) && accuracy > 30) return;
+            var distance = gpsDistanceMeters(gpsHeadingAnchor, currentFix);
+            var safeAccuracy = accuracy != null && isFinite(accuracy) ? accuracy : 5;
+            var minimumDistance = Math.max(2.5, Math.min(8, safeAccuracy * 0.65));
+            if (distance >= minimumDistance) {
+                var bearing = gpsBearingDegrees(gpsHeadingAnchor, currentFix);
+                gpsHeadingAnchor = currentFix;
+                applyCompassHeading(bearing, 'GPS · направление движения', 0.48);
+            }
+        }
+
+        // Called by Android's gyro-based rotation-vector sensor. Phones without a
+        // gyroscope use GPS course while moving (see updateGpsFallbackHeading).
+        window.onNativeCompassHeading = function(value) {
+            applyCompassHeading(value, 'Компас Android');
+        };
+
+        window.onNativeCompassAccuracy = function(state) {
+            if (state === 'unreliable') {
+                setCompassStatus('Компас требует калибровки · двигайте телефоном восьмёркой', false);
+            }
+        };
 
         function onDeviceOrientation(event) {
             if (!event) return;
             var value = null;
             if (typeof event.webkitCompassHeading === 'number' && isFinite(event.webkitCompassHeading)) {
                 value = event.webkitCompassHeading;
-            } else if (event.absolute && typeof event.alpha === 'number' && isFinite(event.alpha)) {
+            } else if (event.absolute === true && typeof event.alpha === 'number' && isFinite(event.alpha)) {
                 value = 360 - event.alpha;
+                var screenAngle = 0;
+                try {
+                    screenAngle = (window.screen && window.screen.orientation && Number(window.screen.orientation.angle)) || Number(window.orientation) || 0;
+                } catch (_) {}
+                value += screenAngle;
             }
-            if (value != null) {
-                gpsDeviceHeading = (value + 360) % 360;
-                var gpsCourseIsFresh = lastGpsCourseAt && (Date.now() - lastGpsCourseAt) < 8000;
-                if (!gpsCourseIsFresh && (lastGpsSpeed == null || lastGpsSpeed < 0.8)) {
-                    lastGpsHeading = gpsDeviceHeading;
-                    if (currentPosition) updateEngineerGpsMarker(currentPosition.lat, currentPosition.lng, lastGpsHeading);
+            if (value == null || !isFinite(value)) return;
+            applyCompassHeading(value, 'Компас браузера');
+        }
+
+        function startCompassSensors() {
+            if (compassListening) return;
+            // On Android prefer the gyro-based absolute rotation vector. If the
+            // physical gyroscope is absent, switch to GPS course while moving.
+            if (window.AndroidCompass && typeof window.AndroidCompass.start === 'function') {
+                try {
+                    var hasGyroscope = typeof window.AndroidCompass.hasGyroscope === 'function'
+                        ? window.AndroidCompass.hasGyroscope()
+                        : (typeof window.AndroidCompass.hasSensors === 'function' && window.AndroidCompass.hasSensors());
+                    var canUseGyroHeading = typeof window.AndroidCompass.canUseGyroHeading === 'function'
+                        ? window.AndroidCompass.canUseGyroHeading()
+                        : hasGyroscope;
+
+                    if (!hasGyroscope || !canUseGyroHeading) {
+                        gpsHeadingFallback = true;
+                        gpsHeadingAnchor = null;
+                        compassListening = true;
+                        compassSource = 'gps';
+                        setCompassStatus('Гироскоп отсутствует · курс по GPS при движении', false);
+                        return;
+                    }
+
+                    if (typeof window.AndroidCompass.hasSensors === 'function' && !window.AndroidCompass.hasSensors()) {
+                        gpsHeadingFallback = true;
+                        gpsHeadingAnchor = null;
+                        compassListening = true;
+                        compassSource = 'gps';
+                        setCompassStatus('Датчик курса недоступен · используем GPS', false);
+                        return;
+                    }
+                    if (!window.AndroidCompass.start()) {
+                        gpsHeadingFallback = true;
+                        gpsHeadingAnchor = null;
+                        compassListening = true;
+                        compassSource = 'gps';
+                        setCompassStatus('Гироскоп недоступен · курс по GPS при движении', false);
+                        return;
+                    }
+                    gpsHeadingFallback = false;
+                    compassListening = true;
+                    compassSource = 'native';
+                    var compassMode = typeof window.AndroidCompass.getMode === 'function' ? window.AndroidCompass.getMode() : 'Гироскоп Android';
+                    setCompassStatus(compassMode + ' · север', true);
+                    return;
+                } catch (error) {
+                    console.warn('[ENGINEER COMPASS] Native sensor start failed; using GPS course:', error);
+                    gpsHeadingFallback = true;
+                    gpsHeadingAnchor = null;
+                    compassListening = true;
+                    compassSource = 'gps';
+                    setCompassStatus('Датчики недоступны · курс по GPS при движении', false);
+                    return;
                 }
             }
+            // Browser fallback is for desktop/mobile web testing only, not the Android app.
+            window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+            compassListening = true;
+            compassSource = 'browser';
+            setCompassStatus('Ожидание датчиков ориентации…', false);
         }
-        window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
-        window.addEventListener('deviceorientation', onDeviceOrientation, true);
+
+        function enableMobileCompass(requestPermission) {
+            if (window.AndroidCompass && typeof window.AndroidCompass.start === 'function') {
+                startCompassSensors();
+                return;
+            }
+            var Orientation = window.DeviceOrientationEvent;
+            var permissionPromise = Promise.resolve('granted');
+            if (requestPermission && Orientation && typeof Orientation.requestPermission === 'function') {
+                permissionPromise = Orientation.requestPermission(true);
+            }
+            permissionPromise.then(function(result) {
+                if (result !== 'granted') {
+                    setCompassStatus('Нет разрешения на датчики', false);
+                    showToast('Разрешите доступ к датчикам ориентации', 'warning');
+                    return;
+                }
+                startCompassSensors();
+            }).catch(function(error) {
+                console.warn('[ENGINEER COMPASS] Permission error:', error);
+                setCompassStatus('Компас недоступен', false);
+                showToast('Не удалось включить датчики ориентации', 'error');
+            });
+        }
+        window.enableMobileCompass = enableMobileCompass;
 
         function onEngineerGpsError(error) {
             console.warn('[ENGINEER GPS]', error);
@@ -695,7 +1166,6 @@
             } else if (!window.isSecureContext) {
                 message = 'Геолокация требует HTTPS. Введите HTTPS-ссылку Cloudflare Tunnel.';
             }
-            setGeoStatus(message, true);
             if (!geoErrorShown) {
                 geoErrorShown = true;
                 if (typeof showToast === 'function') showToast(message, 'error');
@@ -703,7 +1173,7 @@
         }
 
         function startEngineerGpsTracking() {
-            setGeoStatus('Запрашиваем разрешение на геолокацию…');
+            enableMobileCompass(false);
             var capacitor = window.Capacitor;
             var geo = capacitor && capacitor.Plugins && capacitor.Plugins.Geolocation;
             if (geo) {
@@ -712,7 +1182,6 @@
                         onEngineerGpsError({ code: 1, message: 'permission denied' });
                         return;
                     }
-                    setGeoStatus('Ожидание координат GPS…');
                     geo.watchPosition({ enableHighAccuracy: true, timeout: 10000, maximumAge: 0, minimumUpdateInterval: GPS_SYNC_INTERVAL_MS }, function(position, error) {
                         if (error) { onEngineerGpsError(error); return; }
                         onEngineerGpsPosition(position);
@@ -742,7 +1211,6 @@
                 onEngineerGpsError({ message: 'Geolocation API is not available' });
                 return;
             }
-            setGeoStatus('Ожидание координат GPS…');
             navigator.geolocation.watchPosition(onEngineerGpsPosition, onEngineerGpsError, {
                 enableHighAccuracy: true, timeout: 10000, maximumAge: 0
             });
@@ -759,6 +1227,18 @@
         function stopEngineerGpsTracking() {
             if (gpsHeartbeatTimer) { clearInterval(gpsHeartbeatTimer); gpsHeartbeatTimer = null; }
             if (gpsSendTimer) { clearTimeout(gpsSendTimer); gpsSendTimer = null; }
+            if (compassListening) {
+                if (compassSource === 'native' && window.AndroidCompass && typeof window.AndroidCompass.stop === 'function') {
+                    try { window.AndroidCompass.stop(); } catch (_) {}
+                } else if (compassSource === 'browser') {
+                    window.removeEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+                    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+                }
+                compassListening = false;
+                compassSource = null;
+                gpsHeadingFallback = false;
+                gpsHeadingAnchor = null;
+            }
             var geo = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation;
             if (geo && geoWatchId) {
                 geo.clearWatch({ id: geoWatchId }).catch(function() {});
@@ -1081,6 +1561,8 @@
                             var st0 = sm0[eng.status] || sm0.free;
                             badge0.textContent = st0.label;
                             badge0.className = 'status-badge ' + st0.class;
+                            var mobileBadge0 = document.getElementById('mobileStatusBadge');
+                            if (mobileBadge0) { mobileBadge0.textContent = st0.label; mobileBadge0.className = 'status-badge ' + st0.class; }
                         }
                         return;
                     }
@@ -1233,19 +1715,28 @@
         }
 
         function showEngineerSection(section) {
-            var tasks = section !== 'reports';
+            section = section === 'reports' || section === 'stats' ? section : 'tasks';
+            var tasks = section === 'tasks';
+            var reports = section === 'reports';
+            var stats = section === 'stats';
             var tasksPanel = document.getElementById('tasksPanel');
             var reportsPanel = document.getElementById('reportsPanel');
+            var statsPanel = document.getElementById('statsPanel');
             if (tasksPanel) tasksPanel.classList.toggle('panel-hidden', !tasks);
-            if (reportsPanel) reportsPanel.classList.toggle('panel-hidden', tasks);
+            if (reportsPanel) reportsPanel.classList.toggle('panel-hidden', !reports);
+            if (statsPanel) statsPanel.classList.toggle('panel-hidden', !stats);
             var navTasks = document.getElementById('navTasks');
             var navReports = document.getElementById('navReports');
             if (navTasks) navTasks.classList.toggle('active', tasks);
-            if (navReports) navReports.classList.toggle('active', !tasks);
+            if (navReports) navReports.classList.toggle('active', reports);
+            ['Tasks','Stats','Reports'].forEach(function(key) {
+                var button = document.getElementById('mobileNav' + key);
+                if (button) button.classList.toggle('active', (key === 'Tasks' && tasks) || (key === 'Stats' && stats) || (key === 'Reports' && reports));
+            });
             var heading = document.querySelector('.page-header h1');
-            if (heading) heading.textContent = tasks ? 'Мои задачи' : 'Прошлые отчёты';
-            if (!tasks) loadPastReports();
-            else if (map) setTimeout(function(){ map.invalidateSize(); }, 100);
+            if (heading) heading.textContent = tasks ? 'Мои задачи' : (stats ? 'Статистика' : 'Прошлые отчёты');
+            if (reports) loadPastReports();
+            if (tasks && map) setTimeout(function(){ map.invalidateSize(); }, 120);
         }
         window.showEngineerSection = showEngineerSection;
 
@@ -1540,6 +2031,8 @@
 
             var badge = document.getElementById('statusBadge');
             if (badge) { badge.textContent = 'Свободен'; badge.className = 'status-badge free'; }
+            var mobileBadge = document.getElementById('mobileStatusBadge');
+            if (mobileBadge) { mobileBadge.textContent = 'Свободен'; mobileBadge.className = 'status-badge free'; }
             var taskList = document.getElementById('taskList');
             if (taskList) {
                 taskList.innerHTML =
@@ -1551,6 +2044,7 @@
             }
             var taskCount = document.getElementById('taskCount');
             if (taskCount) taskCount.textContent = '0';
+            var mobileCountReset = document.getElementById('mobileActiveCount'); if (mobileCountReset) mobileCountReset.textContent = '0';
         }
 
         function forceReleaseEngineer() {
@@ -2148,6 +2642,8 @@
 
                     var badge = document.getElementById('statusBadge');
                     if (badge) { badge.textContent = 'Свободен'; badge.className = 'status-badge free'; }
+                    var mobileBadge = document.getElementById('mobileStatusBadge');
+                    if (mobileBadge) { mobileBadge.textContent = 'Свободен'; mobileBadge.className = 'status-badge free'; }
                     var taskList = document.getElementById('taskList');
                     if (taskList) {
                         taskList.innerHTML =
@@ -2159,6 +2655,7 @@
                     }
                     var taskCountEl = document.getElementById('taskCount');
                     if (taskCountEl) taskCountEl.textContent = '0';
+                    var mobileCountEl = document.getElementById('mobileActiveCount'); if (mobileCountEl) mobileCountEl.textContent = '0';
 
                     setTimeout(function() { blockReloadUntil = 0; loadTasks(); }, 1500);
                 })
@@ -2185,14 +2682,18 @@
             var badge = document.getElementById('statusBadge');
             badge.textContent = status.label;
             badge.className = 'status-badge ' + status.class;
+            var mobileBadge = document.getElementById('mobileStatusBadge');
+            if (mobileBadge) { mobileBadge.textContent = status.label; mobileBadge.className = 'status-badge ' + status.class; }
 
             var taskList = document.getElementById('taskList');
             var count = document.getElementById('taskCount');
 
+            var activeCount = eng.task ? 1 : 0;
+            if (count) count.textContent = String(activeCount);
+            var mobileActiveCount = document.getElementById('mobileActiveCount');
+            if (mobileActiveCount) mobileActiveCount.textContent = String(activeCount);
             if (eng.task) {
-                count.textContent = '1';
             } else {
-                count.textContent = '0';
                 if (!isReportFormOpen()) {
                     taskList.innerHTML =
                         '<div class="empty-state">' +
@@ -2253,6 +2754,7 @@
                     return mapReady.then(function() { return loadParkingCoords(); });
                 })
                 .finally(function() {
+                    updateMobileMapLayerButtons();
                     setTimeout(function() { if (map) map.invalidateSize(); }, 200);
                     if (currentAirport === 'svo') {
                         startEngineerAmbientAircraft();

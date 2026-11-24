@@ -1940,6 +1940,61 @@ def mcc_send_to_cpu():
                     'expired_mel_recovery': expired_mel_recovery})
 
 
+@app.route('/api/mcc/send_to_dispatcher', methods=['POST'])
+def mcc_send_pilot_to_dispatcher():
+    """MCC forwards a pilot-originated, parking-identified request directly to dispatch.
+
+    This is a dedicated pilot workflow; other request sources continue to use the CPU path.
+    """
+    data = request.get_json(silent=True) or {}
+    rid = str(data.get('request_id') or '').strip()
+    comment = str(data.get('comment') or '').strip()
+    actor = str(data.get('actor') or '').strip() or 'MCC'
+    if not rid:
+        return jsonify({'success': False, 'error': 'request_id обязателен'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, source, parking_id, routing_stage, mcc_status, status
+                   FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if str(row['source'] or '').lower() != 'pilot':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Прямой маршрут без ЦПУ доступен только для заявок от пилота'}), 403
+    if row['routing_stage'] != 'mcc' or row['mcc_status'] != 'PENDING':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка уже обработана MCC или находится на другом этапе'}), 409
+    if not str(row['parking_id'] or '').strip():
+        conn.close()
+        return jsonify({'success': False, 'error': 'В заявке пилота не указан ID стоянки'}), 400
+    if row['status'] in ('cancelled', 'flight_cancelled', 'completed', 'deleted', 'draft'):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка уже закрыта или отменена'}), 409
+
+    note = comment or 'Первичная проверка MCC завершена. Заявка направлена диспетчеру напрямую, без этапа ЦПУ.'
+    cur.execute("""UPDATE requests SET
+                   routing_stage='dispatcher', status='queued',
+                   mcc_status='DIRECT_TO_DISPATCHER', mcc_decision='DIRECT_TO_DISPATCHER',
+                   mcc_comment=COALESCE(mcc_comment,'') || ?
+                   WHERE id=? AND routing_stage='mcc' AND mcc_status='PENDING'""",
+                ('\n[MCC→Диспетчер · без ЦПУ] ' + actor + ': ' + note, rid))
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        return jsonify({'success': False, 'error': 'Не удалось передать заявку: состояние уже изменилось'}), 409
+    _log_routing_event(conn, rid, 'dispatcher', actor,
+                       'Заявка пилота направлена напрямую диспетчеру без ЦПУ. ' + note)
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'dispatcher',
+                    'status': 'queued', 'bypassed_cpu': True})
+
+
+
+
 @app.route('/api/mcc/assign_inspection', methods=['POST'])
 def mcc_assign_inspection_legacy():
     return mcc_send_to_cpu()
@@ -3056,6 +3111,171 @@ def mcc_mark_mel_expired():
 # ============================================================
 # Dispatcher — ручное назначение (fallback)
 # ============================================================
+
+
+def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
+    """Explainable ranking using the same eligibility/ETA rules as auto-assignment."""
+    fault = str(request_row.get('fault_type') or 'other')
+    required_skill = FAULT_SKILL.get(fault, 'general')
+    skill_labels = {
+        'engine': 'Двигатель', 'avionics': 'Авионика', 'hydraulics': 'Гидравлика',
+        'electrical': 'Электрика', 'mechanical': 'Механика', 'general': 'Общая специализация'
+    }
+    parking_id = str(request_row.get('parking_id') or '')
+    target = PARKING_COORDS.get(parking_id)
+    target_known = target is not None
+    if target is None:
+        target = (55.975, 37.410)
+
+    cur = conn.cursor()
+    cur.execute("""SELECT id, name, device_id, specialization, coords_lat, coords_lng, status
+                   FROM engineers""")
+    engineers = [dict(row) for row in cur.fetchall()]
+    cur.execute("""SELECT DISTINCT engineer_id FROM requests
+                   WHERE routing_stage='technician'
+                     AND status IN ('assigned','arriving','in_progress','working')
+                     AND engineer_id IS NOT NULL""")
+    active_engineer_ids = {str(row['engineer_id']) for row in cur.fetchall()}
+    cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
+    cars = [dict(row) for row in cur.fetchall()]
+
+    free = [e for e in engineers
+            if str(e.get('status') or '').lower() == 'free'
+            and str(e.get('id')) not in active_engineer_ids]
+    skill_pool = [e for e in free if str(e.get('specialization') or 'general') == required_skill]
+
+    feasible = []
+    over_regulation = 0
+    for engineer in skill_pool:
+        # Keep the same fallback location used by the existing selection algorithm.
+        e_lat = float(engineer.get('coords_lat') or 55.975)
+        e_lng = float(engineer.get('coords_lng') or 37.410)
+        walk_distance = distance_km(e_lat, e_lng, target[0], target[1])
+        walk_time = walk_distance / WALK_SPEED_KMH * 60
+        best_time = walk_time
+        best_car = None
+        best_car_time = 0.0
+        walk_to_car = 0.0
+        for car in cars:
+            car_lat = float(car.get('lat') or 0)
+            car_lng = float(car.get('lng') or 0)
+            if not car_lat or not car_lng:
+                continue
+            to_car_dist = distance_km(e_lat, e_lng, car_lat, car_lng)
+            to_car_time = to_car_dist / WALK_SPEED_KMH * 60
+            _path, road_distance = get_shortest_path(
+                road_graph_vehicle, car_lat, car_lng, target[0], target[1]
+            )
+            if not road_distance:
+                road_distance = distance_km(car_lat, car_lng, target[0], target[1])
+            speed = float(car.get('speed') or 30)
+            car_leg_time = road_distance / max(speed, 1.0) * 60
+            total_time = to_car_time + car_leg_time
+            if total_time < best_time:
+                best_time = total_time
+                best_car = car
+                best_car_time = car_leg_time
+                walk_to_car = to_car_time
+
+        eta = round(best_time, 1)
+        if eta > REGULATION_MINUTES:
+            over_regulation += 1
+            continue
+        feasible.append({
+            'engineer_id': str(engineer['id']),
+            'engineer_name': engineer.get('name') or 'Инженер',
+            'device_id': engineer.get('device_id') or '',
+            'specialization': engineer.get('specialization') or 'general',
+            'specialization_label': skill_labels.get(engineer.get('specialization') or 'general', engineer.get('specialization') or '—'),
+            'travel_time': eta,
+            'using_car': best_car is not None,
+            'best_car': (best_car or {}).get('device_id') if best_car else None,
+            'walk_to_car': round(walk_to_car, 1),
+            'car_time': round(best_car_time, 1),
+            'position_known': bool(engineer.get('coords_lat') is not None and engineer.get('coords_lng') is not None),
+        })
+
+    feasible.sort(key=lambda item: (item['travel_time'], item['engineer_name'].lower(), item['engineer_id']))
+    for idx, candidate in enumerate(feasible[:limit], start=1):
+        candidate['rank'] = idx
+        route_text = ('пешком до ' + str(candidate['best_car']) + ' ' + str(candidate['walk_to_car']) +
+                      ' мин, затем на спецтранспорте ' + str(candidate['car_time']) + ' мин'
+                      if candidate['using_car'] else 'пешком')
+        reason_parts = [
+            'Профиль совпадает: ' + skill_labels.get(required_skill, required_skill),
+            'инженер свободен и не имеет активной заявки',
+            'расчётное прибытие ' + str(candidate['travel_time']) + ' мин (' + route_text + ')'
+        ]
+        if not candidate['position_known']:
+            reason_parts.append('координаты инженера не получены — использована базовая точка аэропорта')
+        if not target_known:
+            reason_parts.append('ID стоянки отсутствует в координатном справочнике — использована базовая точка аэропорта')
+        if idx == 1:
+            reason_parts.append('самое короткое расчётное время среди подходящих свободных инженеров')
+        else:
+            delta = round(candidate['travel_time'] - feasible[0]['travel_time'], 1)
+            reason_parts.append('на ' + str(delta) + ' мин дольше лидера рейтинга')
+        candidate['reason'] = '; '.join(reason_parts) + '.'
+
+    if feasible:
+        no_candidate_reason = ''
+    elif not free:
+        no_candidate_reason = 'Нет свободных инженеров: все специалисты заняты или недоступны.'
+    elif not skill_pool:
+        no_candidate_reason = 'Нет свободного инженера со специализацией «' + skill_labels.get(required_skill, required_skill) + '».'
+    else:
+        no_candidate_reason = ('Есть ' + str(len(skill_pool)) + ' свободных инженеров нужного профиля, '
+                               'но их расчётное время превышает норматив ' + str(REGULATION_MINUTES) + ' мин.')
+    return {
+        'required_skill': required_skill,
+        'required_skill_label': skill_labels.get(required_skill, required_skill),
+        'candidates': feasible[:limit],
+        'no_candidate_reason': no_candidate_reason,
+        'free_engineers_count': len(free),
+        'matching_engineers_count': len(skill_pool),
+        'over_regulation_count': over_regulation,
+        'regulation_minutes': REGULATION_MINUTES,
+    }
+
+
+@app.route('/api/dispatcher/priorities', methods=['GET'])
+def dispatcher_priorities():
+    """Priority queue + explainable engineer recommendations for dispatcher."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, aircraft, flight_number, fault_type, description, parking_id,
+                          source, criticality, severity, created_at, status
+                   FROM requests
+                   WHERE routing_stage='dispatcher'
+                     AND engineer_id IS NULL
+                     AND status NOT IN ('cancelled','flight_cancelled','completed','draft','deleted')
+                   ORDER BY CASE COALESCE(criticality, severity, 'medium')
+                              WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,
+                            created_at ASC""")
+    requests_rows = [dict(row) for row in cur.fetchall()]
+    result = []
+    priority_labels = {'high': 'Высокий', 'medium': 'Средний', 'low': 'Низкий'}
+    for row in requests_rows:
+        ranking = _dispatcher_engineer_recommendations(conn, row)
+        priority = str(row.get('criticality') or row.get('severity') or 'medium').lower()
+        result.append({
+            'request_id': row['id'],
+            'aircraft': row.get('aircraft') or '—',
+            'flight_number': row.get('flight_number') or '',
+            'fault_type': row.get('fault_type') or 'other',
+            'description': row.get('description') or '',
+            'parking_id': row.get('parking_id') or '—',
+            'source': row.get('source') or '',
+            'created_at': row.get('created_at'),
+            'status': row.get('status') or 'queued',
+            'priority': priority,
+            'priority_label': priority_labels.get(priority, 'Средний'),
+            'ranking': ranking,
+        })
+    conn.close()
+    return jsonify({'success': True, 'requests': result})
+
+
 @app.route('/api/dispatcher/queue', methods=['GET'])
 def dispatcher_queue():
     conn = get_db()
@@ -3227,7 +3447,7 @@ def get_engineers():
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
                    COALESCE(p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
-                   gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
+                   gps_heading.lat AS gps_heading,gps_heading.lat AS heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
                    FROM engineers e
                    LEFT JOIN map_object_positions p
@@ -3270,7 +3490,7 @@ def get_engineer(eng_id):
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
                    COALESCE(p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
-                   gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
+                   gps_heading.lat AS gps_heading,gps_heading.lat AS heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
                    FROM engineers e
                    LEFT JOIN map_object_positions p
