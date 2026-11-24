@@ -24,56 +24,59 @@ try:
 except ImportError:
     OpenAI = None
     print('[LLM] openai не установлен')
+# ------------------------------------------------------------
+# Вынесенные модули (реэкспорт имён для обратной совместимости app.py)
+# ------------------------------------------------------------
+from intravia.config import *  # noqa: F401,F403
+from intravia.events import *  # noqa: F401,F403
+from intravia.authz import *  # noqa: F401,F403
+from intravia.db import *  # noqa: F401,F403
+from intravia.events import (_append_request_created, _utc_now_iso)
+from intravia.authz import (_login_blocked, _login_clear, _login_key,
+                            _login_record_fail)
+from intravia.config import (_request_regulation_minutes, _request_test_options,
+                             _set_request_test_options, _request_is_paused)
+from intravia.authz import (apply_security_headers as _authz_apply_security_headers,
+                            enforce_server_auth as _authz_enforce_server_auth)
+import intravia.events as _events
+from intravia.geo import *  # noqa: F401,F403
+from intravia.routing import *  # noqa: F401,F403
+from intravia.faults import *  # noqa: F401,F403
+from intravia.candidates import *  # noqa: F401,F403
+from intravia.geo import (_aircraft_taxi_conflict, _location_center,
+                          _parking_point, _parse_timestamp,
+                          _point_in_geometry, _zone_geometry)
+import intravia.geo as geo
+import intravia.routing as _routing
+import intravia.faults as _faults
+from intravia.faults import classify_fault as _faults_classify_fault
+
+# Мутабельные гео-глобалы живут только в intravia.geo: не держим в app.py
+# устаревшие копии (apply_location_parking пересоздаёт их при старте).
+for _stale in ('PARKING_COORDS', 'PARKING_META', 'MAP_OBJECTS',
+               'AIRCRAFT_TAXI_RESERVATIONS', 'AIRCRAFT_TAXI_LOCK'):
+    globals().pop(_stale, None)
+del _stale
+
+
+def classify_fault(raw):
+    # Тесты и внешний код настраивают путь каталога через app.FAULT_CATALOG_PATH.
+    _faults.FAULT_CATALOG_PATH = FAULT_CATALOG_PATH
+    return _faults_classify_fault(raw)
+from intravia.requests_logic import *  # noqa: F401,F403
+from intravia.tracking import *  # noqa: F401,F403
+from intravia.requests_logic import (
+    _archive_requests_before_delete, _check_regulation_warning,
+    _cleanup_inactive_route_payloads, _history_has_stage,
+    _log_routing_event, _nearest_free_engineer,
+    _recalc_all_active_routes, _recalc_route_for_request_id,
+    _recalc_routes_for_engineer, _route_eta_min, _route_payload)
+from intravia.tracking import (_agents_snapshot, _track_apply_position,
+                               _track_process_point)
 
 # ------------------------------------------------------------
 # Конфигурация
 # ------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def _load_dotenv(path):
-    """Простой загрузчик .env без внешних зависимостей (не переопределяет окружение)."""
-    if not os.path.isfile(path):
-        return
-    try:
-        with open(path, encoding='utf-8-sig') as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key:
-                    os.environ.setdefault(key, value)
-    except OSError as exc:
-        print(f'[ENV] Не удалось прочитать {path}: {exc}')
-
-
-_load_dotenv(os.path.join(BASE_DIR, '.env'))
-
-# INTRAVIA_DB позволяет тестам и стендам работать с отдельной копией базы.
-DB_PATH = os.environ.get('INTRAVIA_DB', '').strip() or os.path.join(BASE_DIR, 'database.db')
-TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
-STATIC_DIR = os.path.join(BASE_DIR, 'static')
-MOBILE_DIR = os.path.join(BASE_DIR, 'mobile', 'www')
-REGULATION_MINUTES = 15
-WALK_SPEED_KMH = 5.0
-RECHECK_DELAY_SEC = 10
-
-# AUTH_REQUIRED=1 включает серверную проверку сессии и ролей (рекомендуется
-# для любого стенда, доступного не только с localhost).
-# По умолчанию сервер закрыт сессией. Для демо без входа: AUTH_REQUIRED=0.
-AUTH_REQUIRED = os.environ.get('AUTH_REQUIRED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
-# CORS по умолчанию выключен: дашборды и мобильные страницы работают с того же origin.
-CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
-
-FFMPEG_PATH = r'C:\Users\deela\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe'
-if os.path.exists(FFMPEG_PATH):
-    ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
-    cp = os.environ.get('PATH', '')
-    if ffmpeg_dir not in cp.split(os.pathsep):
-        os.environ['PATH'] = ffmpeg_dir + os.pathsep + cp
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 
@@ -98,96 +101,39 @@ if CORS_ORIGINS:
 else:
     print('[SECURITY] CORS выключен (same-origin). Разрешить домены: CORS_ORIGINS=https://a,https://b')
 
+# Capacitor-обёртка мобильного приложения работает с origin https://localhost
+# или capacitor://localhost. Разрешаем ей API и SSE-поток, не расширяя
+# домен имитатора организаторов за пределы /api/v1/track.
+CAPACITOR_ORIGINS = ['https://localhost', 'capacitor://localhost']
+CORS(app, resources={
+    r"/api/*": {"origins": CAPACITOR_ORIGINS},
+    r"/api/v1/stream": {"origins": CAPACITOR_ORIGINS},
+}, supports_credentials=True)
+
+# Имитатор организаторов может отправлять точки напрямую (без CORS-прокси).
+# Ручка /api/v1/track публичная по контракту, credentials ей не нужны.
+CORS(app, resources={r"/api/v1/track": {
+    "origins": ["https://itsim.geolaba.net"]}}, supports_credentials=False)
+
 
 # ------------------------------------------------------------
 # Realtime: in-process SSE bus (gunicorn/Flask, один процесс, много потоков)
 # ------------------------------------------------------------
-_SSE_LOCK = threading.Lock()
-_SSE_CLIENTS = set()
-_SSE_QUEUE_SIZE = 200
 
 # Последние метрики точки (acc/spd) по агенту. Хранятся в памяти, чтобы не
 # менять схему database.db; нужны для /api/v1/agents и SSE.
-_TRACK_META_LOCK = threading.Lock()
-_TRACK_META = {}
+
+# Тестовые настройки заявки для демонстрации (не меняют схему БД):
+# сокращение норматива, сдвиг таймера, принудительный спецтранспорт.
 
 
-def sse_publish(event, data):
-    """Публикует событие всем подключённым SSE-клиентам."""
-    payload = ('event: ' + str(event) + '\n' +
-               'data: ' + json.dumps(data, ensure_ascii=False, default=str) + '\n\n')
-    with _SSE_LOCK:
-        dead = []
-        for client_queue in _SSE_CLIENTS:
-            try:
-                client_queue.put_nowait(payload)
-            except queue.Full:
-                dead.append(client_queue)
-        for client_queue in dead:
-            _SSE_CLIENTS.discard(client_queue)
 
 
-def _utc_now_iso():
-    return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
 
 # ------------------------------------------------------------
 # Журнал событий: append-only JSONL (без изменения схемы БД)
 # ------------------------------------------------------------
-EVENTS_PATH = (os.environ.get('INTRAVIA_EVENTS', '').strip()
-               or os.path.join(BASE_DIR, 'data', 'events.jsonl'))
-_EVENTS_LOCK = threading.Lock()
-
-
-def append_event(event_type, **fields):
-    """Дописывает событие в data/events.jsonl. Журнал только пополняется."""
-    record = {'at': _utc_now_iso(), 'type': str(event_type)}
-    record.update(fields)
-    try:
-        os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
-        line = json.dumps(record, ensure_ascii=False, default=str)
-        with _EVENTS_LOCK:
-            with open(EVENTS_PATH, 'a', encoding='utf-8') as fh:
-                fh.write(line + '\n')
-    except OSError as exc:
-        print(f'[EVENTS] {exc}')
-    return record
-
-
-def read_events(since=None, limit=1000):
-    """Читает append-only журнал. since — ISO-время, возвращаются события после него."""
-    if not os.path.isfile(EVENTS_PATH):
-        return []
-    events = []
-    try:
-        with _EVENTS_LOCK:
-            with open(EVENTS_PATH, encoding='utf-8') as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except ValueError:
-                        continue
-                    if not isinstance(event, dict):
-                        continue
-                    if since and str(event.get('at') or '') <= str(since):
-                        continue
-                    events.append(event)
-    except OSError as exc:
-        print(f'[EVENTS] read: {exc}')
-        return []
-    if limit and limit > 0:
-        events = events[-limit:]
-    return events
-
-
-def _append_request_created(rid, source, aircraft, parking_id, flight_number, status, stage):
-    return append_event('request_created', request_id=rid, source=source,
-                        aircraft=aircraft, parking_id=parking_id,
-                        flight_number=flight_number, status=status,
-                        routing_stage=stage)
 
 
 @app.after_request
@@ -207,262 +153,36 @@ def _publish_mutation(response):
 # ------------------------------------------------------------
 # Пароли и ограничение попыток входа
 # ------------------------------------------------------------
-_LOGIN_ATTEMPTS = {}
-_LOGIN_LOCK = threading.Lock()
-_LOGIN_WINDOW_SEC = 300
-_LOGIN_MAX_FAILS = 10
-
-
-def hash_password(value):
-    return generate_password_hash(value)
-
-
-def is_password_hash(value):
-    return isinstance(value, str) and (value.startswith('pbkdf2:') or value.startswith('scrypt:'))
-
-
-def verify_password(stored, provided):
-    """Возвращает (пароль верен, нужна ли миграция из открытого текста)."""
-    if not stored or provided is None:
-        return False, False
-    if is_password_hash(stored):
-        try:
-            return check_password_hash(stored, provided), False
-        except ValueError:
-            return False, False
-    return secrets.compare_digest(str(stored), str(provided)), True
-
-
-def _login_key(email):
-    return f'{request.remote_addr}|{(email or "").lower()}'
-
-
-def _login_blocked(key):
-    now = time.time()
-    with _LOGIN_LOCK:
-        fails = [t for t in _LOGIN_ATTEMPTS.get(key, []) if now - t < _LOGIN_WINDOW_SEC]
-        _LOGIN_ATTEMPTS[key] = fails
-        return len(fails) >= _LOGIN_MAX_FAILS
-
-
-def _login_record_fail(key):
-    with _LOGIN_LOCK:
-        _LOGIN_ATTEMPTS.setdefault(key, []).append(time.time())
-
-
-def _login_clear(key):
-    with _LOGIN_LOCK:
-        _LOGIN_ATTEMPTS.pop(key, None)
-
-
 # ------------------------------------------------------------
-# Серверная авторизация (включается AUTH_REQUIRED=1)
+# Серверная авторизация — обёртки, логика в intravia.authz
 # ------------------------------------------------------------
-PUBLIC_API_PATHS = {
-    '/api/auth/login',
-    '/api/auth/logout',
-    # Контракт трекинга для полевых устройств и мобильных WebView.
-    '/api/v1/track',
-    '/api/v1/stream',
-    '/api/v1/agents',
-    '/api/v1/snapshot',
-    '/api/auth/session',
-    # Публичная география и расчёт маршрута нужны мобильным приложениям
-    # для отрисовки карты до входа и для имитатора организаторов.
-    '/api/location',
-    '/api/parking',
-    '/api/route',
-}
-PUBLIC_PAGES = {'/login.html', '/m/engineer', '/m/agents'}
-
-DASHBOARD_ROLES = {
-    '/mcc/dashboard.html': {'mcc'},
-    # ЦПУ объединено с MCC: очередь ЦПУ ведёт та же роль.
-    '/cpu/dashboard.html': {'mcc'},
-    '/dispatcher/dashboard.html': {'dispatcher'},
-    '/pilot/dashboard.html': {'pilot'},
-    '/engineer/dashboard.html': {'engineer'},
-    '/admin/dashboard.html': {'admin'},
-}
-
-ROLE_HOME = {
-    'admin': '/admin/dashboard.html',
-    'mcc': '/mcc/dashboard.html',
-    'dispatcher': '/dispatcher/dashboard.html',
-    'pilot': '/pilot/dashboard.html',
-    'engineer': '/engineer/dashboard.html',
-}
-
-# Изменять эти группы API может только соответствующая роль (admin — всегда).
-WRITE_ROLE_PREFIXES = (
-    ('/api/mcc/', {'mcc'}),
-    ('/api/cpu/', {'mcc'}),
-    ('/api/dispatcher/', {'dispatcher'}),
-    ('/api/pilot/', {'pilot'}),
-    ('/api/engineer/', {'engineer'}),
-    ('/api/users', {'admin'}),
-    ('/api/v1/import/', {'admin'}),
-    ('/api/clear_all_requests', {'admin'}),
-    ('/api/clear_all_pilot_requests', {'admin'}),
-)
-
-# Точечная матрица прав для изменяющих запросов: (regexp, роли[, режим]).
-# Роли задаются либо множеством, либо словарём {метод: множество ролей}.
-# Режим 'engineer_self' дополнительно требует, чтобы id в пути совпадал
-# с id инженера из сессии. Проверяется только при AUTH_REQUIRED=1; admin
-# обходит матрицу (как и WRITE_ROLE_PREFIXES).
-WRITE_ENDPOINT_ROLES = (
-    # Инженер меняет только свой шаг; диспетчер и MCC — любой.
-    (r'/api/engineers/(?P<engineer_id>[^/]+)/step',
-     {'engineer', 'dispatcher', 'mcc'}, 'engineer_self'),
-    # Справочник инженеров редактирует администратор.
-    (r'/api/engineers', {'admin'}),
-    (r'/api/engineers/(?P<engineer_id>[^/]+)', {'admin'}),
-    # Транспорт — зона диспетчера.
-    (r'/api/transport(?:/.*)?', {'dispatcher'}),
-    # Справочник пилотов — зона администратора.
-    (r'/api/pilots(?:/.*)?', {'admin'}),
-    # Заявка: редактирование — пилот/диспетчер/MCC, удаление — диспетчер.
-    (r'/api/requests/(?P<rid>[^/]+)',
-     {'PUT': {'pilot', 'dispatcher', 'mcc'}, 'DELETE': {'dispatcher'}}),
-    (r'/api/requests/(?P<rid>[^/]+)/(?:accept|reject)', {'engineer'}),
-    (r'/api/requests/(?P<rid>[^/]+)/cancel',
-     {'engineer', 'dispatcher', 'mcc', 'pilot'}),
-    (r'/api/requests/(?P<rid>[^/]+)/pilot-signature', {'pilot'}),
-    # Статусная модель и ожидание запчастей.
-    (r'/api/requests/(?P<rid>[^/]+)/start', {'engineer', 'dispatcher', 'mcc'}),
-    (r'/api/requests/(?P<rid>[^/]+)/tool_status', {'engineer'}),
-    (r'/api/requests/(?P<rid>[^/]+)/unassign', {'dispatcher', 'mcc'}),
-    (r'/api/requests/(?P<rid>[^/]+)/awaiting_parts', {'dispatcher', 'mcc'}),
-    (r'/api/requests/(?P<rid>[^/]+)/parts_received', {'dispatcher', 'mcc'}),
-)
-
-
-def _endpoint_roles_for(rule, method):
-    """Возвращает набор ролей для метода из правила WRITE_ENDPOINT_ROLES."""
-    roles = rule[1]
-    if isinstance(roles, dict):
-        return roles.get(method, set())
-    return roles
-
-
-def _enforce_endpoint_roles(path, method, role):
-    """Проверяет точечную матрицу. Возвращает None или (jsonify, status)."""
-    for rule in WRITE_ENDPOINT_ROLES:
-        match = re.fullmatch(rule[0], path)
-        if not match:
-            continue
-        allowed = _endpoint_roles_for(rule, method)
-        if role not in allowed:
-            append_event('role_denied', path=path, method=method,
-                         role=role, reason='endpoint_forbidden')
-            return jsonify({'error': 'Недостаточно прав'}), 403
-        if len(rule) > 2 and rule[2] == 'engineer_self' and role == 'engineer':
-            target_id = match.groupdict().get('engineer_id')
-            own_id = str(session.get('user_id') or '')
-            if target_id is not None and str(target_id) != own_id:
-                append_event('role_denied', path=path, method=method,
-                             role=role, reason='foreign_engineer')
-                return jsonify({'error': 'Можно менять только свой профиль'}), 403
-        return None
-    return None
+@app.before_request
+def _enforce_server_auth():
+    return _authz_enforce_server_auth(AUTH_REQUIRED)
 
 
 @app.before_request
-def _enforce_server_auth():
-    if not AUTH_REQUIRED:
-        return None
-    path = request.path
-    if path in PUBLIC_API_PATHS or path in PUBLIC_PAGES:
-        return None
+def _regulation_progress_tick():
+    """Throttled-тикер нормативов: работает без GPS. Не чаще раза в 10 секунд.
 
-    if path.startswith('/api/'):
-        if not session.get('user_id'):
-            append_event('role_denied', path=path, method=request.method,
-                         role=None, reason='unauthorized')
-            return jsonify({'error': 'Требуется авторизация'}), 401
-        role = session.get('role')
-        if role == 'admin':
-            return None
-        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
-            denied = _enforce_endpoint_roles(path, request.method, role)
-            if denied is not None:
-                return denied
-        # ЦПУ (роль mcc) читает очереди диспетчера для своего экрана.
-        if (request.method == 'GET' and role == 'mcc'
-                and path in ('/api/dispatcher/queue', '/api/dispatcher/assigned')):
-            return None
-        for prefix, roles in WRITE_ROLE_PREFIXES:
-            if path == prefix or path.startswith(prefix):
-                if role not in roles:
-                    append_event('role_denied', path=path, method=request.method,
-                                 role=role, reason='forbidden')
-                    return jsonify({'error': 'Недостаточно прав'}), 403
-                break
-        return None
-
-    if path in DASHBOARD_ROLES:
-        if not session.get('user_id'):
-            return redirect('/login.html')
-        role = session.get('role')
-        if role != 'admin' and role not in DASHBOARD_ROLES[path]:
-            return redirect(ROLE_HOME.get(role, '/login.html'))
-    return None
+    Выбран вместо daemon-потока: поток стартовал бы при импорте и мешал pytest,
+    а throttled before_request безопасен в тестах (проверки идемпотентны и
+    пишут событие только один раз на заявку).
+    """
+    try:
+        from intravia.requests_logic import maybe_run_regulation_tick
+        maybe_run_regulation_tick()
+    except Exception as exc:
+        print(f'[REGULATION] tick: {exc}')
 
 
 @app.after_request
 def _security_headers(response):
-    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
-    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
-    # strict-origin-when-cross-origin: путь не утекает, но тайловые серверы
-    # (OSM) получают origin в Referer — иначе они отдают плитку «Access blocked».
-    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
-    response.headers.setdefault('Permissions-Policy', 'geolocation=(self), microphone=(self), camera=()')
-    # API и HTML не кэшируем: после перезапуска сервера браузер
-    # не должен показывать старую карту/шаблон.
-    if request.path.startswith('/api/') or response.mimetype == 'text/html':
-        response.headers.setdefault('Cache-Control', 'no-store')
-    return response
+    return _authz_apply_security_headers(response)
 
 # ------------------------------------------------------------
 # Текущий аэропорт — системная настройка, общая для всех ролей
 # ------------------------------------------------------------
-AIRPORTS = {
-    'svo': 'Шереметьево (SVO)',
-    'vdnh': 'ВДНХ',
-}
-DEFAULT_AIRPORT = 'vdnh'
-SYSTEM_SETTINGS_PATH = os.path.join(BASE_DIR, 'data', 'system_settings.json')
-
-
-def load_system_settings():
-    try:
-        with open(SYSTEM_SETTINGS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
-
-
-def save_system_settings(settings):
-    os.makedirs(os.path.dirname(SYSTEM_SETTINGS_PATH), exist_ok=True)
-    tmp_path = SYSTEM_SETTINGS_PATH + '.tmp'
-    with open(tmp_path, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, SYSTEM_SETTINGS_PATH)
-
-
-def current_airport_payload():
-    settings = load_system_settings()
-    code = settings.get('airport')
-    if code not in AIRPORTS:
-        code = DEFAULT_AIRPORT
-    return {
-        'airport': code,
-        'name': AIRPORTS[code],
-        'confirmed_at': settings.get('confirmed_at'),
-        'confirmed_by': settings.get('confirmed_by'),
-    }
 
 
 @app.errorhandler(404)
@@ -495,11 +215,6 @@ def _json_500(e):
 # ------------------------------------------------------------
 # LLM: Ollama
 # ------------------------------------------------------------
-OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434/v1/')
-OLLAMA_API_KEY = os.environ.get('OLLAMA_API_KEY', 'ollama')
-LLM_MODEL = os.environ.get('LLM_MODEL', 'qwen2.5:7b')
-LLM_ENABLED = os.environ.get('LLM_ENABLED', '1') == '1'
-WHISPER_MODEL = os.environ.get('WHISPER_MODEL', 'small')
 
 _llm = None
 if OpenAI is not None and LLM_ENABLED:
@@ -513,1625 +228,21 @@ if OpenAI is not None and LLM_ENABLED:
 # ------------------------------------------------------------
 # Стоянки и объекты — из static/svo_all.geojson
 # ------------------------------------------------------------
-PARKING_COORDS = {}
-PARKING_META = {}
-MAP_OBJECTS = []
 
-# Динамические зоны безопасности самолётов на рулении (без изменения схемы БД).
-# Координаты обновляются диспетчерской картой и используются для блокировки
-# перемещения инженеров и спецтранспорта через занятый самолётом коридор.
-AIRCRAFT_TAXI_RESERVATIONS = {}
-AIRCRAFT_TAXI_LOCK = threading.RLock()
-AIRCRAFT_TAXI_SAFETY_METERS = 45.0
 
 
-def _distance_meters(lat1, lng1, lat2, lng2):
-    radius = 6371000.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lng2 - lng1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
 
 
-def _point_segment_distance_m(lat, lng, a, b):
-    # Локальная плоская проекция достаточна для коротких рулёжных сегментов.
-    scale_x = 111320.0 * math.cos(math.radians(lat))
-    scale_y = 110540.0
-    px, py = (lng - lng) * scale_x, 0.0
-    ax, ay = (float(a[1]) - lng) * scale_x, (float(a[0]) - lat) * scale_y
-    bx, by = (float(b[1]) - lng) * scale_x, (float(b[0]) - lat) * scale_y
-    dx, dy = bx - ax, by - ay
-    denom = dx * dx + dy * dy
-    t = 0.0 if denom == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / denom))
-    return math.hypot(ax + t * dx, ay + t * dy)
 
 
-def _aircraft_taxi_conflict(lat, lng):
-    with AIRCRAFT_TAXI_LOCK:
-        for reservation in AIRCRAFT_TAXI_RESERVATIONS.values():
-            route = reservation.get('route') or []
-            if len(route) == 1 and _distance_meters(lat, lng, route[0][0], route[0][1]) < AIRCRAFT_TAXI_SAFETY_METERS:
-                return reservation.get('aircraft') or 'самолёт'
-            for idx in range(len(route) - 1):
-                if _point_segment_distance_m(lat, lng, route[idx], route[idx + 1]) < AIRCRAFT_TAXI_SAFETY_METERS:
-                    return reservation.get('aircraft') or 'самолёт'
-    return None
 
-# Легаси-координаты Шереметьево удалены: география берётся только
-# из config/location.json и static/geodata/vdnh.
-_PARKING_FALLBACK = {}
-
-
-def distance_km(lat1, lng1, lat2, lng2):
-    R = 6371.0
-    d_lat = math.radians(lat2 - lat1)
-    d_lng = math.radians(lng2 - lng1)
-    a = (math.sin(d_lat / 2) ** 2 +
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-         math.sin(d_lng / 2) ** 2)
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def _normalize_parking_ref(raw):
-    if not raw:
-        return None
-    s = str(raw).strip()
-    if re.match(r'^\d{1,4}[A-Za-zА-Яа-я]?$', s):
-        return s.upper()
-    m = re.search(r'(\d{1,4}[A-Za-zА-Яа-я]?)', s)
-    return m.group(1).upper() if m else None
-
-
-def _color_from_props(props, default='#dc2626'):
-    color = (props.get('stroke') or props.get('color')
-             or props.get('fill') or props.get('fillColor')
-             or default)
-    color = str(color)
-    if not color.startswith('#'):
-        if re.match(r'^[0-9A-Fa-f]{6}$', color):
-            color = '#' + color
-    return color
-
-
-def _float_from_props(props, key, default):
-    try:
-        v = props.get(key)
-        if v is not None and str(v).strip() != '':
-            return float(v)
-    except (TypeError, ValueError):
-        pass
-    return default
-
-
-# ------------------------------------------------------------
-# Конфигурация локации (ВДНХ) — единственный источник географии
-# ------------------------------------------------------------
-LOCATION_CONFIG_PATH = os.path.join(BASE_DIR, 'config', 'location.json')
-_LOCATION_LOCK = threading.Lock()
-_LOCATION_CACHE = None
-
-
-def _read_geojson(path):
-    with open(path, encoding='utf-8-sig') as fh:
-        data = json.load(fh)
-    if data.get('type') != 'FeatureCollection' or not isinstance(data.get('features'), list):
-        raise RuntimeError(f'[LOCATION] Некорректный GeoJSON: {path}')
-    return data
-
-
-def _geometry_rings(geometry):
-    if not geometry:
-        return []
-    if geometry.get('type') == 'Polygon':
-        return [geometry['coordinates'][0]]
-    if geometry.get('type') == 'MultiPolygon':
-        return [poly[0] for poly in geometry['coordinates']]
-    return []
-
-
-def _geometry_centroid(geometry):
-    points = [pt for ring in _geometry_rings(geometry) for pt in ring]
-    if not points:
-        return None
-    lon = sum(p[0] for p in points) / len(points)
-    lat = sum(p[1] for p in points) / len(points)
-    return {'lat': round(lat, 6), 'lon': round(lon, 6)}
-
-
-def _geometry_bbox(geometry):
-    points = [pt for ring in _geometry_rings(geometry) for pt in ring]
-    if not points:
-        return None
-    lons = [p[0] for p in points]
-    lats = [p[1] for p in points]
-    return [round(min(lons), 6), round(min(lats), 6),
-            round(max(lons), 6), round(max(lats), 6)]
-
-
-def _road_stats(features):
-    counts, speeds = {}, {}
-    for feature in features:
-        props = feature.get('properties') or {}
-        road_type = props.get('type')
-        if not road_type:
-            continue
-        counts[road_type] = counts.get(road_type, 0) + 1
-        if props.get('spd_kmh'):
-            speeds.setdefault(road_type, set()).add(float(props['spd_kmh']))
-    return {'counts': counts, 'speeds': {k: sorted(v) for k, v in speeds.items()}}
-
-
-def load_location_config(force=False):
-    """Читает config/location.json и привязанные GeoJSON с кэшированием."""
-    global _LOCATION_CACHE
-    with _LOCATION_LOCK:
-        if _LOCATION_CACHE is not None and not force:
-            return _LOCATION_CACHE
-        if not os.path.isfile(LOCATION_CONFIG_PATH):
-            raise RuntimeError(f'[LOCATION] Конфиг не найден: {LOCATION_CONFIG_PATH}')
-        with open(LOCATION_CONFIG_PATH, encoding='utf-8-sig') as fh:
-            config = json.load(fh)
-
-        required = ('id', 'name', 'center', 'bbox', 'files', 'road_rules',
-                    'objects', 'parkings', 'regulation_minutes', 'walk_speed_kmh')
-        missing = [key for key in required if key not in config]
-        if missing:
-            raise RuntimeError('[LOCATION] В конфиге отсутствуют поля: ' + ', '.join(missing))
-
-        paths = {}
-        for key in ('roads', 'objects', 'service_zones', 'boundary'):
-            rel = (config.get('files') or {}).get(key)
-            if not rel:
-                raise RuntimeError(f'[LOCATION] Не указан файл {key}')
-            full = rel if os.path.isabs(rel) else os.path.join(BASE_DIR, rel)
-            if not os.path.isfile(full):
-                raise RuntimeError(f'[LOCATION] Файл не найден: {full}')
-            paths[key] = full
-
-        roads = _read_geojson(paths['roads'])
-        objects_fc = _read_geojson(paths['objects'])
-        zones_fc = _read_geojson(paths['service_zones'])
-        boundary_fc = _read_geojson(paths['boundary'])
-
-        role_by_name = {o.get('name'): o.get('role') for o in config.get('objects', [])}
-        objects = []
-        for feature in objects_fc['features']:
-            props = feature.get('properties') or {}
-            name = props.get('name') or f"object-{props.get('id')}"
-            objects.append({
-                'id': role_by_name.get(name) or f"object-{props.get('id')}",
-                'role': role_by_name.get(name, 'other'),
-                'name': name,
-                'centroid': _geometry_centroid(feature.get('geometry')),
-                'geometry': feature.get('geometry'),
-            })
-
-        parkings = []
-        for feature in zones_fc['features']:
-            props = feature.get('properties') or {}
-            zone_id = props.get('id')
-            parkings.append({
-                'id': f'SZ-{zone_id}',
-                'zone_id': zone_id,
-                'label': f'Стоянка SZ-{zone_id}',
-                'centroid': _geometry_centroid(feature.get('geometry')),
-                'geometry': feature.get('geometry'),
-            })
-        parkings.sort(key=lambda p: p['zone_id'] if isinstance(p['zone_id'], int) else 0)
-
-        boundary = boundary_fc['features'][0].get('geometry') if boundary_fc['features'] else None
-        result = dict(config)
-        result.update({
-            'objects': objects,
-            'parkings': parkings,
-            'zones': parkings,
-            'boundary': boundary,
-            'roads': roads,
-            'road_stats': _road_stats(roads['features']),
-            'bbox': config.get('bbox') or _geometry_bbox(boundary),
-        })
-        _LOCATION_CACHE = result
-        print(f"[LOCATION] {result['id']}: объектов {len(objects)}, стоянок {len(parkings)}, "
-              f"дорог {len(roads['features'])}")
-        return result
-
-
-def _location_center():
-    try:
-        center = load_location_config().get('center') or {}
-        return float(center.get('lat', 55.83367)), float(center.get('lon', 37.62709))
-    except Exception:
-        return 55.83367, 37.62709
-
-
-def _parking_point(parking_id):
-    """Координаты стоянки: SZ-N из config/location.json либо старые id из SVO."""
-    pid = str(parking_id or '').strip()
-    if not pid:
-        return None
-    if pid in PARKING_COORDS:
-        return PARKING_COORDS[pid]
-    try:
-        location = load_location_config()
-    except Exception:
-        return None
-    for parking in location.get('parkings', []):
-        zone_id = parking.get('zone_id')
-        if pid in (str(parking.get('id')), str(zone_id), f'SZ-{zone_id}'):
-            centroid = parking.get('centroid') or {}
-            if centroid:
-                return float(centroid['lat']), float(centroid['lon'])
-    return None
-
-
-def apply_location_parking():
-    """Заменяет стоянки SVO на зоны обслуживания ВДНХ (SZ-1..SZ-10)."""
-    global PARKING_COORDS, PARKING_META
-    try:
-        location = load_location_config()
-    except Exception as exc:
-        print(f'[LOCATION] Стоянки не загружены: {exc}')
-        return 0
-    PARKING_COORDS = {}
-    PARKING_META = {}
-    for parking in location.get('parkings', []):
-        pid = parking.get('id')
-        centroid = parking.get('centroid') or {}
-        if not pid or not centroid:
-            continue
-        lat, lng = float(centroid['lat']), float(centroid['lon'])
-        PARKING_COORDS[pid] = (lat, lng)
-        PARKING_META[pid] = {
-            'id': pid, 'ref': pid,
-            'label': parking.get('label') or pid,
-            'name': parking.get('label') or pid,
-            'lat': lat, 'lng': lng,
-            'centroid': {'lat': lat, 'lon': lng},
-            'polygon': parking.get('geometry'),
-            'geometry': parking.get('geometry'),
-            'zone_id': parking.get('zone_id'),
-        }
-    print(f'[LOCATION] Стоянок ВДНХ: {len(PARKING_META)}')
-    return len(PARKING_META)
-
-
-def apply_location_objects():
-    """Заполняет MAP_OBJECTS объектами ВДНХ (вместо легаси svo_all.geojson)."""
-    global MAP_OBJECTS
-    try:
-        location = load_location_config()
-    except Exception as exc:
-        print(f'[LOCATION] Объекты не загружены: {exc}')
-        return 0
-    objects = []
-    for obj in location.get('objects', []):
-        geometry = obj.get('geometry') or {}
-        gt = geometry.get('type')
-        coords = geometry.get('coordinates') or []
-        if gt == 'Polygon':
-            rings = coords
-        elif gt == 'MultiPolygon':
-            rings = [ring for polygon in coords for ring in polygon]
-        else:
-            rings = []
-        latlngs = []
-        for ring in rings:
-            points = []
-            for point in ring:
-                if isinstance(point, (list, tuple)) and len(point) >= 2:
-                    try:
-                        points.append([float(point[1]), float(point[0])])
-                    except (TypeError, ValueError):
-                        continue
-            if len(points) >= 3:
-                latlngs.append(points)
-        if not latlngs:
-            continue
-        objects.append({
-            'name': str(obj.get('name') or obj.get('id') or 'Объект'),
-            'latlngs': latlngs[0] if len(latlngs) == 1 else latlngs,
-            'color': obj.get('color') or '#2563eb',
-            'weight': 2,
-            'opacity': 0.9,
-            'fillOpacity': 0.15,
-        })
-    MAP_OBJECTS = objects
-    print(f'[LOCATION] Объектов ВДНХ: {len(MAP_OBJECTS)}')
-    return len(MAP_OBJECTS)
-
-
-def prune_stale_map_positions():
-    """Удаляет позиции агентов вне полигона (легаси-точки Шереметьево).
-
-    Иначе COALESCE(map_object_positions, coords_*) показывает инженеров
-    и технику на старых координатах SVO.
-    """
-    try:
-        bbox = load_location_config().get('bbox') or []
-        min_lon, min_lat, max_lon, max_lat = (float(v) for v in bbox)
-    except Exception as exc:
-        print(f'[LOCATION] Чистка позиций пропущена: {exc}')
-        return 0
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("""DELETE FROM map_object_positions
-                       WHERE lat IS NULL OR lng IS NULL
-                          OR lat < ? OR lat > ? OR lng < ? OR lng > ?""",
-                    (min_lat, max_lat, min_lon, max_lon))
-        removed = cur.rowcount
-        # Базовые координаты инженеров вне полигона (легаси SVO) переносим
-        # в центр ВДНХ, чтобы до прихода GPS они не висели в Шереметьево.
-        center = load_location_config().get('center') or {}
-        if center.get('lat') is not None and center.get('lon') is not None:
-            cur.execute("""UPDATE engineers SET coords_lat=?, coords_lng=?
-                           WHERE coords_lat IS NULL OR coords_lng IS NULL
-                              OR coords_lat < ? OR coords_lat > ?
-                              OR coords_lng < ? OR coords_lng > ?""",
-                        (float(center['lat']), float(center['lon']),
-                         min_lat, max_lat, min_lon, max_lon))
-            moved = cur.rowcount
-            if moved:
-                print(f'[LOCATION] Инженеров переставлено в центр ВДНХ: {moved}')
-        conn.commit()
-    finally:
-        conn.close()
-    if removed:
-        print(f'[LOCATION] Удалено устаревших позиций вне полигона: {removed}')
-    return removed
-
-
-def _zone_geometry(parking_id):
-    pid = str(parking_id or '').strip()
-    if not pid:
-        return None
-    meta = PARKING_META.get(pid)
-    if meta and (meta.get('polygon') or meta.get('geometry')):
-        return meta.get('polygon') or meta.get('geometry')
-    try:
-        location = load_location_config()
-    except Exception:
-        return None
-    for parking in location.get('parkings', []):
-        zone_id = parking.get('zone_id')
-        if pid in (str(parking.get('id')), str(zone_id), f'SZ-{zone_id}'):
-            return parking.get('geometry')
-    return None
-
-
-def _point_in_ring(lat, lng, ring):
-    inside = False
-    x, y = float(lng), float(lat)
-    count = len(ring)
-    if count < 3:
-        return False
-    for i in range(count):
-        x1, y1 = ring[i][0], ring[i][1]
-        x2, y2 = ring[(i + 1) % count][0], ring[(i + 1) % count][1]
-        if (y1 > y) != (y2 > y):
-            intersect_x = (x2 - x1) * (y - y1) / (y2 - y1) + x1
-            if x < intersect_x:
-                inside = not inside
-    return inside
-
-
-def _point_in_geometry(lat, lng, geometry):
-    if not geometry:
-        return False
-    geom_type = geometry.get('type')
-    if geom_type == 'Polygon':
-        return _point_in_ring(lat, lng, geometry['coordinates'][0])
-    if geom_type == 'MultiPolygon':
-        return any(_point_in_ring(lat, lng, poly[0])
-                   for poly in geometry['coordinates'])
-    return False
-
-
-def _parse_timestamp(value):
-    if not value:
-        return None
-    text = str(value).strip()
-    try:
-        parsed = datetime.fromisoformat(text.replace('Z', '+00:00'))
-    except ValueError:
-        try:
-            parsed = datetime.strptime(text[:19], '%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-def load_svo_geojson():
-    """Загружает стоянки (Point) и объекты (Polygon/MultiPolygon/LineString)
-    из static/svo_all.geojson."""
-    global PARKING_COORDS, PARKING_META, MAP_OBJECTS
-
-    PARKING_COORDS = {}
-    PARKING_META = {}
-    MAP_OBJECTS = []
-
-    filepath = os.path.join(STATIC_DIR, 'svo_all.geojson')
-    if not os.path.exists(filepath):
-        print(f'[SVO] {filepath} не найден — fallback')
-        for ref, (lat, lng) in _PARKING_FALLBACK.items():
-            PARKING_COORDS[ref] = (lat, lng)
-            PARKING_META[ref] = {'ref': ref, 'name': f'Стоянка {ref}',
-                                 'lat': lat, 'lng': lng, 'terminal': ''}
-        return
-
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f'[SVO] Ошибка чтения: {e}')
-        for ref, (lat, lng) in _PARKING_FALLBACK.items():
-            PARKING_COORDS[ref] = (lat, lng)
-        return
-
-    features = data.get('features', [])
-    print(f'[SVO] Всего фич: {len(features)}')
-
-    REF_KEYS = ('ref', 'REF', 'Ref', 'id', 'ID', 'Id',
-                'number', 'NUMBER', 'Number', 'parking', 'PARKING',
-                'parking_id', 'stand', 'STAND', 'name', 'NAME', 'Name',
-                'title', 'label', 'code', 'CODE')
-
-    points_count = 0
-    polys_count = 0
-    lines_count = 0
-    skipped = 0
-
-    for feature in features:
-        geom = feature.get('geometry') or {}
-        props = feature.get('properties') or {}
-        gt = geom.get('type')
-
-        # ─── Point → стоянка ───
-        if gt == 'Point':
-            coords = geom.get('coordinates') or []
-            if len(coords) < 2:
-                continue
-            try:
-                lng, lat = float(coords[0]), float(coords[1])
-            except (TypeError, ValueError):
-                continue
-
-            raw_ref = None
-            for k in REF_KEYS:
-                v = props.get(k)
-                if v is not None and str(v).strip():
-                    raw_ref = str(v).strip()
-                    break
-
-            if not raw_ref:
-                skipped += 1
-                continue
-            ref = _normalize_parking_ref(raw_ref)
-            if not ref:
-                skipped += 1
-                continue
-
-            PARKING_COORDS[ref] = (lat, lng)
-            PARKING_META[ref] = {
-                'ref': ref,
-                'name': props.get('name') or props.get('NAME') or f'Стоянка {ref}',
-                'terminal': props.get('terminal') or props.get('TERMINAL') or '',
-                'lat': lat, 'lng': lng,
-            }
-            points_count += 1
-
-        # ─── Polygon / MultiPolygon → объект ───
-        elif gt in ('Polygon', 'MultiPolygon'):
-            color = _color_from_props(props, '#dc2626')
-            weight = _float_from_props(props, 'stroke-width', 2.0)
-            opacity = _float_from_props(props, 'stroke-opacity', 0.95)
-            fill_opacity = _float_from_props(props, 'fill-opacity', 0.35)
-            if fill_opacity < 0.15:
-                fill_opacity = 0.30
-
-            name = (props.get('name') or props.get('NAME')
-                    or props.get('description') or props.get('title')
-                    or 'Объект')
-
-            # Polygon:      [[ring], ...]              → [ring]
-            # MultiPolygon: [[[ring1, ring2]], ...]    → [[ring1, ring2], ...]
-            if gt == 'Polygon':
-                polygons = [geom.get('coordinates') or []]
-            else:
-                polygons = geom.get('coordinates') or []
-
-            for poly in polygons:
-                if not poly:
-                    continue
-                rings_latlngs = []
-                for ring in poly:
-                    if not ring:
-                        continue
-                    ring_ll = []
-                    for c in ring:
-                        if isinstance(c, (list, tuple)) and len(c) >= 2:
-                            try:
-                                ring_ll.append([float(c[1]), float(c[0])])
-                            except (TypeError, ValueError):
-                                continue
-                    if len(ring_ll) >= 3:
-                        rings_latlngs.append(ring_ll)
-
-                if not rings_latlngs:
-                    continue
-
-                # Leaflet Polygon: 1 кольцо → [ [lat,lng], ... ]
-                #                  2+ колец → [ [ [lat,lng], ... ], ... ]
-                latlngs = rings_latlngs[0] if len(rings_latlngs) == 1 else rings_latlngs
-
-                MAP_OBJECTS.append({
-                    'name': str(name),
-                    'latlngs': latlngs,
-                    'color': color,
-                    'weight': weight,
-                    'opacity': opacity,
-                    'fillOpacity': fill_opacity,
-                })
-                polys_count += 1
-
-        # ─── LineString → объект-линия ───
-        elif gt == 'LineString':
-            coords = geom.get('coordinates') or []
-            if len(coords) < 2:
-                continue
-            color = _color_from_props(props, '#dc2626')
-            weight = _float_from_props(props, 'stroke-width', 2.5)
-            name = (props.get('name') or props.get('NAME')
-                    or props.get('description') or props.get('title')
-                    or 'Линия')
-            latlngs = []
-            for c in coords:
-                if isinstance(c, (list, tuple)) and len(c) >= 2:
-                    try:
-                        latlngs.append([float(c[1]), float(c[0])])
-                    except (TypeError, ValueError):
-                        continue
-            if len(latlngs) >= 2:
-                MAP_OBJECTS.append({
-                    'name': str(name),
-                    'latlngs': latlngs,
-                    'color': color,
-                    'weight': weight,
-                    'opacity': 0.95,
-                    'fillOpacity': 0,
-                    'isLine': True,
-                })
-                lines_count += 1
-
-    print(f'[SVO] Загружено: стоянок={points_count}, '
-          f'полигонов={polys_count}, линий={lines_count}')
-    if points_count == 0:
-        print('[SVO] ВНИМАНИЕ: точки не найдены — fallback')
-        for ref, (lat, lng) in _PARKING_FALLBACK.items():
-            PARKING_COORDS[ref] = (lat, lng)
-            PARKING_META[ref] = {'ref': ref, 'name': f'Стоянка {ref}',
-                                 'lat': lat, 'lng': lng, 'terminal': ''}
-    if skipped:
-        print(f'[SVO] Пропущено точек без ref: {skipped}')
-
-
-# ============================================================
-# Дорожный граф (ВДНХ): пешеходный, транспортный, авиационный
-# ============================================================
-GRAPH_PEDESTRIAN = nx.Graph()
-GRAPH_VEHICLE = nx.Graph()
-GRAPH_AIRCRAFT = nx.Graph()
-road_graph_vehicle = GRAPH_VEHICLE  # обратная совместимость
-
-_GRAPH_TYPE_SETS = {
-    'pedestrian': {'service', 'pedestrian'},
-    'vehicle': {'service'},
-    'aircraft': {'taxi', 'runway'},
-}
-
-
-def _build_graph(features, allowed_types, rules, closed_fids, label):
-    """Строит граф по рёбрам указанных типов.
-
-    Вес ребра — время в секундах: distance_m / (speed_kmh / 3.6).
-    Узлы — (lat, lng), склейка с допуском 3 м.
-    """
-    graph = nx.Graph()
-    SNAP_M = 3.0
-    TOL_LAT = SNAP_M / 111320.0
-    TOL_LNG = SNAP_M / (111320.0 * math.cos(math.radians(55.8337)))
-    grid, cache = {}, {}
-
-    def snap(lat, lng):
-        key = (lat, lng)
-        if key in cache:
-            return cache[key]
-        cell = (int(math.floor(lat / TOL_LAT)), int(math.floor(lng / TOL_LNG)))
-        best, best_d2 = None, None
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
-                for cand in grid.get((cell[0] + di, cell[1] + dj), []):
-                    dlat = (lat - cand[0]) / TOL_LAT
-                    dlng = (lng - cand[1]) / TOL_LNG
-                    d2 = dlat * dlat + dlng * dlng
-                    if d2 <= 1.0 and (best is None or d2 < best_d2):
-                        best, best_d2 = cand, d2
-        if best is None:
-            best = key
-            grid.setdefault(cell, []).append(best)
-        cache[key] = best
-        return best
-
-    skipped_closed = 0
-    for feature in features:
-        geom = feature.get('geometry') or {}
-        if geom.get('type') != 'LineString':
-            continue
-        props = feature.get('properties') or {}
-        road_type = str(props.get('type') or '').strip().lower()
-        if road_type not in allowed_types:
-            continue
-        fid = props.get('fid', props.get('id'))
-        if fid in closed_fids:
-            skipped_closed += 1
-            continue
-        coords = geom.get('coordinates') or []
-        if len(coords) < 2:
-            continue
-        rule = rules.get(road_type) or {}
-        try:
-            speed = float(props.get('spd_kmh') or rule.get('default_speed_kmh') or 5.0)
-        except (TypeError, ValueError):
-            speed = 5.0
-        speed = max(speed, 1.0)
-        agents = tuple(rule.get('agents') or ())
-        snapped = [snap(float(c[1]), float(c[0])) for c in coords]
-        for i in range(len(snapped) - 1):
-            n1, n2 = snapped[i], snapped[i + 1]
-            if n1 == n2:
-                continue
-            distance_m = distance_km(n1[0], n1[1], n2[0], n2[1]) * 1000.0
-            if distance_m <= 0:
-                continue
-            graph.add_edge(n1, n2,
-                           weight=distance_m / (speed / 3.6),
-                           distance_m=distance_m,
-                           speed_kmh=speed,
-                           road_type=road_type,
-                           allowed_agents=agents,
-                           closed=False)
-    if skipped_closed:
-        print(f'[GRAPH] {label}: пропущено закрытых рёбер — {skipped_closed}')
-    return graph
-
-
-def _graph_edge_types(graph):
-    return {d.get('road_type') for _, _, d in graph.edges(data=True)}
-
-
-def _self_check_graphs():
-    """В пешеходном/транспортном графах не должно быть taxi/runway,
-    в авиационном — service/pedestrian."""
-    checks = (
-        ('пешеходный', GRAPH_PEDESTRIAN, {'taxi', 'runway'}),
-        ('транспортный', GRAPH_VEHICLE, {'taxi', 'runway'}),
-        ('авиационный', GRAPH_AIRCRAFT, {'service', 'pedestrian'}),
-    )
-    ok = True
-    for label, graph, forbidden in checks:
-        bad = _graph_edge_types(graph) & forbidden
-        if bad:
-            ok = False
-            print(f'[GRAPH][CHECK] {label}: запрещённые типы рёбер {sorted(bad)}')
-    return ok
-
-
-def load_road_graph():
-    """Загружает три графа из config/location.json (roads.geojson ВДНХ)."""
-    global GRAPH_PEDESTRIAN, GRAPH_VEHICLE, GRAPH_AIRCRAFT, road_graph_vehicle
-    try:
-        location = load_location_config()
-        features = location['roads']['features']
-        rules = location.get('road_rules') or {}
-        closed_fids = set(location.get('closed_edges') or [])
-    except Exception as e:
-        print(f'[GRAPH] Конфигурация локации недоступна: {e}')
-        return
-
-    GRAPH_PEDESTRIAN = _build_graph(
-        features, _GRAPH_TYPE_SETS['pedestrian'], rules, closed_fids, 'пешеходный')
-    GRAPH_VEHICLE = _build_graph(
-        features, _GRAPH_TYPE_SETS['vehicle'], rules, closed_fids, 'транспортный')
-    GRAPH_AIRCRAFT = _build_graph(
-        features, _GRAPH_TYPE_SETS['aircraft'], rules, closed_fids, 'авиационный')
-    road_graph_vehicle = GRAPH_VEHICLE
-
-    for label, graph in (('пешеходный', GRAPH_PEDESTRIAN),
-                         ('транспортный', GRAPH_VEHICLE),
-                         ('авиационный', GRAPH_AIRCRAFT)):
-        print(f'[GRAPH] {label}: {len(graph.nodes)} узлов, '
-              f'{len(graph.edges)} рёбер, типы={sorted(_graph_edge_types(graph))}')
-    _self_check_graphs()
-
-
-def _bridge_components(graph, components):
-    components = [set(c) for c in components]
-    n = len(components)
-    if n < 2:
-        return
-    bridges = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            min_d, min_pair = float('inf'), None
-            for na in components[i]:
-                for nb in components[j]:
-                    d = distance_km(na[0], na[1], nb[0], nb[1])
-                    if d < min_d:
-                        min_d, min_pair = d, (na, nb)
-            if min_pair:
-                bridges.append((min_d, i, j, min_pair))
-    bridges.sort(key=lambda x: x[0])
-    parent = list(range(n))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-            return True
-        return False
-
-    for d, i, j, pair in bridges:
-        if union(i, j):
-            graph.add_edge(pair[0], pair[1], weight=d)
-
-
-def find_nearest_node(graph, lat, lng):
-    if graph is None or len(graph.nodes) == 0:
-        return None
-    nearest, min_d = None, float('inf')
-    for node in graph.nodes:
-        d = distance_km(lat, lng, node[0], node[1])
-        if d < min_d:
-            min_d, nearest = d, node
-    return nearest
-
-
-def get_shortest_path(graph, start_lat, start_lng, end_lat, end_lng):
-    if graph is None or len(graph.nodes) == 0:
-        return None, 0
-    s = find_nearest_node(graph, start_lat, start_lng)
-    e = find_nearest_node(graph, end_lat, end_lng)
-    if not s or not e:
-        return None, 0
-    try:
-        path_nodes = nx.shortest_path(graph, s, e, weight='weight')
-        coords = [[start_lat, start_lng]]
-        for n in path_nodes:
-            coords.append([n[0], n[1]])
-        coords.append([end_lat, end_lng])
-        total = 0.0
-        for i in range(len(coords) - 1):
-            total += distance_km(coords[i][0], coords[i][1],
-                                 coords[i + 1][0], coords[i + 1][1])
-        return coords, total
-    except nx.NetworkXNoPath:
-        return None, 0
-    except Exception as ex:
-        print(f'[GRAPH] Ошибка: {ex}')
-        return None, 0
-
-
-# ============================================================
-# Маршрутизатор ВДНХ: привязка к рёбрам, участки, промежуточные точки
-# ============================================================
-class RouteError(Exception):
-    pass
-
-
-_EARTH_M_PER_DEG = 111320.0
-
-
-def _local_xy(lat, lng, lat0, lng0):
-    return ((lng - lng0) * _EARTH_M_PER_DEG * math.cos(math.radians(lat0)),
-            (lat - lat0) * _EARTH_M_PER_DEG)
-
-
-def _edge_projection(graph, lat, lng):
-    """Проекция точки на ближайшее ребро графа (в метрах, локальная плоскость)."""
-    if graph is None or not graph.edges:
-        return None
-    best = None
-    for u, v, data in graph.edges(data=True):
-        ux, uy = _local_xy(u[0], u[1], lat, lng)
-        vx, vy = _local_xy(v[0], v[1], lat, lng)
-        dx, dy = vx - ux, vy - uy
-        length2 = dx * dx + dy * dy
-        if length2 <= 1e-9:
-            continue
-        t = -(ux * dx + uy * dy) / length2
-        t = max(0.0, min(1.0, t))
-        px, py = ux + t * dx, uy + t * dy
-        dist = math.hypot(px, py)
-        if best is None or dist < best['distance_m']:
-            edge_len = data.get('distance_m') or math.sqrt(length2)
-            best = {
-                'distance_m': dist,
-                'u': u, 'v': v, 't': t,
-                'edge_len': edge_len,
-                'data': data,
-                'lat': u[0] + t * (v[0] - u[0]),
-                'lng': u[1] + t * (v[1] - u[1]),
-            }
-    return best
-
-
-def _attach_projection(graph, node, projection):
-    """Подключает виртуальный узел к концам спроецированного ребра."""
-    data = projection['data']
-    speed = float(data.get('speed_kmh') or 5.0)
-    speed = max(speed, 1.0)
-    for endpoint, distance_m in ((projection['u'], projection['t'] * projection['edge_len']),
-                                 (projection['v'], (1 - projection['t']) * projection['edge_len'])):
-        distance_m = max(distance_m, 0.01)
-        graph.add_edge(node, endpoint,
-                       weight=distance_m / (speed / 3.6),
-                       distance_m=distance_m,
-                       speed_kmh=speed,
-                       road_type=data.get('road_type'),
-                       allowed_agents=data.get('allowed_agents') or (),
-                       closed=False)
-
-
-def route_leg(graph, start, end, mode='engineer'):
-    """Маршрут между двумя точками с привязкой к ближайшим рёбрам."""
-    if graph is None or not graph.edges:
-        raise RouteError('Дорожная сеть не загружена')
-    start_lat, start_lng = float(start[0]), float(start[1])
-    end_lat, end_lng = float(end[0]), float(end[1])
-
-    sp = _edge_projection(graph, start_lat, start_lng)
-    ep = _edge_projection(graph, end_lat, end_lng)
-    if not sp or not ep:
-        raise RouteError('Не удалось привязать точки к дорожной сети')
-
-    warnings = []
-    if sp['distance_m'] > 100:
-        warnings.append(f'Старт в {int(sp["distance_m"])} м от дороги')
-    if ep['distance_m'] > 100:
-        warnings.append(f'Цель в {int(ep["distance_m"])} м от дороги')
-
-    graph_copy = graph.copy()
-    start_node = ('__virt__', 'start')
-    end_node = ('__virt__', 'end')
-    _attach_projection(graph_copy, start_node, sp)
-    _attach_projection(graph_copy, end_node, ep)
-
-    # Старт и цель на одном ребре — прямое соединение вдоль него.
-    if {sp['u'], sp['v']} == {ep['u'], ep['v']} and sp['u'] != sp['v']:
-        direct_m = abs(sp['t'] - ep['t']) * sp['edge_len']
-        speed = float(sp['data'].get('speed_kmh') or 5.0)
-        graph_copy.add_edge(start_node, end_node,
-                            distance_m=max(direct_m, 0.01),
-                            weight=max(direct_m, 0.01) / (max(speed, 1.0) / 3.6),
-                            speed_kmh=max(speed, 1.0),
-                            road_type=sp['data'].get('road_type'),
-                            allowed_agents=sp['data'].get('allowed_agents') or (),
-                            closed=False)
-
-    try:
-        nodes = nx.shortest_path(graph_copy, start_node, end_node, weight='weight')
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        raise RouteError('Маршрут недоступен: дороги не связаны')
-
-    coords = []
-    segments = []
-    distance_m = 0.0
-    time_s = 0.0
-    for node in nodes:
-        if node == start_node:
-            coords.append([start_lat, start_lng])
-        elif node == end_node:
-            coords.append([end_lat, end_lng])
-        else:
-            coords.append([node[0], node[1]])
-    for u, v in zip(nodes, nodes[1:]):
-        data = graph_copy[u][v]
-        segment_distance = float(data.get('distance_m') or 0.0)
-        segment_time = float(data.get('weight') or 0.0)
-        distance_m += segment_distance
-        time_s += segment_time
-        segments.append({
-            'distance_m': round(segment_distance, 1),
-            'time_s': round(segment_time, 1),
-            'speed_kmh': float(data.get('speed_kmh') or 0.0),
-            'road_type': data.get('road_type'),
-        })
-
-    return {
-        'mode': mode,
-        'path': coords,
-        'segments': segments,
-        'distance_m': round(distance_m, 1),
-        'time_s': round(time_s, 1),
-        'warnings': warnings,
-    }
-
-
-def _as_point(value):
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        lat = value.get('lat', value.get('start_lat'))
-        lng = value.get('lng', value.get('lon', value.get('start_lng')))
-        if lat is None or lng is None:
-            raise RouteError('Точка должна содержать lat и lng')
-        return float(lat), float(lng)
-    if isinstance(value, (list, tuple)) and len(value) >= 2:
-        return float(value[0]), float(value[1])
-    raise RouteError('Некорректный формат точки')
-
-
-def build_route(agent_type, start, waypoints=None, target=None, options=None):
-    """Строит маршрут агента с промежуточными точками и задержками.
-
-    agent_type: engineer | transport | aircraft
-    Точки — (lat, lng) или {'lat','lng'}.
-    """
-    agent_type = str(agent_type or 'engineer').strip().lower()
-    if agent_type not in ('engineer', 'transport', 'aircraft'):
-        raise RouteError('agent_type должен быть engineer, transport или aircraft')
-    options = options or {}
-    start_pt = _as_point(start)
-    target_pt = _as_point(target)
-    if not start_pt or not target_pt:
-        raise RouteError('Нужны start и target')
-
-    waypoint_pts = []
-    for wp in (waypoints or []):
-        point = _as_point(wp)
-        if point:
-            waypoint_pts.append(point)
-
-    location = load_location_config()
-    delays = location.get('delays') or {}
-    boarding_s = float(delays.get('boarding_s', 10))
-    warehouse_s = float(delays.get('warehouse_s', 30))
-
-    legs = []
-    path = []
-    warnings = []
-    total_distance = 0.0
-    total_time = 0.0
-
-    def add_leg(leg, mode):
-        nonlocal total_distance, total_time
-        legs.append({
-            'mode': mode,
-            'from': leg['path'][0],
-            'to': leg['path'][-1],
-            'path': leg['path'],
-            'distance_m': leg['distance_m'],
-            'time_s': leg['time_s'],
-            'speed_kmh': round(
-                (leg['distance_m'] / leg['time_s'] * 3.6) if leg['time_s'] else 0.0, 1),
-        })
-        if not path:
-            path.extend(leg['path'])
-        else:
-            path.extend(leg['path'][1:])
-        total_distance += leg['distance_m']
-        total_time += leg['time_s']
-        warnings.extend(leg['warnings'])
-
-    use_transport = bool(options.get('use_transport'))
-    car = None
-    if use_transport:
-        car_point = _as_point({'lat': options.get('car_lat'), 'lng': options.get('car_lng')}) \
-            if options.get('car_lat') is not None and options.get('car_lng') is not None else None
-        if car_point:
-            car = car_point
-
-    if agent_type == 'engineer' and car:
-        add_leg(route_leg(GRAPH_PEDESTRIAN, start_pt, car, mode='walk'), 'walk')
-        total_time += boarding_s
-        steps = [car] + waypoint_pts + [target_pt]
-        for a, b in zip(steps, steps[1:]):
-            add_leg(route_leg(GRAPH_VEHICLE, a, b, mode='transport'), 'transport')
-        total_time += boarding_s  # высадка
-    elif agent_type == 'transport':
-        steps = [start_pt] + waypoint_pts + [target_pt]
-        for a, b in zip(steps, steps[1:]):
-            add_leg(route_leg(GRAPH_VEHICLE, a, b, mode='transport'), 'transport')
-    elif agent_type == 'aircraft':
-        steps = [start_pt] + waypoint_pts + [target_pt]
-        for a, b in zip(steps, steps[1:]):
-            add_leg(route_leg(GRAPH_AIRCRAFT, a, b, mode='aircraft'), 'aircraft')
-    else:
-        steps = [start_pt] + waypoint_pts + [target_pt]
-        for a, b in zip(steps, steps[1:]):
-            add_leg(route_leg(GRAPH_PEDESTRIAN, a, b, mode='walk'), 'walk')
-
-    total_time += warehouse_s * len(waypoint_pts)
-
-    return {
-        'agent_type': agent_type,
-        'legs': legs,
-        'path': path,
-        'distance_m': round(total_distance, 1),
-        'distance': round(total_distance / 1000.0, 3),
-        'time_s': round(total_time, 1),
-        'eta_min': round(total_time / 60.0, 1),
-        'waypoints': len(waypoint_pts),
-        'warnings': warnings,
-    }
 
 
 # ============================================================
 # DB
 # ============================================================
-def get_db():
-    # mode=rw: SQLite must open an existing database; never create an empty file.
-    if not os.path.isfile(DB_PATH):
-        raise RuntimeError(f'[DB] База данных не найдена: {DB_PATH}. Сервер не создаёт БД автоматически.')
-    uri = 'file:' + DB_PATH.replace('\\', '/') + '?mode=rw'
-    conn = sqlite3.connect(uri, uri=True, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA busy_timeout=30000')
-    return conn
 
 
-def init_db():
-    """Validate the existing database only. Never create, migrate, seed or alter schema/data."""
-    print(f'[DB] Подключение к существующей базе: {DB_PATH}')
-    if not os.path.isfile(DB_PATH):
-        raise RuntimeError(f'[DB] Файл database.db не найден: {DB_PATH}. Создание отключено.')
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        existing = {row['name'] for row in cur.fetchall()}
-        required = {
-            'users', 'engineers', 'pilots', 'transport', 'requests',
-            'aircraft_registry', 'mel_catalog', 'map_object_positions'
-        }
-        missing = sorted(required - existing)
-        if missing:
-            raise RuntimeError(
-                '[DB] В существующей базе отсутствуют необходимые таблицы: '
-                + ', '.join(missing)
-                + '. Сервер не будет создавать или изменять таблицы.'
-            )
-        print(f'[DB] Проверка завершена. Таблиц найдено: {len(existing)}. Схема не изменялась.')
-    finally:
-        conn.close()
-
-
-DEVICE_ID_RE = re.compile(r'^EN-(\d{3})$')
-
-
-def get_engineer_number_from_device(device_id):
-    if not device_id:
-        return 0
-    m = DEVICE_ID_RE.match(str(device_id))
-    return int(m.group(1)) if m else 0
-
-
-def get_used_numbers(conn):
-    cur = conn.cursor()
-    cur.execute("SELECT device_id FROM engineers")
-    used = set()
-    for r in cur.fetchall():
-        n = get_engineer_number_from_device(r['device_id'])
-        if n > 0:
-            used.add(n)
-    return used
-
-
-def next_engineer_number(conn):
-    used = get_used_numbers(conn)
-    return (max(used) + 1) if used else 1
-
-
-def normalize_device_id(device_id, number):
-    if number > 0:
-        return f'EN-{number:03d}'
-    return device_id or 'EN-000'
-
-
-# ============================================================
-# Утилиты
-# ============================================================
-def set_engineer_busy(conn, engineer_id, task_text):
-    if not engineer_id:
-        return False
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
-    if not cur.fetchone():
-        return False
-    cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
-                (task_text, engineer_id))
-    return cur.rowcount > 0
-
-
-def set_engineer_free(conn, engineer_id):
-    if not engineer_id:
-        return False
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM engineers WHERE id=?", (engineer_id,))
-    if not cur.fetchone():
-        return False
-    cur.execute("UPDATE engineers SET status='free', task=NULL, task_step='idle', task_started_at=NULL WHERE id=?",
-                (engineer_id,))
-    return cur.rowcount > 0
-
-
-def engineer_has_active_requests(conn, engineer_id, exclude_request_id=None):
-    cur = conn.cursor()
-    if exclude_request_id:
-        cur.execute("""SELECT COUNT(*) FROM requests
-            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','report_submitted','deleted')
-              AND id!=?""", (engineer_id, exclude_request_id))
-    else:
-        cur.execute("""SELECT COUNT(*) FROM requests
-            WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','report_submitted','deleted')""",
-                    (engineer_id,))
-    return cur.fetchone()[0]
-
-
-def release_engineers_without_active_requests(conn, engineer_ids):
-    """Освобождает исполнителей после удаления заявок, если других активных задач нет."""
-    released = []
-    for engineer_id in {str(x) for x in engineer_ids if x not in (None, '')}:
-        if engineer_has_active_requests(conn, engineer_id) == 0:
-            if set_engineer_free(conn, engineer_id):
-                released.append(engineer_id)
-    return released
-
-
-def sync_engineer_availability(conn):
-    """Сверяет занятость с активными заявками и освобождает инженеров без задач."""
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM engineers WHERE status='busy'")
-    busy_ids = [row['id'] for row in cur.fetchall()]
-    return release_engineers_without_active_requests(conn, busy_ids)
-
-
-FAULT_SKILL = {
-    'engine_failure': 'engine', 'engine_oil': 'engine', 'engine_overheat': 'engine',
-    'engine_vibration': 'engine', 'engine_start': 'engine', 'fuel_leak': 'engine',
-    'fuel_system': 'engine', 'avionics_nav': 'avionics', 'avionics_radio': 'avionics',
-    'avionics_autopilot': 'avionics', 'avionics_transponder': 'avionics',
-    'avionics_display': 'avionics', 'avionics_gps': 'avionics', 'hydraulic': 'hydraulics',
-    'hydraulic_leak': 'hydraulics', 'hydraulic_pressure': 'hydraulics',
-    'electrical': 'electrical', 'electrical_generator': 'electrical',
-    'electrical_battery': 'electrical', 'electrical_short': 'electrical',
-    'electrical_lighting': 'electrical', 'landing_gear': 'mechanical',
-    'pneumatic': 'mechanical', 'brake_system': 'mechanical', 'flap_issue': 'mechanical',
-    'aileron_issue': 'mechanical', 'rudder_issue': 'mechanical', 'wing_damage': 'mechanical',
-    'fuselage_damage': 'mechanical', 'door_issue': 'mechanical',
-    'air_condition': 'general', 'pressurization': 'general', 'oxygen_system': 'general',
-    'fire_system': 'general', 'deicing_system': 'general', 'pilot_voice': 'general',
-    'other': 'general'
-}
-
-FAULT_SYNONYMS = {
-    'pressurization': ['разгормат', 'разгерм', 'герметич', 'декомпресс', 'pressur', 'утечк воздух'],
-    'engine_failure': ['отказ двиг', 'двигател', 'engine', 'помпаж', 'не тянет'],
-    'engine_oil': ['масл', 'oil'],
-    'engine_overheat': ['перегрев', 'температур', 'overheat'],
-    'engine_vibration': ['вибрац', 'тряс', 'vibrat'],
-    'engine_start': ['запуск', 'start', 'не заводится'],
-    'fuel_leak': ['утечк топлив', 'течь топлив', 'fuel leak'],
-    'hydraulic_leak': ['утечк гидравлик', 'hydraul leak', 'гидравлик'],
-    'electrical_short': ['замыкан', 'short', 'кз', 'искр'],
-    'landing_gear': ['шасси', 'стойк', 'gear'],
-    'brake_system': ['тормоз', 'brake'],
-    'avionics_nav': ['навигац', 'курс', 'nav'],
-    'avionics_radio': ['связ', 'радио', 'radio'],
-    'avionics_autopilot': ['автопилот', 'autopilot'],
-    'avionics_transponder': ['транспондер', 'ответчик'],
-    'air_condition': ['кондиционер', 'климат', 'air cond'],
-    'fire_system': ['пожар', 'fire', 'дым'],
-    'door_issue': ['двер', 'door', 'люк'],
-    'oxygen_system': ['кислород', 'oxygen'],
-    'electrical_lighting': ['освещ', 'свет', 'фар'],
-}
-
-
-# Открытый классификатор неисправностей. Каталог хранится отдельно от БД
-# (схему database.db не меняем): data/fault_catalog.json.
-FAULT_CATALOG_PATH = (os.environ.get('INTRAVIA_FAULT_CATALOG', '').strip()
-                      or os.path.join(BASE_DIR, 'data', 'fault_catalog.json'))
-_FAULT_CATALOG_LOCK = threading.Lock()
-
-FAULT_ATA_BY_SKILL = {
-    'engine': '72',
-    'avionics': '34',
-    'hydraulics': '29',
-    'electrical': '24',
-    'mechanical': '32',
-    'general': '',
-}
-
-FAULT_NAMES = {
-    'engine_failure': 'Отказ двигателя',
-    'engine_oil': 'Масляная система двигателя',
-    'engine_overheat': 'Перегрев двигателя',
-    'engine_vibration': 'Повышенная вибрация двигателя',
-    'engine_start': 'Запуск двигателя',
-    'fuel_leak': 'Течь топлива',
-    'fuel_system': 'Топливная система',
-    'avionics_nav': 'Навигационное оборудование',
-    'avionics_radio': 'Радиосвязное оборудование',
-    'avionics_autopilot': 'Автопилот',
-    'avionics_transponder': 'Транспондер (ответчик)',
-    'avionics_display': 'Дисплеи кабины',
-    'avionics_gps': 'GPS-оборудование',
-    'hydraulic': 'Гидравлическая система',
-    'hydraulic_leak': 'Течь гидравлики',
-    'hydraulic_pressure': 'Падение давления гидравлики',
-    'electrical': 'Электрическая система',
-    'electrical_generator': 'Генератор',
-    'electrical_battery': 'Аккумулятор',
-    'electrical_short': 'Короткое замыкание',
-    'electrical_lighting': 'Освещение',
-    'landing_gear': 'Шасси',
-    'pneumatic': 'Пневматическая система',
-    'brake_system': 'Тормозная система',
-    'flap_issue': 'Закрылки',
-    'aileron_issue': 'Элероны',
-    'rudder_issue': 'Руль направления',
-    'wing_damage': 'Повреждение крыла',
-    'fuselage_damage': 'Повреждение фюзеляжа',
-    'door_issue': 'Дверь/люк',
-    'air_condition': 'Система кондиционирования',
-    'pressurization': 'Герметизация кабины',
-    'oxygen_system': 'Кислородная система',
-    'fire_system': 'Пожарная система',
-    'deicing_system': 'Противообледенительная система',
-    'pilot_voice': 'Голосовая заявка пилота',
-    'other': 'Прочее',
-}
-
-
-def _default_fault_catalog():
-    """Каталог по умолчанию, если файл ещё не создан или повреждён."""
-    catalog = []
-    for code, skill in FAULT_SKILL.items():
-        catalog.append({
-            'code': code,
-            'name': FAULT_NAMES.get(code, code),
-            'ata': FAULT_ATA_BY_SKILL.get(skill, ''),
-            'skill': skill,
-            'synonyms': list(FAULT_SYNONYMS.get(code, [])),
-            'custom': False,
-        })
-    for code, synonyms in FAULT_SYNONYMS.items():
-        if all(entry['code'] != code for entry in catalog):
-            skill = FAULT_SKILL.get(code, 'general')
-            catalog.append({
-                'code': code,
-                'name': FAULT_NAMES.get(code, code),
-                'ata': FAULT_ATA_BY_SKILL.get(skill, ''),
-                'skill': skill,
-                'synonyms': list(synonyms),
-                'custom': False,
-            })
-    return catalog
-
-
-def _normalize_catalog_entry(entry):
-    if not isinstance(entry, dict):
-        return None
-    code = str(entry.get('code') or '').strip()
-    if not code:
-        return None
-    skill = str(entry.get('skill') or 'general').strip() or 'general'
-    synonyms = entry.get('synonyms') or []
-    if not isinstance(synonyms, list):
-        synonyms = [str(synonyms)]
-    return {
-        'code': code,
-        'name': str(entry.get('name') or code),
-        'ata': str(entry.get('ata') or ''),
-        'skill': skill,
-        'synonyms': [str(s) for s in synonyms if str(s).strip()],
-        'custom': bool(entry.get('custom')),
-    }
-
-
-def _load_fault_catalog():
-    """Читает каталог с диска; при любой ошибке возвращает встроенный набор."""
-    try:
-        with open(FAULT_CATALOG_PATH, encoding='utf-8') as fh:
-            raw = json.load(fh)
-        entries = [e for e in (_normalize_catalog_entry(x) for x in raw)
-                   if e is not None]
-        if entries:
-            return entries
-    except (OSError, ValueError, TypeError):
-        pass
-    return _default_fault_catalog()
-
-
-def _write_fault_catalog(entries):
-    """Атомарно перезаписывает каталог (tmp-файл в том же каталоге)."""
-    directory = os.path.dirname(os.path.abspath(FAULT_CATALOG_PATH)) or '.'
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix='.fault_catalog.', suffix='.tmp',
-                                    dir=directory)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-            json.dump(entries, fh, ensure_ascii=False, indent=2)
-            fh.write('\n')
-        os.replace(tmp_path, FAULT_CATALOG_PATH)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-def _match_fault_entry(catalog, raw):
-    """Ищет запись по code/name/синониму, затем по самой длинной подстроке."""
-    text = str(raw or '').strip().lower()
-    if not text:
-        return None
-    for entry in catalog:
-        candidates = [entry['code'], entry['name'], *entry.get('synonyms', [])]
-        if any(text == str(c).strip().lower() for c in candidates if str(c).strip()):
-            return entry
-    best, best_len = None, 0
-    for entry in catalog:
-        candidates = [entry['code'], entry['name'], *entry.get('synonyms', [])]
-        for candidate in candidates:
-            value = str(candidate or '').strip().lower()
-            if value and value in text and len(value) > best_len:
-                best, best_len = entry, len(value)
-    return best
-
-
-def classify_fault(raw):
-    """Классифицирует текст в запись каталога, пополняя его custom-записями.
-
-    Возвращает {'code', 'ata', 'skill', 'matched', 'name'}. Никогда не падает
-    из-за ошибки записи: в этом случае возвращается custom-результат в памяти.
-    """
-    text = str(raw or '').strip()
-    if not text:
-        entry = _match_fault_entry(_default_fault_catalog(), 'other') or {
-            'code': 'other', 'ata': '', 'skill': 'general', 'name': 'Прочее'}
-        return {'code': entry['code'], 'ata': entry['ata'],
-                'skill': entry['skill'], 'matched': True,
-                'name': entry['name']}
-
-    catalog = _load_fault_catalog()
-    entry = _match_fault_entry(catalog, text)
-    if entry:
-        return {'code': entry['code'], 'ata': entry['ata'],
-                'skill': entry['skill'], 'matched': True,
-                'name': entry['name']}
-
-    code = 'custom_' + hashlib.sha1(text.lower().encode('utf-8')).hexdigest()[:8]
-    custom = {
-        'code': code,
-        'name': text,
-        'ata': '',
-        'skill': 'general',
-        'synonyms': [],
-        'custom': True,
-    }
-    try:
-        with _FAULT_CATALOG_LOCK:
-            current = _load_fault_catalog()
-            existing = _match_fault_entry(current, text)
-            if existing:
-                return {'code': existing['code'], 'ata': existing['ata'],
-                        'skill': existing['skill'], 'matched': True,
-                        'name': existing['name']}
-            if not any(e['code'] == code for e in current):
-                current.append(custom)
-                _write_fault_catalog(current)
-    except Exception as exc:
-        print(f'[FAULT] Не удалось сохранить custom-запись: {exc}')
-    return {'code': code, 'ata': '', 'skill': 'general',
-            'matched': False, 'name': text}
-
-
-def normalize_fault_type(raw):
-    if not raw:
-        return 'other'
-    raw_lower = str(raw).lower().strip()
-    if raw_lower in FAULT_SKILL:
-        return raw_lower
-    for code, synonyms in FAULT_SYNONYMS.items():
-        if any(syn in raw_lower for syn in synonyms):
-            return code
-    return 'other'
-
-
-MEL_AOG_ATA_CATEGORY = {
-    '21': ('C', 10), '22': ('B', 3), '23': ('C', 10), '24': ('B', 3),
-    '25': ('D', 120), '26': ('B', 3), '27': ('A', 1), '28': ('B', 3),
-    '29': ('A', 1), '30': ('B', 3), '31': ('C', 10), '32': ('A', 1),
-    '33': ('D', 120), '34': ('C', 10), '35': ('A', 1), '36': ('B', 3),
-    '38': ('D', 120), '44': ('D', 120), '45': ('C', 10), '46': ('C', 10),
-    '47': ('C', 10), '49': ('C', 10), '52': ('A', 1), '53': ('A', 1),
-    '71': ('B', 3), '73': ('B', 3), '74': ('B', 3), '75': ('B', 3),
-    '76': ('B', 3), '77': ('C', 10), '78': ('B', 3), '79': ('B', 3),
-    '80': ('B', 3),
-}
-MEL_AOG_CRITICAL_ATA = {'27', '32', '35', '52',
-                        '71', '73', '74', '75', '76', '78', '79', '80'}
-MEL_AOG_ACTUAL_FIRE = re.compile(
-    r'пожар\s+(двигател|вс|самолет|отсек|кабин|гондол)|возгоран|взрыв')
-MEL_AOG_FAULT_WORDS = re.compile(r'отказ|потер|утечк|заклиниван|не выпуска|не убира|не запуска')
-
-
-ATA_TEXT_HINTS = (
-    ('26', r'пожар|огнетуш|дым'),
-    ('27', r'элерон|руль|закрылк|предкрылк|управлен.*(самолет|элерон|рул|закрыл|предкрыл)'),
-    ('29', r'гидросистем|гидравлич'),
-    ('32', r'шасси|тормоз'),
-    ('73', r'топлив.*двигател'),
-    ('28', r'топлив'),
-    ('24', r'генератор|электропитан|аккумулятор|контактор|азс|шина питания'),
-    ('35', r'кислород'),
-    ('52', r'двер|люк'),
-    ('23', r'связ|радио|антенн'),
-    ('34', r'навигац|курс|ils|vor|dme|adf|gnss'),
-    ('30', r'обледен|противооблед'),
-    ('21', r'кондицион|наддув|герметизац'),
-    ('22', r'автопилот|автомат.*управлен'),
-    ('31', r'индикац|дисплей|регистратор'),
-    ('33', r'освещен|фар'),
-    ('38', r'водоснабж|унитаз|кухн'),
-    ('44', r'салон'),
-    ('49', r'всу|вспомогательн.*установк'),
-    ('36', r'пневматич'),
-    ('25', r'кресл|багаж'),
-    ('77', r'индикац.*двигател'),
-    ('71', r'двигател'),
-)
-
-
-def _infer_ata_from_text(low):
-    for ata, pattern in ATA_TEXT_HINTS:
-        if re.search(pattern, low):
-            return ata
-    return ''
-
-
-def classify_mel_aog(text, ata=None, conn=None):
-    """Классифицирует формулировку как AOG или MEL по словарю в БД.
-
-    Правила читаются из fault_classification_rules; при отсутствии таблиц
-    используется тот же встроенный набор. Результат — рекомендация,
-    требует подтверждения инженером/MCC.
-    """
-    raw = str(text or '').strip()
-    if not raw:
-        raise ValueError('Укажите текст неисправности')
-    low = raw.lower()
-    ata = str(ata or '').strip()
-    if not ata:
-        ata = _infer_ata_from_text(low) or ''
-    own_conn = conn is None
-    if own_conn:
-        conn = get_db()
-    try:
-        try:
-            rules = [dict(row) for row in conn.execute(
-                'SELECT rule_code, rule_type, pattern, decision, category, '
-                'interval_days, note FROM fault_classification_rules '
-                'ORDER BY priority')]
-        except sqlite3.Error:
-            rules = []
-        if not rules:
-            rules = [
-                {'rule_code': 'MEL-IND', 'rule_type': 'mel',
-                 'pattern': r'индикац|сигнализац|датчик|кнопк|табло|лампа|подсвет|дисплей|панель|пульт|разъем|провод|цепь',
-                 'decision': 'MEL', 'category': 'C', 'interval_days': 10,
-                 'note': 'Отказ индикации/датчика/цепи'},
-                {'rule_code': 'AOG-ENGINE', 'rule_type': 'aog',
-                 'pattern': r'отказ двигател|не запускается двигател',
-                 'decision': 'AOG', 'category': '', 'interval_days': 0,
-                 'note': 'Отказ двигателя'},
-                {'rule_code': 'AOG-DEPRESS', 'rule_type': 'aog',
-                 'pattern': r'разгерметизац|полная потеря|полный отказ|обесточ',
-                 'decision': 'AOG', 'category': '', 'interval_days': 0,
-                 'note': 'Потеря герметизации/полное обесточивание'},
-            ]
-        mel_rule = None
-        for rule in rules:
-            if rule.get('rule_type') != 'mel':
-                continue
-            try:
-                matched = re.search(rule['pattern'], low, re.IGNORECASE)
-            except re.error:
-                matched = None
-            if matched:
-                mel_rule = rule
-                break
-        if mel_rule and not MEL_AOG_ACTUAL_FIRE.search(low):
-            return _mel_aog_result(raw, ata, mel_rule['decision'],
-                                   mel_rule.get('category') or 'C',
-                                   int(mel_rule.get('interval_days') or 10),
-                                   mel_rule.get('note') or '',
-                                   mel_rule['rule_code'], 'high', conn)
-        for rule in rules:
-            if rule.get('rule_type') != 'aog':
-                continue
-            try:
-                matched = re.search(rule['pattern'], low, re.IGNORECASE)
-            except re.error:
-                matched = None
-            if matched:
-                return _mel_aog_result(raw, ata, 'AOG', '', 0,
-                                       rule.get('note') or '',
-                                       rule['rule_code'], 'high', conn)
-        if ata in MEL_AOG_CRITICAL_ATA and MEL_AOG_FAULT_WORDS.search(low):
-            return _mel_aog_result(raw, ata, 'AOG', '', 0,
-                                   f'Критическая глава ATA {ata}',
-                                   'ATA-CRITICAL', 'medium', conn)
-        category, days = MEL_AOG_ATA_CATEGORY.get(ata, ('C', 10))
-        return _mel_aog_result(raw, ata, 'MEL', category, days,
-                               'Отложимый пункт MEL', 'ATA-DEFAULT',
-                               'medium', conn)
-    finally:
-        if own_conn:
-            conn.close()
-
-
-def _mel_aog_result(text, ata, decision, category, days, reason, rule,
-                    confidence, conn):
-    interval = '—' if decision == 'AOG' else (f'{days} дней' if days else '—')
-    if decision == 'AOG':
-        conditions = ('Эксплуатация запрещена до устранения; оформить AOG, '
-                      'уведомить MCC и диспетчера.')
-    else:
-        conditions = (f'Допускается отложить по MEL категории {category or "C"} '
-                      f'на {interval} с выполнением ограничений и процедур MEL.')
-    matches = []
-    tokens = [tok for tok in re.findall(r'[А-Яа-яA-Za-z]{5,}', text)][:4]
-    if tokens:
-        try:
-            where = ' AND '.join(['lower(title) LIKE ?'] * len(tokens))
-            params = ['%' + tok.lower() + '%' for tok in tokens]
-            sql = ('SELECT fim_code, ata, title, decision, mel_category '
-                   'FROM fault_classification WHERE ' + where)
-            if ata:
-                sql += ' AND ata=?'
-                params.append(ata)
-            sql += ' LIMIT 5'
-            matches = [dict(row) for row in conn.execute(sql, params)]
-        except sqlite3.Error:
-            matches = []
-    return {
-        'text': text,
-        'ata': ata or None,
-        'decision': decision,
-        'mel_category': category,
-        'interval_days': days,
-        'interval_text': interval,
-        'reason': reason,
-        'rule': rule,
-        'confidence': confidence,
-        'conditions': conditions,
-        'needs_review': True,
-        'matches': matches,
-        'source': 'FIM 007-00 + правила MEL/AOG (требует сверки с MEL ВС)',
-    }
 
 
 @app.route('/api/faults/classify', methods=['GET'])
@@ -2147,6 +258,46 @@ def api_faults_classify():
     finally:
         conn.close()
     return jsonify(result)
+
+
+@app.route('/api/faults/catalog', methods=['POST'])
+def api_faults_catalog_add():
+    """Добавляет новый тип неисправности в открытый каталог (без правки кода)."""
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code') or '').strip()
+    name = str(data.get('name') or '').strip()
+    if not code or not name:
+        return jsonify({'success': False, 'error': 'code и name обязательны'}), 400
+    synonyms = data.get('synonyms') or []
+    if not isinstance(synonyms, list):
+        synonyms = [str(synonyms)]
+    entry = _faults._normalize_catalog_entry({
+        'code': code, 'name': name,
+        'ata': data.get('ata') or '',
+        'skill': data.get('skill') or 'general',
+        'synonyms': synonyms, 'custom': True,
+    })
+    if not entry:
+        return jsonify({'success': False, 'error': 'Некорректная запись каталога'}), 400
+    # Синхронизируем путь каталога с обёрткой classify_fault (тесты/стенды).
+    _faults.FAULT_CATALOG_PATH = FAULT_CATALOG_PATH
+    try:
+        with _faults._FAULT_CATALOG_LOCK:
+            catalog = _faults._load_fault_catalog()
+            for idx, existing in enumerate(catalog):
+                if existing.get('code') == entry['code']:
+                    catalog[idx] = entry
+                    break
+            else:
+                catalog.append(entry)
+            _faults._write_fault_catalog(catalog)
+    except Exception as exc:
+        return jsonify({'success': False,
+                        'error': f'Не удалось сохранить каталог: {exc}'}), 500
+    append_event('fault_catalog_added', actor=_request_actor(),
+                 code=entry['code'], name=entry['name'],
+                 ata=entry['ata'], skill=entry['skill'])
+    return jsonify({'success': True, 'item': entry})
 
 
 @app.route('/api/faults/catalog', methods=['GET'])
@@ -2189,851 +340,16 @@ def api_faults_catalog():
     return jsonify({'total': total, 'counts': counts, 'items': rows})
 
 
-def get_free_engineer_for(conn, fault_type, required_skill_map,
-                          target_lat=None, target_lng=None, exclude_ids=None,
-                          required_skill_override=None):
-    if exclude_ids is None:
-        exclude_ids = set()
-    exclude_ids = {str(x) for x in exclude_ids}
-    required_skill = required_skill_override or required_skill_map.get(fault_type, 'general')
-
-    cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, specialization, coords_lat, coords_lng
-                   FROM engineers WHERE status='free'""")
-    all_free = [dict(r) for r in cur.fetchall()]
-
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-                   WHERE routing_stage='technician'
-                     AND status IN ('assigned','arriving','in_progress','working')
-                     AND engineer_id IS NOT NULL""")
-    busy_with_requests = {str(r['engineer_id']) for r in cur.fetchall()}
-
-    all_free = [e for e in all_free
-                if str(e['id']) not in exclude_ids
-                and str(e['id']) not in busy_with_requests]
-    pool = [e for e in all_free if e['specialization'] == required_skill]
-
-    if not pool:
-        return None, None
-    if target_lat is None or target_lng is None:
-        return pool[0], {'travel_time': 0, 'walk_time': 0, 'using_car': False,
-                         'best_car': None, 'best_car_time': 0, 'walk_to_car': 0,
-                         'path_coords': None}
-
-    cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(r) for r in cur.fetchall()]
-    cars = [c for c in cars if c.get('lat') is not None and c.get('lng') is not None]
-
-    feasible = []
-    for e in pool:
-        if e['coords_lat'] is None or e['coords_lng'] is None:
-            continue
-        eng_point = (float(e['coords_lat']), float(e['coords_lng']))
-        target_point = (float(target_lat), float(target_lng))
-        try:
-            walk_route = build_route('engineer', eng_point, [], target_point)
-        except RouteError:
-            continue
-
-        best_route = walk_route
-        best_car = None
-        for car in cars:
-            try:
-                car_route = build_route(
-                    'engineer', eng_point, [], target_point,
-                    {'use_transport': True,
-                     'car_lat': car['lat'], 'car_lng': car['lng']})
-            except RouteError:
-                continue
-            if car_route['time_s'] < best_route['time_s']:
-                best_route, best_car = car_route, car
-
-        travel_min = best_route['time_s'] / 60.0
-        if travel_min > REGULATION_MINUTES:
-            continue
-
-        walk_legs = [l for l in best_route['legs'] if l['mode'] == 'walk']
-        car_legs = [l for l in best_route['legs'] if l['mode'] == 'transport']
-        walk_to_car_min = (walk_legs[0]['time_s'] / 60.0) if (best_car and walk_legs) else 0.0
-        car_time_min = sum(l['time_s'] for l in car_legs) / 60.0
-
-        feasible.append({
-            'engineer': e,
-            'travel_time': round(travel_min, 1),
-            'walk_time': round(walk_route['time_s'] / 60.0, 1),
-            'using_car': best_car is not None, 'best_car': best_car,
-            'best_car_time_exact': car_time_min,
-            'walk_to_car_exact': walk_to_car_min,
-            'best_car_time': round(car_time_min, 1),
-            'walk_to_car': round(walk_to_car_min, 1),
-            'path_coords': best_route['path'],
-        })
-
-    if not feasible:
-        return None, None
-    feasible.sort(key=lambda x: x['travel_time'])
-    return feasible[0]['engineer'], feasible[0]
 
 
-# Кэш таблиц кандидатов для объяснимости назначения (критерий 17).
-_CANDIDATES_LOCK = threading.Lock()
-_CANDIDATES_CACHE = {}
-CANDIDATE_URGENCY = {'low': 0.85, 'medium': 1.0, 'high': 1.3, 'critical': 1.5}
 
 
-def _engineer_shift_load(conn, engineer_id):
-    """Сколько заявок инженер уже получал за текущие сутки (загрузка смены)."""
-    cur = conn.cursor()
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    cur.execute("""SELECT COUNT(*) AS cnt FROM requests
-                   WHERE engineer_id=?
-                     AND status NOT IN ('cancelled','deleted','draft')
-                     AND substr(COALESCE(created_at,''),1,10)=?""",
-                (engineer_id, today))
-    row = cur.fetchone()
-    return int(row['cnt'] or 0) if row else 0
 
 
-def build_candidate_table(conn, fault_type, target_lat, target_lng,
-                          severity='medium', exclude_ids=None):
-    """Строит таблицу кандидатов с факторами, оценкой и причинами отказа.
-
-    Учитываются: допуск по профилю дефекта, занятость, время в пути с
-    пересадкой на спецтехнику, загрузка за смену и срочность заявки.
-    """
-    exclude_ids = {str(x) for x in (exclude_ids or set())}
-    required_skill = FAULT_SKILL.get(fault_type, 'general')
-    cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, specialization, status,
-                          coords_lat, coords_lng
-                   FROM engineers ORDER BY device_id""")
-    engineers = [dict(row) for row in cur.fetchall()]
-
-    cur.execute("""SELECT engineer_id, id FROM requests
-                   WHERE routing_stage='technician'
-                     AND status IN ('assigned','arriving','in_progress','working')
-                     AND engineer_id IS NOT NULL""")
-    active = {}
-    for row in cur.fetchall():
-        active.setdefault(str(row['engineer_id']), row['id'])
-
-    cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(row) for row in cur.fetchall()]
-    cars = [car for car in cars if car.get('lat') is not None and car.get('lng') is not None]
-
-    urgency = CANDIDATE_URGENCY.get(str(severity or 'medium').lower(), 1.0)
-    table = []
-    for engineer in engineers:
-        eid = str(engineer['id'])
-        device = normalize_device_id(engineer.get('device_id'),
-                                     get_engineer_number_from_device(engineer.get('device_id')))
-        item = {
-            'engineer_id': eid,
-            'name': engineer.get('name') or device,
-            'device_id': device,
-            'specialization': engineer.get('specialization') or 'general',
-            'eligible': False,
-            'reason': '',
-        }
-        if eid in exclude_ids:
-            item['reason'] = 'уже отказался от этой заявки'
-            table.append(item)
-            continue
-        if engineer.get('status') != 'free':
-            item['reason'] = 'занят'
-            table.append(item)
-            continue
-        if eid in active:
-            item['reason'] = 'работает по заявке ' + str(active[eid])
-            table.append(item)
-            continue
-        if engineer.get('specialization') != required_skill:
-            item['reason'] = 'нет допуска: требуется ' + required_skill
-            table.append(item)
-            continue
-        if engineer.get('coords_lat') is None or engineer.get('coords_lng') is None:
-            item['reason'] = 'нет координат'
-            table.append(item)
-            continue
-
-        eng_point = (float(engineer['coords_lat']), float(engineer['coords_lng']))
-        try:
-            walk_route = build_route('engineer', eng_point, [], (target_lat, target_lng))
-        except RouteError as exc:
-            item['reason'] = 'маршрут не строится: ' + str(exc)
-            table.append(item)
-            continue
-
-        best_route, best_car = walk_route, None
-        for car in cars:
-            try:
-                car_route = build_route(
-                    'engineer', eng_point, [], (target_lat, target_lng),
-                    {'use_transport': True,
-                     'car_lat': car['lat'], 'car_lng': car['lng']})
-            except RouteError:
-                continue
-            if car_route['time_s'] < best_route['time_s']:
-                best_route, best_car = car_route, car
-        travel_min = best_route['time_s'] / 60.0
-        if travel_min > REGULATION_MINUTES:
-            item['reason'] = f'не успевает: {travel_min:.1f} мин > {REGULATION_MINUTES}'
-            table.append(item)
-            continue
-
-        workload = _engineer_shift_load(conn, eid)
-        walk_legs = [leg for leg in best_route['legs'] if leg['mode'] == 'walk']
-        car_legs = [leg for leg in best_route['legs'] if leg['mode'] == 'transport']
-        walk_to_car = (walk_legs[0]['time_s'] / 60.0) if (best_car and walk_legs) else 0.0
-        car_time = sum(leg['time_s'] for leg in car_legs) / 60.0
-        score = round(travel_min * urgency + workload * 2.0 + (0.5 if best_car else 0.0), 2)
-        reasons = [
-            'допуск ' + required_skill + ' — да',
-            'свободен',
-            f'в пути {travel_min:.1f} мин',
-            ('на спецтехнике ' + str(best_car.get('device_id')))
-            if best_car else 'пешком',
-            f'загрузка за смену {workload}',
-            f'срочность {severity} ×{urgency}',
-            'укладывается в 15 мин',
-        ]
-        item.update({
-            'eligible': True,
-            'travel_time': round(travel_min, 1),
-            'walk_time': round(walk_route['time_s'] / 60.0, 1),
-            'using_car': best_car is not None,
-            'best_car': best_car.get('device_id') if best_car else None,
-            'walk_to_car': round(walk_to_car, 1),
-            'car_time': round(car_time, 1),
-            'workload': workload,
-            'score': score,
-            'reason': ', '.join(reasons),
-            'path': best_route.get('path'),
-        })
-        table.append(item)
-
-    table.sort(key=lambda row: (not row['eligible'], row.get('score', 9999.0)))
-    return table
-
-
-def remember_candidates(request_id, table, duration_ms, selected_id=None):
-    with _CANDIDATES_LOCK:
-        _CANDIDATES_CACHE[str(request_id)] = {
-            'request_id': str(request_id),
-            'built_at': _utc_now_iso(),
-            'duration_ms': duration_ms,
-            'selected_engineer_id': selected_id,
-            'candidates': table,
-        }
-
-
-def get_remembered_candidates(request_id):
-    with _CANDIDATES_LOCK:
-        return _CANDIDATES_CACHE.get(str(request_id))
-
-
-def choose_transport(engineer, target, waypoints=None, conn=None):
-    """Сравнивает пеший маршрут и вариант со спецтранспортом.
-
-    Возвращает {'mode': 'walk'|'transport', 'car': dict|None,
-                'route': результат build_route, 'time_s': лучшие секунды}.
-    """
-    def field(obj, key):
-        try:
-            return obj[key]
-        except (KeyError, IndexError, TypeError):
-            return getattr(obj, key, None)
-
-    lat = field(engineer, 'coords_lat')
-    lng = field(engineer, 'coords_lng')
-    if lat is None or lng is None:
-        raise RouteError('У инженера нет координат')
-    start = (float(lat), float(lng))
-    target_point = _as_point(target)
-    waypoint_list = waypoints or []
-
-    own_conn = conn is None
-    if own_conn:
-        conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport "
-                    "WHERE assigned_to IS NULL")
-        cars = [dict(r) for r in cur.fetchall()]
-    finally:
-        if own_conn:
-            conn.close()
-
-    walk_route = build_route('engineer', start, waypoint_list, target_point)
-    best = {'mode': 'walk', 'car': None, 'route': walk_route,
-            'time_s': walk_route['time_s']}
-
-    for car in cars:
-        if car.get('lat') is None or car.get('lng') is None:
-            continue
-        try:
-            car_route = build_route(
-                'engineer', start, waypoint_list, target_point,
-                {'use_transport': True,
-                 'car_lat': car['lat'], 'car_lng': car['lng']})
-        except RouteError:
-            continue
-        if car_route['time_s'] < best['time_s']:
-            best = {'mode': 'transport', 'car': car,
-                    'route': car_route, 'time_s': car_route['time_s']}
-    return best
-
-
-def try_reassign_queued():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-                   WHERE routing_stage='technician'
-                     AND status IN ('assigned','arriving','in_progress','working')
-                     AND engineer_id IS NOT NULL""")
-    busy = {str(r['engineer_id']) for r in cur.fetchall()}
-
-    # Заявки, ожидающие решения диспетчера, автоматически не назначаются:
-    # это звено цепочки, через которое заявка обязана пройти.
-    cur.execute("""SELECT id, aircraft, fault_type, parking_id, rejected_by
-                   FROM requests
-                   WHERE status='queued'
-                     AND COALESCE(routing_stage,'') != 'dispatcher'
-                   ORDER BY created_at ASC""")
-    queued = [dict(r) for r in cur.fetchall()]
-    if not queued:
-        conn.close()
-        return
-
-    assigned = []
-    for q in queued:
-        rejected = {x.strip() for x in str(q['rejected_by']).split(',') if x.strip()}
-        exclude = rejected | busy
-        target = _parking_point(q['parking_id']) or _location_center()
-        eng, route = get_free_engineer_for(conn, q['fault_type'] or 'engine_failure',
-                                            FAULT_SKILL, target[0], target[1],
-                                            exclude_ids=exclude)
-        if not eng:
-            continue
-        cur.execute("""UPDATE requests SET engineer_id=?, engineer_name=?,
-            travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
-            engineer_comment='', status='assigned', routing_stage='technician',
-            inspection_assigned_at=NULL,
-            delay_minutes=0, delay_reason='', delay_started_at=NULL,
-            delay_approved_by='', all_rejected=0
-            WHERE id=?""",
-            (eng['id'], eng['name'], q['id']))
-        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
-                    ('ВС ' + (q['aircraft'] or ''), eng['id']))
-        busy.add(eng['id'])
-        assigned.append(q['id'])
-    conn.commit()
-    conn.close()
-
-    # Для автоматически назначенных заявок сразу готовим маршрут-превью.
-    for assigned_rid in assigned:
-        _recalc_route_for_request_id(assigned_rid, force=True)
 
 # ============================================================
 # Пересчёт ROUTE
 # ============================================================
-def _recompute_route_for_request(request_row):
-    eng_id = request_row['engineer_id']
-    parking = str(request_row['parking_id'] or '')
-    if not eng_id or not parking:
-        return None
-
-    target = _parking_point(parking)
-    if target is None:
-        return None
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, coords_lat, coords_lng FROM engineers WHERE id=?", (eng_id,))
-    eng = cur.fetchone()
-    if not eng:
-        conn.close()
-        return None
-
-    # Маршрут нельзя строить от условной точки: обе координаты должны
-    # существовать в БД и соответствовать реальной метке инженера.
-    if eng['coords_lat'] is None or eng['coords_lng'] is None:
-        conn.close()
-        return None
-    e_lat = float(eng['coords_lat'])
-    e_lng = float(eng['coords_lng'])
-
-    try:
-        walk_route = build_route('engineer', (e_lat, e_lng), [], target)
-    except RouteError as exc:
-        print(f'[ROUTE] {request_row["id"]}: {exc}')
-        conn.close()
-        return None
-
-    cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to=?",
-                (request_row['id'],))
-    assigned_car = cur.fetchone()
-
-    if assigned_car:
-        cars = [dict(assigned_car)]
-    else:
-        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-        cars = [dict(r) for r in cur.fetchall()]
-    cars = [c for c in cars if c.get('lat') is not None and c.get('lng') is not None]
-
-    best_route = walk_route
-    best_car = None
-    for car in cars:
-        try:
-            car_route = build_route(
-                'engineer', (e_lat, e_lng), [], target,
-                {'use_transport': True,
-                 'car_lat': car['lat'], 'car_lng': car['lng']})
-        except RouteError:
-            continue
-        if car_route['time_s'] < best_route['time_s']:
-            best_route, best_car = car_route, car
-
-    conn.close()
-
-    walk_legs = [l for l in best_route['legs'] if l['mode'] == 'walk']
-    car_legs = [l for l in best_route['legs'] if l['mode'] == 'transport']
-    best_time = best_route['time_s'] / 60.0
-    best_car_time = sum(l['time_s'] for l in car_legs) / 60.0
-    best_walk_to_car = (walk_legs[0]['time_s'] / 60.0) if (best_car and walk_legs) else 0.0
-    best_path = best_route['path']
-
-    rounded = [[round(p[0], 6), round(p[1], 6)] for p in best_path]
-
-    route_json = {
-        'flat': round(e_lat, 6), 'flng': round(e_lng, 6),
-        'tlat': round(target[0], 6), 'tlng': round(target[1], 6),
-        'tt': round(best_time, 1),
-        'uc': best_car is not None,
-        'wc': round(best_walk_to_car, 1),
-        'ct': round(best_car_time, 1),
-        'wc_exact': round(best_walk_to_car, 3),
-        'ct_exact': round(best_car_time, 3),
-        'bclat': round(best_car['lat'], 6) if best_car else None,
-        'bclng': round(best_car['lng'], 6) if best_car else None,
-        'bc': best_car['device_id'] if best_car else None,
-        'pid': parking,
-        'path': rounded,
-        'legs': best_route['legs'],
-        'distance_m': best_route['distance_m'],
-        'time_exact_s': round(best_route['time_s'], 1),
-        'eta_min': round(best_route['time_s'] / 60.0, 1),
-        'warnings': best_route['warnings'],
-    }
-    fields = {
-        'travel_time': round(best_time, 1),
-        'using_car': 1 if best_car else 0,
-        'walk_to_car': round(best_walk_to_car, 1),
-        'car_time': round(best_car_time, 1),
-        'best_car': best_car['device_id'] if best_car else None,
-    }
-    return json.dumps(route_json, ensure_ascii=False), fields
-
-
-def _strip_route_payload(comment):
-    """Удаляет только служебный ROUTE JSON, сохраняя текст отчёта инженера."""
-    comment = comment or ''
-    if not comment.startswith('ROUTE:'):
-        return comment
-    rest = comment[6:]
-    depth = 0
-    end = -1
-    in_string = False
-    escaped = False
-    for i, ch in enumerate(rest):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == '\\':
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    if end < 0:
-        return rest.strip()
-    return rest[end:].strip()
-
-
-def _clear_route_for_request(cur, request_id, comment):
-    """Стирает маршрут у заявки, которая больше не находится в активной работе."""
-    cleaned = _strip_route_payload(comment)
-    cur.execute("""UPDATE requests SET engineer_comment=?, using_car=0,
-                   walk_to_car=0, car_time=0, best_car=NULL WHERE id=?""",
-                (cleaned, request_id))
-
-
-def _cleanup_inactive_route_payloads(cur):
-    """Удаляет ROUTE JSON у всех заявок, которые не принадлежат работающим инженерам."""
-    cur.execute("""SELECT r.id, r.engineer_comment FROM requests r
-                   LEFT JOIN engineers e ON e.id=r.engineer_id
-                   WHERE r.engineer_comment LIKE 'ROUTE:%'
-                     AND NOT (
-                       r.routing_stage='technician'
-                       AND r.status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
-                       AND e.status='busy'
-                       AND e.task_step IN ('pending','accepted','in_car','arrived','diagnosing')
-                       AND e.coords_lat IS NOT NULL AND e.coords_lng IS NOT NULL
-                       AND r.parking_id IS NOT NULL AND r.parking_id != ''
-                     )""")
-    stale = cur.fetchall()
-    for row in stale:
-        _clear_route_for_request(cur, row['id'], row['engineer_comment'])
-    return len(stale)
-
-
-def _recalc_route_for_request_id(request_id, force=False):
-    if not request_id:
-        return
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment, r.status,
-                          r.routing_stage, e.task_step AS engineer_task_step, e.status AS engineer_status,
-                          e.coords_lat AS engineer_lat, e.coords_lng AS engineer_lng
-                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
-                   WHERE r.id=?""", (request_id,))
-    req = cur.fetchone()
-    if not req:
-        conn.close()
-        return
-    # Маршрут-превью создаётся сразу после назначения (pending).
-    # До принятия он только отображается и не запускает движение/таймер.
-    # После принятия тот же маршрут становится активным маршрутом поездки.
-    route_terminal_statuses = ('completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted')
-    route_work_steps = ('pending', 'accepted', 'in_car', 'arrived', 'diagnosing')
-    is_working = (req['status'] not in route_terminal_statuses and
-                  req['routing_stage'] == 'technician' and
-                  req['engineer_id'] is not None and req['engineer_status'] == 'busy' and
-                  req['engineer_task_step'] in route_work_steps and
-                  req['engineer_lat'] is not None and req['engineer_lng'] is not None and
-                  str(req['parking_id'] or '') in PARKING_COORDS)
-    if not is_working:
-        _clear_route_for_request(cur, request_id, req['engineer_comment'])
-        conn.commit()
-        conn.close()
-        return
-    old_comment = req['engineer_comment'] or ''
-    if not force and old_comment.startswith('ROUTE:') and req['status'] in ('assigned', 'arriving', 'in_progress', 'working'):
-        conn.close()
-        return
-
-    route_started = time.perf_counter()
-    result = _recompute_route_for_request(req)
-    route_ms = round((time.perf_counter() - route_started) * 1000.0, 2)
-    if not result:
-        _clear_route_for_request(cur, request_id, req['engineer_comment'])
-        conn.commit()
-        conn.close()
-        return
-    new_route, fields = result
-
-    old_comment = req['engineer_comment'] or ''
-    old_eta = _route_eta_min(old_comment)
-    fresh_payload = _route_payload('ROUTE:' + new_route) or {}
-    new_eta = fresh_payload.get('eta_min')
-    try:
-        new_eta = round(float(new_eta), 1) if new_eta is not None else None
-    except (TypeError, ValueError):
-        new_eta = None
-    if old_eta is None:
-        append_event('route_built', request_id=request_id,
-                     engineer_id=req['engineer_id'], eta_min=new_eta,
-                     distance_m=fresh_payload.get('distance_m'),
-                     duration_ms=route_ms)
-    elif new_eta is not None and abs(new_eta - old_eta) >= 0.5:
-        append_event('route_recalculated', request_id=request_id,
-                     engineer_id=req['engineer_id'], previous_eta_min=old_eta,
-                     eta_min=new_eta, duration_ms=route_ms)
-        append_event('eta_updated', request_id=request_id,
-                     previous_eta_min=old_eta, eta_min=new_eta,
-                     delta_min=round(new_eta - old_eta, 1))
-    # Пересчёт маршрута не должен стирать факт прибытия и сравнение с ETA.
-    previous = _route_payload(old_comment)
-    if previous and previous.get('arrival'):
-        try:
-            fresh = json.loads(new_route)
-            fresh['arrival'] = previous['arrival']
-            new_route = json.dumps(fresh, ensure_ascii=False)
-        except (TypeError, ValueError):
-            pass
-    report_part = ''
-    if old_comment.startswith('ROUTE:'):
-        rest = old_comment[6:]
-        depth, end = 0, -1
-        for i, c in enumerate(rest):
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        if end > 0:
-            report_part = rest[end:].strip()
-
-    new_comment = 'ROUTE:' + new_route
-    if report_part:
-        new_comment += '\n' + report_part
-
-    cur.execute("""UPDATE requests SET
-                   engineer_comment=?, travel_time=?, using_car=?,
-                   walk_to_car=?, car_time=?, best_car=?
-                   WHERE id=?""",
-                (new_comment, fields['travel_time'], fields['using_car'],
-                 fields['walk_to_car'], fields['car_time'], fields['best_car'],
-                 request_id))
-    conn.commit()
-    conn.close()
-    print(f'[SYNC] ROUTE recalculated for {request_id}')
-
-
-def _recalc_routes_for_engineer(eng_id, force=False):
-    if not eng_id:
-        return
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT id FROM requests
-                   WHERE engineer_id=? AND routing_stage='technician' AND status NOT IN
-                   ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')""", (eng_id,))
-    ids = [r['id'] for r in cur.fetchall()]
-    conn.close()
-    for rid in ids:
-        _recalc_route_for_request_id(rid, force=force)
-        
-def _recalc_all_active_routes():
-    """Пересчитывает маршруты только инженеров с принятым активным заданием.
-    У остальных заявок удаляет сохранённый ROUTE JSON, не затрагивая отчёт."""
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT r.id FROM requests r
-                   JOIN engineers e ON e.id=r.engineer_id
-                   WHERE r.status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
-                     AND r.routing_stage='technician'
-                     AND e.task_step IN ('pending','accepted','in_car','arrived','diagnosing')
-                     AND e.status='busy'
-                     AND e.coords_lat IS NOT NULL AND e.coords_lng IS NOT NULL
-                     AND r.engineer_id IS NOT NULL
-                     AND r.parking_id IS NOT NULL AND r.parking_id != ''""")
-    active_ids = [r['id'] for r in cur.fetchall()]
-    _cleanup_inactive_route_payloads(cur)
-    conn.commit()
-    conn.close()
-    for rid in active_ids:
-        try:
-            _recalc_route_for_request_id(rid, force=True)
-        except Exception as e:
-            print(f'[RECALC] {rid}: {e}')
-
-
-def _archive_requests_before_delete(cur, where_sql, params=(), reason='Удалена'):
-    """Сохраняет отметку об удалении в routing_history существующей строки requests.
-    Физически запись не удаляется: это и есть долговременный архив без новых таблиц.
-    """
-    cur.execute('SELECT id, routing_history FROM requests WHERE ' + where_sql, params)
-    rows = cur.fetchall()
-    now = datetime.now(timezone.utc).isoformat()
-    for row in rows:
-        try:
-            history = json.loads(row['routing_history'] or '[]')
-            if not isinstance(history, list):
-                history = []
-        except Exception:
-            history = []
-        history.append({'at': now, 'stage': 'deleted', 'actor': 'Система', 'note': reason})
-        cur.execute("UPDATE requests SET routing_history=?, status='deleted', routing_stage='done' WHERE id=?",
-                    (json.dumps(history, ensure_ascii=False), row['id']))
-    return len(rows)
-
-
-def _log_routing_event(conn, rid, stage, actor, note='', **extra):
-    cur = conn.cursor()
-    cur.execute("SELECT routing_history FROM requests WHERE id=?", (rid,))
-    row = cur.fetchone()
-    if not row:
-        return
-    try:
-        history = json.loads(row['routing_history'] or '[]')
-    except Exception:
-        history = []
-    event = {
-        'at': datetime.now(timezone.utc).isoformat(),
-        'stage': stage,
-        'actor': actor,
-        'note': note,
-    }
-    event.update(extra)
-    history.append(event)
-    cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
-                (json.dumps(history, ensure_ascii=False), rid))
-
-
-def _history_has_stage(history_json, stage):
-    try:
-        history = json.loads(history_json or '[]')
-    except (TypeError, ValueError):
-        return False
-    return any(isinstance(item, dict) and item.get('stage') == stage for item in history)
-
-
-def _route_payload(comment):
-    """Разбирает служебный ROUTE JSON из комментария заявки."""
-    comment = comment or ''
-    if not comment.startswith('ROUTE:'):
-        return None
-    rest = comment[6:]
-    depth = 0
-    for i, ch in enumerate(rest):
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                try:
-                    payload = json.loads(rest[:i + 1])
-                    return payload if isinstance(payload, dict) else None
-                except (TypeError, ValueError):
-                    return None
-    return None
-
-
-def _route_eta_min(comment):
-    """ETA (минуты) из сохранённого ROUTE JSON, иначе None."""
-    payload = _route_payload(comment)
-    if not payload:
-        return None
-    eta = payload.get('eta_min', payload.get('tt'))
-    try:
-        return round(float(eta), 1) if eta is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _nearest_free_engineer(conn, target_lat, target_lng):
-    """Ближайший свободный инженер до цели: время пешком или на спецтранспорте."""
-    cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, coords_lat, coords_lng
-                   FROM engineers WHERE status='free'""")
-    engineers = [dict(row) for row in cur.fetchall()]
-    cur.execute("SELECT id, device_id, lat, lng FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(row) for row in cur.fetchall()
-            if row['lat'] is not None and row['lng'] is not None]
-    best = None
-    for engineer in engineers:
-        if engineer['coords_lat'] is None or engineer['coords_lng'] is None:
-            continue
-        start = (float(engineer['coords_lat']), float(engineer['coords_lng']))
-        target = (float(target_lat), float(target_lng))
-        try:
-            route = build_route('engineer', start, [], target)
-        except RouteError:
-            continue
-        for car in cars:
-            try:
-                car_route = build_route('engineer', start, [], target,
-                                        {'use_transport': True,
-                                         'car_lat': car['lat'], 'car_lng': car['lng']})
-            except RouteError:
-                continue
-            if car_route['time_s'] < route['time_s']:
-                route = car_route
-        eta_min = round(route['time_s'] / 60.0, 1)
-        if best is None or eta_min < best['eta_min']:
-            best = {'id': engineer['id'], 'name': engineer['name'],
-                    'device_id': engineer['device_id'], 'eta_min': eta_min}
-    return best
-
-
-def _check_regulation_warning(request_id):
-    """Публикует warning за 5 минут до норматива и breach после его истечения."""
-    if not request_id:
-        return
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
-                              r.routing_history, r.status, r.engineer_id,
-                              r.engineer_comment, e.task_step,
-                              e.name AS engineer_name
-                       FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
-                       WHERE r.id=?""", (request_id,))
-        row = cur.fetchone()
-        if not row:
-            return
-        if row['task_step'] in ('arrived', 'diagnosing'):
-            return
-        if row['status'] in ('completed', 'cancelled', 'flight_cancelled',
-                             'draft', 'report_submitted', 'deleted'):
-            return
-        started = _parse_timestamp(row['inspection_assigned_at'])
-        if not started:
-            return
-        elapsed_min = round(
-            (datetime.now(timezone.utc) - started).total_seconds() / 60.0, 1)
-        remaining_min = round(REGULATION_MINUTES - elapsed_min, 1)
-        eta_min = _route_eta_min(row['engineer_comment'])
-
-        if remaining_min <= 0:
-            if _history_has_stage(row['routing_history'], 'breach'):
-                return
-            note = (f'Норматив {REGULATION_MINUTES} мин нарушен: '
-                    f'{elapsed_min} мин с назначения')
-            _log_routing_event(conn, request_id, 'breach', 'Система', note)
-            conn.commit()
-            payload = {
-                'request_id': request_id, 'zone': row['parking_id'],
-                'engineer': row['engineer_name'], 'breach': True,
-                'elapsed_min': elapsed_min, 'remaining_min': remaining_min,
-                'eta_min': eta_min, 'regulation_minutes': REGULATION_MINUTES,
-                'at': _utc_now_iso(),
-            }
-            append_event('breach', **payload)
-            sse_publish('warning', payload)
-            return
-
-        if remaining_min > 5:
-            return
-        if _history_has_stage(row['routing_history'], 'warning'):
-            return
-        nearest = None
-        target = _parking_point(row['parking_id'])
-        if target:
-            nearest = _nearest_free_engineer(conn, target[0], target[1])
-        can_make_it = bool(eta_min is not None and eta_min <= remaining_min)
-        note = (f'До норматива {remaining_min} мин; ETA {eta_min if eta_min is not None else "—"} мин')
-        if nearest:
-            note += (f'; ближайший свободный {nearest["device_id"] or nearest["name"]} '
-                     f'{nearest["eta_min"]} мин')
-            nearest['can_make_it'] = nearest['eta_min'] <= remaining_min
-            can_make_it = nearest['can_make_it']
-        _log_routing_event(conn, request_id, 'warning', 'Система', note)
-        conn.commit()
-        payload = {
-            'request_id': request_id, 'zone': row['parking_id'],
-            'engineer': row['engineer_name'], 'breach': False,
-            'elapsed_min': elapsed_min, 'remaining_min': remaining_min,
-            'eta_min': eta_min, 'nearest_free': nearest,
-            'can_make_it': can_make_it,
-            'regulation_minutes': REGULATION_MINUTES, 'at': _utc_now_iso(),
-        }
-        append_event('warning', **payload)
-        sse_publish('warning', payload)
-    except Exception as exc:
-        print(f'[REGULATION] {request_id}: {exc}')
-    finally:
-        conn.close()
 
 
 # ============================================================
@@ -3130,13 +446,13 @@ def api_parking():
     def sort_key(k):
         m = re.match(r'^(?:SZ-)?(\d+)', str(k))
         return (int(m.group(1)) if m else 9999, str(k))
-    keys = sorted(PARKING_META.keys(), key=sort_key)
-    return jsonify([PARKING_META[k] for k in keys])
+    keys = sorted(geo.PARKING_META.keys(), key=sort_key)
+    return jsonify([geo.PARKING_META[k] for k in keys])
 
 
 @app.route('/api/map-objects', methods=['GET'])
 def api_map_objects():
-    return jsonify(MAP_OBJECTS)
+    return jsonify(geo.MAP_OBJECTS)
 
 
 @app.route('/api/aircraft/taxi-reservations', methods=['POST'])
@@ -3167,9 +483,9 @@ def api_aircraft_taxi_reservations():
                 'route': clean_route,
                 'updated_at': now,
             }
-    with AIRCRAFT_TAXI_LOCK:
-        AIRCRAFT_TAXI_RESERVATIONS.clear()
-        AIRCRAFT_TAXI_RESERVATIONS.update(updated)
+    with geo.AIRCRAFT_TAXI_LOCK:
+        geo.AIRCRAFT_TAXI_RESERVATIONS.clear()
+        geo.AIRCRAFT_TAXI_RESERVATIONS.update(updated)
     return jsonify({'success': True, 'active': len(updated)})
 
 
@@ -3188,20 +504,20 @@ def api_map_object_positions():
 
 @app.route('/api/restricted-zones', methods=['GET'])
 def api_restricted_zones_legacy():
-    return jsonify(MAP_OBJECTS)
+    return jsonify(geo.MAP_OBJECTS)
 
 
 @app.route('/api/map-debug', methods=['GET'])
 def api_map_debug():
-    polys = sum(1 for o in MAP_OBJECTS if not o.get('isLine'))
-    lines = sum(1 for o in MAP_OBJECTS if o.get('isLine'))
+    polys = sum(1 for o in geo.MAP_OBJECTS if not o.get('isLine'))
+    lines = sum(1 for o in geo.MAP_OBJECTS if o.get('isLine'))
     return jsonify({
-        'parking_count': len(PARKING_COORDS),
-        'object_count': len(MAP_OBJECTS),
+        'parking_count': len(geo.PARKING_COORDS),
+        'object_count': len(geo.MAP_OBJECTS),
         'objects_polygons': polys,
         'objects_lines': lines,
-        'sample_parking': list(PARKING_META.values())[:3],
-        'sample_objects': MAP_OBJECTS[:2],
+        'sample_parking': list(geo.PARKING_META.values())[:3],
+        'sample_objects': geo.MAP_OBJECTS[:2],
     })
 
 
@@ -3766,6 +1082,55 @@ def mcc_assign_inspection_legacy():
     return mcc_send_to_cpu()
 
 
+@app.route('/api/mcc/send_to_dispatcher', methods=['POST'])
+def mcc_send_to_dispatcher_direct():
+    """Дополнительная опция: MCC напрямую передаёт заявку диспетчеру, минуя ЦПУ.
+
+    Основная цепочка MCC → ЦПУ → диспетчер не удаляется; это отдельный маршрут
+    для случаев, когда координация ЦПУ не требуется.
+    """
+    data = request.get_json() or {}
+    rid = data.get('request_id')
+    comment = (data.get('comment') or '').strip()
+    if not rid:
+        return jsonify({'success': False, 'error': 'request_id обязателен'}), 400
+    if not comment:
+        return jsonify({'success': False, 'error': 'Комментарий обязателен'}), 400
+
+    actor = _request_actor()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, aircraft, routing_stage FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] not in ('mcc', None, ''):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка уже передана (stage=%s)' % row['routing_stage']}), 400
+
+    cur.execute("""UPDATE requests SET
+                   routing_stage='dispatcher', status='queued',
+                   mcc_decision='AOG_DIAGNOSIS', mcc_status='INSPECTION',
+                   mcc_comment=COALESCE(mcc_comment,'') || ?,
+                   flight_status='DO_NOT_FLY',
+                   flight_status_reason='MCC передал заявку диспетчеру напрямую (без ЦПУ).'
+                   WHERE id=?""",
+                ('\n[MCC→Диспетчер · direct] ' + comment, rid))
+    _log_routing_event(conn, rid, 'dispatcher', actor,
+                       'MCC передал заявку диспетчеру напрямую: ' + comment,
+                       channel='mcc_to_dispatcher')
+    conn.commit()
+    conn.close()
+    append_event('status_changed', request_id=rid, status='queued',
+                 routing_stage='dispatcher', actor=actor,
+                 channel='mcc_to_dispatcher', note=comment)
+    return jsonify({'success': True, 'request_id': rid,
+                    'routing_stage': 'dispatcher', 'status': 'queued',
+                    'actor': actor})
+
+
 @app.route('/api/engineer/reports', methods=['GET'])
 def engineer_past_reports():
     """История отчётов конкретного инженера; удалённые заявки в неё не попадают."""
@@ -3793,7 +1158,18 @@ def engineer_submit_report():
     """Инженер завершает диагностику и сразу передаёт отчёт в ЦПУ, не выпуская ВС."""
     data = request.get_json() or {}
     rid = data.get('request_id')
-    engineer_id = str(data.get('engineer_id') or '')
+    body_engineer_id = str(data.get('engineer_id') or '')
+    # Критерий 14: для инженера исполнитель берётся из сессии.
+    if AUTH_REQUIRED and session.get('role') == 'engineer':
+        session_engineer_id = str(session.get('user_id') or '')
+        if body_engineer_id and body_engineer_id != session_engineer_id:
+            append_event('role_denied', path=request.path, method=request.method,
+                         role='engineer', reason='body_engineer_mismatch')
+            return jsonify({'success': False,
+                            'error': 'Инженер может отправить отчёт только по своей заявке'}), 403
+        engineer_id = session_engineer_id
+    else:
+        engineer_id = body_engineer_id
     condition = (data.get('condition') or '').strip()
     category = (data.get('category') or '').strip()
     findings = (data.get('findings') or '').strip()
@@ -3834,6 +1210,11 @@ def engineer_submit_report():
     if row['routing_stage'] != 'technician' or row['status'] in ('completed','cancelled','flight_cancelled','deleted'):
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка уже не находится у инженера'}), 409
+    if row['status'] != 'in_progress':
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Отчёт можно отправить только после начала работ '
+                                 '(статус in_progress)'}), 409
     if engineer_id and str(row['engineer_id'] or '') != engineer_id:
         conn.close()
         return jsonify({'success': False, 'error': 'Эта заявка назначена другому инженеру'}), 403
@@ -4874,7 +2255,8 @@ def dispatcher_assign():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id, aircraft, parking_id, fault_type, routing_stage
+    cur.execute("""SELECT id, aircraft, parking_id, fault_type, routing_stage,
+                          engineer_id
                    FROM requests WHERE id=?""", (rid,))
     req = cur.fetchone()
     if not req:
@@ -4915,6 +2297,12 @@ def dispatcher_assign():
     conn.close()
     # Маршрут-превью появляется сразу после назначения, до ответа инженера.
     _recalc_route_for_request_id(rid, force=True)
+    forget_candidates(rid)
+    append_event('assigned', request_id=rid, engineer_id=eng_id,
+                 engineer=eng['device_id'],
+                 previous_engineer=req['engineer_id'],
+                 actor=_request_actor(),
+                 reassigned=bool(req['engineer_id']))
 
     return jsonify({
         'success': True, 'request_id': rid,
@@ -4941,13 +2329,68 @@ def dispatcher_candidates(rid):
         started = time.perf_counter()
         table = build_candidate_table(conn, row['fault_type'] or 'other',
                                       target[0], target[1],
-                                      severity=row['severity'] or 'medium')
+                                      severity=row['severity'] or 'medium',
+                                      regulation_minutes=_request_regulation_minutes(rid))
         duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
         remember_candidates(rid, table, duration_ms)
         conn.commit()
         return jsonify(get_remembered_candidates(rid))
     finally:
         conn.close()
+
+
+@app.route('/api/dispatcher/priorities', methods=['GET'])
+def dispatcher_priorities():
+    """Приоритеты диспетчера на нашем build_candidate_table (не копия main).
+
+    awaiting_parts исключён; critical идёт первым; время построения — duration_ms.
+    """
+    started = time.perf_counter()
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT id, aircraft, fault_type, severity, criticality,
+                              parking_id, created_at
+                       FROM requests
+                       WHERE routing_stage='dispatcher'
+                         AND status NOT IN ('cancelled','flight_cancelled',
+                                            'completed','draft','deleted',
+                                            'awaiting_parts')
+                       ORDER BY CASE lower(COALESCE(criticality,''))
+                                  WHEN 'critical' THEN 0 ELSE 1 END,
+                                created_at ASC
+                       LIMIT 30""")
+        rows = [dict(row) for row in cur.fetchall()]
+        items = []
+        for row in rows:
+            item_started = time.perf_counter()
+            target = _parking_point(row['parking_id']) or _location_center()
+            table = build_candidate_table(
+                conn, row['fault_type'] or 'other', target[0], target[1],
+                severity=row['severity'] or 'medium',
+                regulation_minutes=_request_regulation_minutes(row['id']))
+            eligible = [c for c in table if c.get('eligible')]
+            items.append({
+                'request_id': row['id'],
+                'aircraft': row['aircraft'],
+                'fault_type': row['fault_type'],
+                'severity': row['severity'],
+                'criticality': row['criticality'],
+                'parking_id': row['parking_id'],
+                'created_at': row['created_at'],
+                'candidates_total': len(table),
+                'candidates_eligible': len(eligible),
+                'best_candidate': eligible[0] if eligible else None,
+                'duration_ms': round((time.perf_counter() - item_started) * 1000.0, 2),
+            })
+    finally:
+        conn.close()
+    return jsonify({
+        'success': True,
+        'count': len(items),
+        'duration_ms': round((time.perf_counter() - started) * 1000.0, 2),
+        'requests': items,
+    })
 
 
 @app.route('/api/dispatcher/assigned', methods=['GET'])
@@ -5159,7 +2602,18 @@ def update_engineer(eng_id):
 def accept_request_assignment(rid):
     """Подтверждение назначения инженером. Только после него запускается маршрут и ETA."""
     data = request.get_json() or {}
-    engineer_id = str(data.get('engineer_id') or '').strip()
+    body_engineer_id = str(data.get('engineer_id') or '').strip()
+    # Критерий 14: инженер действует только от имени сессии, тело лишь сверяется.
+    if AUTH_REQUIRED and session.get('role') == 'engineer':
+        session_engineer_id = str(session.get('user_id') or '')
+        if body_engineer_id and body_engineer_id != session_engineer_id:
+            append_event('role_denied', path=request.path, method=request.method,
+                         role='engineer', reason='body_engineer_mismatch')
+            return jsonify({'success': False,
+                            'error': 'Инженер может принять только своё назначение'}), 403
+        engineer_id = session_engineer_id
+    else:
+        engineer_id = body_engineer_id
     if not engineer_id:
         return jsonify({'success': False, 'error': 'Не указан инженер'}), 400
 
@@ -5207,6 +2661,7 @@ def accept_request_assignment(rid):
 
     # On acceptance, refresh the preview as the active travel route.
     _recalc_route_for_request_id(rid, force=True)
+    forget_candidates(rid)
 
     # Reserve the chosen special vehicle after the route is calculated. In a race,
     # recalculate once more so the route does not point to an already occupied car.
@@ -5391,10 +2846,16 @@ def engineer_gps_location(eng_id):
     # как для POST /api/v1/track (контракт организаторов).
     applied = _track_apply_position('engineer', str(eng_id), lat, lng,
                                     _utc_now_iso(), acc=accuracy, heading=heading,
-                                    update_coords=False, recalc=False)
-    return jsonify({'success': True, 'engineer_id': str(eng_id), 'lat': lat,
-                    'lng': lng, 'accuracy': accuracy, 'heading': heading,
-                    'applied': bool(applied)})
+                                    update_coords=False, recalc=True)
+    response = {'success': True, 'engineer_id': str(eng_id), 'lat': lat,
+                'lng': lng, 'accuracy': accuracy, 'heading': heading,
+                'applied': bool(applied)}
+    if not applied:
+        from intravia.tracking import track_pause_reason
+        pause_reason = track_pause_reason('engineer', str(eng_id))
+        if pause_reason:
+            response['reason'] = pause_reason
+    return jsonify(response)
 
 
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])
@@ -5870,6 +3331,18 @@ def get_requests():
     if pilot_name:
         sql += " AND pilot_name=?"
         params.append(pilot_name)
+
+    # Критерий 14: список заявок ограничен ролью. Пилот видит только свои
+    # заявки (source='pilot' и его имя), инженер — только назначенные ему.
+    if AUTH_REQUIRED:
+        role = session.get('role')
+        if role == 'engineer':
+            sql += " AND r.engineer_id=?"
+            params.append(str(session.get('user_id') or ''))
+        elif role == 'pilot':
+            sql += " AND r.source='pilot' AND r.pilot_name=?"
+            params.append(str(session.get('name') or ''))
+
     sql += " ORDER BY r.created_at DESC"
 
     cur.execute(sql, params)
@@ -6151,6 +3624,7 @@ def unassign_request(rid):
     append_event('unassigned', request_id=rid, previous_engineer=old_engineer,
                  reason=reason, confirmed_by=confirmed_by,
                  actor=_request_actor())
+    forget_candidates(rid)
     return jsonify({'success': True, 'status': 'queued'})
 
 
@@ -6168,6 +3642,12 @@ def awaiting_parts(rid):
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    # Критерий 15: в ожидание запчастей уходит только активная работа.
+    if row['status'] not in ('assigned', 'arriving', 'in_progress', 'working'):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Перевести в ожидание запчастей можно только '
+                                 'активную заявку (assigned/arriving/in_progress)'}), 409
 
     old_engineer = row['engineer_id']
     if old_engineer:
@@ -6184,7 +3664,57 @@ def awaiting_parts(rid):
     conn.close()
     append_event('awaiting_parts', request_id=rid, reason=reason, by=by,
                  previous_engineer=old_engineer)
+    forget_candidates(rid)
     return jsonify({'success': True, 'status': 'awaiting_parts'})
+
+
+@app.route('/api/requests/<rid>/test_options', methods=['POST'])
+def request_test_options(rid):
+    """Демонстрационные настройки заявки: норматив, спецтехника, пауза GPS.
+
+    Хранятся в памяти процесса (без изменения схемы БД) и пишутся в журнал.
+    """
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    try:
+        exists = conn.execute("SELECT id FROM requests WHERE id=?", (rid,)).fetchone()
+    finally:
+        conn.close()
+    if not exists:
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+    updates = {}
+    if 'regulation_minutes' in data and data.get('regulation_minutes') not in (None, ''):
+        try:
+            minutes = int(data.get('regulation_minutes'))
+        except (TypeError, ValueError):
+            return jsonify({'success': False,
+                            'error': 'regulation_minutes должен быть числом 1..60'}), 400
+        if not (1 <= minutes <= 60):
+            return jsonify({'success': False,
+                            'error': 'regulation_minutes должен быть в диапазоне 1..60'}), 400
+        updates['regulation_minutes'] = minutes
+    if 'force_transport' in data:
+        updates['force_transport'] = bool(data.get('force_transport'))
+    if 'paused' in data:
+        updates['paused'] = bool(data.get('paused'))
+    if 'paused_until' in data:
+        until = data.get('paused_until')
+        if until in (None, ''):
+            updates['paused_until'] = None
+        elif isinstance(until, (int, float)) or (
+                isinstance(until, str) and until.strip().replace('.', '', 1).isdigit()):
+            updates['paused_until'] = float(until)
+        else:
+            updates['paused_until'] = str(until).strip()
+
+    options = _set_request_test_options(rid, updates)
+    actor = _request_actor()
+    append_event('test_options', request_id=rid, actor=actor,
+                 options=options, applied=updates)
+    forget_candidates(rid)
+    return jsonify({'success': True, 'request_id': rid,
+                    'options': options, **options})
 
 
 @app.route('/api/requests/<rid>/parts_received', methods=['POST'])
@@ -6200,6 +3730,11 @@ def parts_received(rid):
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['status'] != 'awaiting_parts':
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Отметить получение запчастей можно только '
+                                 'для заявки в статусе awaiting_parts'}), 409
 
     cur.execute("""UPDATE requests
                    SET status='queued', routing_stage='dispatcher',
@@ -6210,6 +3745,7 @@ def parts_received(rid):
     conn.close()
     append_event('parts_received', request_id=rid, previous_status=row['status'],
                  by=by)
+    forget_candidates(rid)
     return jsonify({'success': True, 'status': 'queued'})
 
 
@@ -6313,7 +3849,8 @@ def dispatch():
 
     candidates_started = time.perf_counter()
     table = build_candidate_table(conn, fault, target[0], target[1],
-                                  severity=severity, exclude_ids=busy)
+                                  severity=severity, exclude_ids=busy,
+                                  regulation_minutes=_request_regulation_minutes(rid))
     candidates_ms = round((time.perf_counter() - candidates_started) * 1000.0, 2)
     selected = next((row for row in table if row.get('eligible')), None)
     remember_candidates(rid, table, candidates_ms,
@@ -6454,11 +3991,11 @@ def compute_route():
             car_lat = car_lng = None
 
     if car_lat is not None and car_lng is not None:
-        walk_path, _ = get_shortest_path(road_graph_vehicle,
+        walk_path, _ = get_shortest_path(_routing.road_graph_vehicle,
                                           start_lat, start_lng, car_lat, car_lng)
         if walk_path is None:
             walk_path = [[start_lat, start_lng], [car_lat, car_lng]]
-        car_path, car_dist = get_shortest_path(road_graph_vehicle,
+        car_path, car_dist = get_shortest_path(_routing.road_graph_vehicle,
                                                car_lat, car_lng, end_lat, end_lng)
         if car_path is None:
             car_path = [[car_lat, car_lng], [end_lat, end_lng]]
@@ -6470,7 +4007,7 @@ def compute_route():
         return jsonify({'success': True, 'path': combined,
                         'distance': round(total, 3), 'fallback': False})
 
-    path, dist = get_shortest_path(road_graph_vehicle,
+    path, dist = get_shortest_path(_routing.road_graph_vehicle,
                                     start_lat, start_lng, end_lat, end_lng)
     if path is None:
         return jsonify({'success': True, 'path': None, 'distance': 0, 'fallback': True})
@@ -6491,7 +4028,8 @@ def cancel_request(rid):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT id,aircraft,fault_type,severity,terminal,parking_id,
-        description,engineer_id,engineer_name,status,rejected_by,created_at
+        description,engineer_id,engineer_name,status,rejected_by,created_at,
+        source,pilot_name
         FROM requests WHERE id=?""", (rid,))
     row = cur.fetchone()
     if not row:
@@ -6504,8 +4042,38 @@ def cancel_request(rid):
         conn.close()
         return jsonify({'success': False, 'error': 'Уже отменена'}), 400
 
+    # Критерий 14: пилот и инженер отменяют только свои заявки.
+    if AUTH_REQUIRED:
+        role = session.get('role')
+        if role == 'engineer':
+            own = str(session.get('user_id') or '')
+            if row['engineer_id'] and str(row['engineer_id']) != own:
+                append_event('role_denied', path=request.path, method=request.method,
+                             role=role, reason='foreign_engineer')
+                conn.close()
+                return jsonify({'success': False,
+                                'error': 'Инженер может отменить только свою заявку'}), 403
+        elif role == 'pilot':
+            if (row['source'] == 'pilot' and row['pilot_name']
+                    and str(row['pilot_name']) != str(session.get('name') or '')):
+                append_event('role_denied', path=request.path, method=request.method,
+                             role=role, reason='foreign_pilot')
+                conn.close()
+                return jsonify({'success': False,
+                                'error': 'Пилот может отменить только свою заявку'}), 403
+
+    confirmed_by = str(data.get('confirmed_by') or '').strip()
+    # Отмена уже начатой работы требует подтверждения старшего смены.
+    if row['status'] in ('in_progress', 'working') and not confirmed_by:
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Для отмены заявки в работе требуется '
+                                 'подтверждение диспетчера/MCC (confirmed_by)'}), 400
+
     who_id = engineer_id or row['engineer_id']
     who_name = row['engineer_name'] or ''
+    if AUTH_REQUIRED and session.get('role') == 'pilot':
+        who_name = session.get('name') or who_name
     if who_id:
         cur.execute("SELECT name FROM engineers WHERE id=?", (who_id,))
         e = cur.fetchone()
@@ -6521,79 +4089,42 @@ def cancel_request(rid):
         rej_prev.add(str(who_id))
     rej_str = ','.join(sorted(rej_prev))
 
-    fault = row['fault_type'] or 'engine_failure'
-    parking = str(row['parking_id'] or '')
-    aircraft = row['aircraft'] or 'ВС'
-    target = _parking_point(parking) or _location_center()
-
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
-          AND engineer_id IS NOT NULL AND id!=?""", (rid,))
-    busy = {r['engineer_id'] for r in cur.fetchall()}
-
-    new_eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL,
-                                           target[0], target[1],
-                                           exclude_ids=rej_prev | busy)
     cur.execute("""UPDATE requests SET status='cancelled', cancel_reason=?,
         cancelled_by_name=?, cancelled_at=CURRENT_TIMESTAMP, rejected_by=?,
-        routing_stage='done' WHERE id=?""", (reason, who_name, rej_str, rid))
-
-    if new_eng:
-        new_rid = 'req_' + str(int(time.time() * 1000)) + '_r'
-        cur.execute("""INSERT INTO requests (id,aircraft,fault_type,severity,terminal,
-            parking_id,description,source,engineer_id,engineer_name,travel_time,
-            using_car,walk_to_car,car_time,best_car,status,criticality,rejected_by,
-            replaces_request_id,all_rejected,mcc_status,routing_stage)
-            VALUES (?,?,?,?,?,?,?,'dispatcher',?,?,?,?,?,?,?,'assigned',?,?,?,0,'APPROVED','technician')""",
-                    (new_rid, aircraft, fault, row['severity'], row['terminal'], parking,
-                     row['description'], new_eng['id'], new_eng['name'],
-                     0, 0, 0, 0, None, row['severity'], rej_str, rid))
-        cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
-                    ('ВС ' + aircraft, new_eng['id']))
-        conn.commit()
-        conn.close()
-        # При переназначении после отказа/отмены новый маршрут также
-        # сохраняется немедленно, пока новый инженер ещё не ответил.
-        _recalc_route_for_request_id(new_rid, force=True)
-        return jsonify({
-            'success': True, 'request_id': rid,
-            'cancelled_by_name': who_name, 'reason': reason,
-            'reassigned': True, 'new_request_id': new_rid,
-            'selected': {
-                'request_id': new_rid,
-                'engineer': {
-                    'id': new_eng['id'], 'name': new_eng['name'],
-                    'device_id': normalize_device_id(new_eng['device_id'],
-                                                     get_engineer_number_from_device(new_eng['device_id'])),
-                    'specialization': new_eng['specialization'],
-                    'coords_lat': new_eng['coords_lat'],
-                    'coords_lng': new_eng['coords_lng']
-                },
-                'travel_time': 0,
-                'using_car': False,
-                'awaiting_acceptance': True
-            }
-        })
-
-    cur.execute("""UPDATE requests SET status='queued', all_rejected=?,
-        delay_started_at=COALESCE(delay_started_at,CURRENT_TIMESTAMP),
-        delay_reason=CASE WHEN delay_reason='' OR delay_reason IS NULL
-                          THEN 'Ожидание инженера' ELSE delay_reason END
-        WHERE id=?""", (0, rid))
+        routing_stage='done', all_rejected=0 WHERE id=?""",
+                (reason, who_name, rej_str, rid))
+    note = reason + (f'; подтвердил: {confirmed_by}' if confirmed_by else '')
+    _log_routing_event(conn, rid, 'cancelled', _request_actor(), note,
+                       confirmed_by=confirmed_by)
     conn.commit()
     conn.close()
-    _schedule_recheck(rid)
+    append_event('status_changed', request_id=rid, previous_status=row['status'],
+                 status='cancelled', actor=_request_actor(),
+                 reason=reason, confirmed_by=confirmed_by)
+    forget_candidates(rid)
+    # Переназначение — отдельное действие диспетчера: автоматически никого
+    # не назначаем, заявка просто закрыта.
     return jsonify({
         'success': True, 'request_id': rid,
         'cancelled_by_name': who_name, 'reason': reason,
-        'reassigned': False, 'queued': True
+        'reassigned': False, 'cancelled': True
     })
 
 
 @app.route('/api/requests/<rid>/reject', methods=['POST'])
 def reject_request(rid):
     data = request.get_json() or {}
-    rejected_by = str(data.get('engineer_id') or '')
+    body_engineer_id = str(data.get('engineer_id') or '')
+    if AUTH_REQUIRED and session.get('role') == 'engineer':
+        session_engineer_id = str(session.get('user_id') or '')
+        if body_engineer_id and body_engineer_id != session_engineer_id:
+            append_event('role_denied', path=request.path, method=request.method,
+                         role='engineer', reason='body_engineer_mismatch')
+            return jsonify({'success': False,
+                            'error': 'Инженер может отклонить только своё назначение'}), 403
+        rejected_by = session_engineer_id
+    else:
+        rejected_by = body_engineer_id
     reason = (data.get('reason') or '').strip()
     conn = get_db()
     cur = conn.cursor()
@@ -6624,10 +4155,6 @@ def reject_request(rid):
             conn.close()
             return jsonify({'success': False, 'error': 'Назначение уже принято; отклонить его нельзя'}), 409
 
-    fault = row['fault_type'] or 'engine_failure'
-    parking = str(row['parking_id'] or '')
-    aircraft = row['aircraft'] or 'ВС'
-    target = _parking_point(parking) or _location_center()
     old_eng = row['engineer_id']
     rej_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
     if rejected_by:
@@ -6637,65 +4164,28 @@ def reject_request(rid):
         set_engineer_free(conn, old_eng)
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-        WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
-          AND engineer_id IS NOT NULL AND id!=?""", (rid,))
-    busy = {r['engineer_id'] for r in cur.fetchall()}
-
-    new_eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL,
-                                           target[0], target[1],
-                                           exclude_ids=rej_prev | busy)
-    if new_eng:
-        cur.execute("""UPDATE requests SET engineer_id=?, engineer_name=?,
-            travel_time=0, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
-            engineer_comment='', status='assigned', routing_stage='technician',
-            inspection_assigned_at=NULL, rejected_by=?, all_rejected=0 WHERE id=?""",
-                    (new_eng['id'], new_eng['name'], rej_str, rid))
-        set_engineer_busy(conn, new_eng['id'], 'ВС ' + aircraft)
-        conn.commit()
-        conn.close()
-        append_event('status_changed', request_id=rid, previous_status='assigned',
-                     status='assigned', actor='engineer', engineer_id=rejected_by,
-                     note=reason)
-        append_event('reassigned', request_id=rid, previous_engineer=old_eng,
-                     engineer_id=new_eng['id'], reason=reason)
-        # После отказа назначаем следующего инженера и сразу строим его маршрут.
-        _recalc_route_for_request_id(rid, force=True)
-        _recalc_all_active_routes()
-        return jsonify({
-            'success': True, 'reassigned': True,
-            'rejected_engineer_id': rejected_by,
-            'selected': {
-                'engineer': {
-                    'id': new_eng['id'], 'name': new_eng['name'],
-                    'device_id': normalize_device_id(new_eng['device_id'],
-                                                     get_engineer_number_from_device(new_eng['device_id'])),
-                    'specialization': new_eng['specialization'],
-                    'coords_lat': new_eng['coords_lat'],
-                    'coords_lng': new_eng['coords_lng']
-                },
-                'travel_time': 0,
-                'using_car': False,
-                'awaiting_acceptance': True
-            }
-        })
-
+    # Переназначение — отдельное действие диспетчера. Отказ не назначает
+    # следующего инженера автоматически, заявка возвращается в очередь.
     cur.execute("""UPDATE requests SET status='queued', engineer_id=NULL,
-        engineer_name=NULL, travel_time=0, using_car=0, walk_to_car=0, car_time=0,
-        best_car=NULL, rejected_by=?, all_rejected=1,
+        engineer_name=NULL, engineer_comment=NULL, travel_time=0, using_car=0,
+        walk_to_car=0, car_time=0, best_car=NULL, rejected_by=?,
+        all_rejected=0, routing_stage='dispatcher',
         delay_started_at=COALESCE(delay_started_at,CURRENT_TIMESTAMP),
-        delay_reason='Все отказались'
+        delay_reason='Ожидание решения диспетчера после отказа'
         WHERE id=?""", (rej_str, rid))
+    _log_routing_event(conn, rid, 'dispatcher', _request_actor(),
+                       f'Инженер {rejected_by} отказался: {reason}')
     conn.commit()
     conn.close()
     append_event('status_changed', request_id=rid, previous_status='assigned',
                  status='queued', actor='engineer', engineer_id=rejected_by,
                  note=reason)
-    append_event('reassigned', request_id=rid, previous_engineer=old_eng,
-                 engineer_id=None, reason=reason)
-    _recalc_all_active_routes()
-    _schedule_recheck(rid)
-    return jsonify({'success': True, 'reassigned': False, 'queued': True})
+    append_event('rejected', request_id=rid, previous_engineer=old_eng,
+                 engineer_id=rejected_by, reason=reason,
+                 reassigned=False)
+    forget_candidates(rid)
+    return jsonify({'success': True, 'reassigned': False, 'queued': True,
+                    'status': 'queued'})
 
 
 def _schedule_recheck(rid):
@@ -6906,11 +4396,21 @@ def _parse_pilot_text(text):
 def transcribe_request_audio(rid):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, pilot_audio, pilot_audio_mime, pilot_audio_text FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT id, pilot_audio, pilot_audio_mime, pilot_audio_text, "
+                "source, pilot_name FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'success': False, 'error': 'Не найдена'}), 404
+    # Пилот расшифровывает только свою голосовую заявку.
+    if (AUTH_REQUIRED and session.get('role') == 'pilot'
+            and row['source'] == 'pilot' and row['pilot_name']
+            and str(row['pilot_name']) != str(session.get('name') or '')):
+        append_event('role_denied', path=request.path, method=request.method,
+                     role='pilot', reason='foreign_pilot')
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Пилот может расшифровать только свою заявку'}), 403
     if row['pilot_audio_text']:
         conn.close()
         return jsonify({'success': True, 'text': row['pilot_audio_text'],
@@ -6982,293 +4482,14 @@ def transcribe_request_audio(rid):
 # ============================================================
 # Мобильные WebView-приложения и контракт приёма геопозиции
 # ============================================================
-def _log_ingest_error(raw_point, error):
-    """Журнал ошибок приёма геоданных (append-only JSONL, без изменения схемы БД)."""
-    try:
-        path = os.path.join(BASE_DIR, 'data', 'ingest_errors.log')
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        payload = json.dumps(raw_point, ensure_ascii=False, default=str)[:1000]
-        with open(path, 'a', encoding='utf-8') as log_file:
-            log_file.write(json.dumps({'at': _utc_now_iso(), 'error': error,
-                                       'point': payload}, ensure_ascii=False) + '\n')
-    except Exception as exc:
-        print(f'[TRACK] log error: {exc}')
-    append_event('ingest_error', error=error,
-                 obj=(raw_point.get('obj') if isinstance(raw_point, dict) else None),
-                 point=json.dumps(raw_point, ensure_ascii=False, default=str)[:500])
 
 
-def _track_known_object(raw_obj):
-    """Сопоставляет obj из контракта с агентом системы.
-
-    Поддерживаются канонические id (`eng_1`, `CAR-001`, `SU-1001`), номера
-    из контракта (`e-01`, `v-01`) и регистрация ВС (`RA-73142`).
-    """
-    raw = str(raw_obj or '').strip()
-    if not raw:
-        return None
-    needle = raw.lower()
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, name, device_id FROM engineers")
-        for row in cur.fetchall():
-            eid = str(row['id'])
-            device = str(row['device_id'] or '')
-            number = get_engineer_number_from_device(device)
-            aliases = {eid.lower(), device.lower()}
-            if number:
-                aliases.update({f'e-{number:02d}', f'e-{number}',
-                                f'en-{number:03d}', f'eng-{number}'})
-            if needle in aliases:
-                return {'type': 'engineer', 'id': eid, 'label': row['name'] or device}
-
-        cur.execute("SELECT id, device_id FROM transport")
-        for row in cur.fetchall():
-            tid = str(row['id'])
-            device = str(row['device_id'] or '')
-            aliases = {tid.lower(), device.lower(), f'v-{int(tid):02d}', f'v-{tid}'}
-            if needle in aliases:
-                return {'type': 'transport', 'id': tid, 'label': device or tid}
-
-        cur.execute("SELECT id, callsign FROM aircraft")
-        for row in cur.fetchall():
-            callsign = str(row['callsign'] or '')
-            if needle in {str(row['id']).lower(), callsign.lower()}:
-                return {'type': 'aircraft', 'id': callsign or str(row['id']),
-                        'label': callsign or str(row['id'])}
-
-        cur.execute("SELECT registration FROM aircraft_registry "
-                    "WHERE UPPER(registration)=?", (raw.upper(),))
-        row = cur.fetchone()
-        if row:
-            return {'type': 'aircraft', 'id': str(row['registration']).upper(),
-                    'label': str(row['registration']).upper()}
-
-        cur.execute("SELECT DISTINCT aircraft FROM requests "
-                    "WHERE UPPER(aircraft)=? LIMIT 1", (raw.upper(),))
-        row = cur.fetchone()
-        if row:
-            return {'type': 'aircraft', 'id': str(row['aircraft']).upper(),
-                    'label': str(row['aircraft']).upper()}
-    finally:
-        conn.close()
-    return None
 
 
-def _stamp_route_arrival(cur, request_id, comment, at, elapsed_min, eta_min, delta_min):
-    """Дописывает факт прибытия в сохранённый ROUTE JSON (без изменения схемы)."""
-    comment = comment or ''
-    if not comment.startswith('ROUTE:'):
-        return comment
-    rest = comment[6:]
-    depth = 0
-    end = -1
-    for i, ch in enumerate(rest):
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    if end <= 0:
-        return comment
-    try:
-        payload = json.loads(rest[:end])
-    except (TypeError, ValueError):
-        return comment
-    payload['arrival'] = {'at': at, 'elapsed_min': elapsed_min,
-                          'eta_min': eta_min, 'delta_min': delta_min}
-    return 'ROUTE:' + json.dumps(payload, ensure_ascii=False) + rest[end:]
 
 
-def _remember_track_meta(kind, object_id, acc, spd, when, heading=None):
-    """Запоминает acc/spd/heading последней точки агента (без изменения схемы БД)."""
-    with _TRACK_META_LOCK:
-        _TRACK_META[(kind, str(object_id))] = {'acc': acc, 'spd': spd,
-                                               'heading': heading, 't': when}
 
 
-def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None,
-                          heading=None, update_coords=True, recalc=True):
-    conn = get_db()
-    arrival_event = None
-    active_request_id = None
-    try:
-        cur = conn.cursor()
-        assigned_request = None
-        if kind == 'engineer':
-            if update_coords:
-                cur.execute("UPDATE engineers SET coords_lat=?, coords_lng=? WHERE id=?",
-                            (lat, lng, object_id))
-                if cur.rowcount == 0:
-                    return False
-            else:
-                cur.execute("SELECT id FROM engineers WHERE id=?", (object_id,))
-                if not cur.fetchone():
-                    return False
-
-            # Автоматическое прибытие: точка внутри полигона зоны обслуживания.
-            cur.execute("""SELECT r.id, r.parking_id, r.inspection_assigned_at,
-                                  r.engineer_comment, e.task_step
-                           FROM requests r JOIN engineers e ON e.id=r.engineer_id
-                           WHERE r.engineer_id=? AND r.routing_stage='technician'
-                             AND r.status NOT IN ('completed','cancelled',
-                                                  'flight_cancelled','draft',
-                                                  'report_submitted','deleted')
-                           ORDER BY r.created_at DESC LIMIT 1""", (object_id,))
-            active = cur.fetchone()
-            if active:
-                active_request_id = active['id']
-            if active and active['parking_id']:
-                geometry = _zone_geometry(active['parking_id'])
-                if geometry and _point_in_geometry(lat, lng, geometry):
-                    if active['task_step'] not in ('arrived', 'diagnosing'):
-                        cur.execute("""UPDATE engineers SET task_step='arrived'
-                                       WHERE id=? AND task_step IN ('accepted','in_car')""",
-                                    (object_id,))
-                        if cur.rowcount > 0:
-                            started = _parse_timestamp(active['inspection_assigned_at'])
-                            elapsed_min = None
-                            if started:
-                                elapsed_min = round(
-                                    (datetime.now(timezone.utc) - started).total_seconds() / 60.0, 1)
-                            late = elapsed_min is not None and elapsed_min > REGULATION_MINUTES
-                            eta_min = _route_eta_min(active['engineer_comment'])
-                            delta_min = (round(elapsed_min - eta_min, 1)
-                                         if elapsed_min is not None and eta_min is not None
-                                         else None)
-                            note = f'Автоматическое прибытие в зону {active["parking_id"]}'
-                            if elapsed_min is not None:
-                                note += (f'; {elapsed_min} мин с назначения — '
-                                         + ('нарушение норматива 15 мин' if late
-                                            else 'в пределах норматива'))
-                            if eta_min is not None and delta_min is not None:
-                                note += f'; ETA {eta_min} мин, отклонение {delta_min:+} мин'
-                            _log_routing_event(conn, active['id'], 'technician', 'GPS', note)
-                            cur.execute("UPDATE requests SET engineer_comment=? WHERE id=?",
-                                        (_stamp_route_arrival(cur, active['id'],
-                                                               active['engineer_comment'],
-                                                               _utc_now_iso(), elapsed_min,
-                                                               eta_min, delta_min),
-                                         active['id']))
-                            arrival_event = {
-                                'request_id': active['id'],
-                                'zone': active['parking_id'],
-                                'lat': lat, 'lon': lng,
-                                'elapsed_min': elapsed_min,
-                                'eta_min': eta_min,
-                                'delta_min': delta_min,
-                                'regulation_minutes': REGULATION_MINUTES,
-                                'late': bool(late),
-                                'at': _utc_now_iso(),
-                            }
-        elif kind == 'transport':
-            cur.execute("SELECT assigned_to FROM transport WHERE id=?", (int(object_id),))
-            row = cur.fetchone()
-            assigned_request = row['assigned_to'] if row else None
-            cur.execute("UPDATE transport SET lat=?, lng=? WHERE id=?",
-                        (lat, lng, int(object_id)))
-            if cur.rowcount == 0:
-                return False
-        else:  # aircraft
-            cur.execute("SELECT id FROM aircraft WHERE id=? OR UPPER(callsign)=?",
-                        (object_id, object_id.upper()))
-            row = cur.fetchone()
-            if row:
-                cur.execute("UPDATE aircraft SET lat=?, lng=?, updated_at=CURRENT_TIMESTAMP "
-                            "WHERE id=?", (lat, lng, row['id']))
-                object_id = str(row['id'])
-
-        if update_coords:
-            cur.execute("""INSERT INTO map_object_positions
-                           (object_type, object_id, lat, lng, updated_at)
-                           VALUES (?,?,?,?,?)
-                           ON CONFLICT(object_type, object_id) DO UPDATE SET
-                             lat=excluded.lat, lng=excluded.lng, updated_at=excluded.updated_at""",
-                        (kind, str(object_id), lat, lng, when))
-        conn.commit()
-    finally:
-        conn.close()
-
-    if kind == 'engineer':
-        if recalc:
-            try:
-                _recalc_routes_for_engineer(object_id, force=True)
-            except Exception as exc:
-                print(f'[TRACK] route recalc engineer: {exc}')
-        if active_request_id and not arrival_event:
-            _check_regulation_warning(active_request_id)
-    elif kind == 'transport' and assigned_request:
-        try:
-            _recalc_route_for_request_id(assigned_request, force=True)
-        except Exception as exc:
-            print(f'[TRACK] route recalc request: {exc}')
-
-    _remember_track_meta(kind, object_id, acc, spd, when, heading)
-    sse_publish('position', {'type': kind, 'obj': str(object_id),
-                             'lat': lat, 'lon': lng, 't': when,
-                             'acc': acc, 'spd': spd, 'heading': heading})
-    if arrival_event:
-        append_event('arrival', **arrival_event)
-        sse_publish('arrival', arrival_event)
-    return True
-
-
-def _track_process_point(point):
-    result = {'accepted': False, 'applied': False, 'obj': None, 't': None}
-    if not isinstance(point, dict):
-        _log_ingest_error(point, 'point is not an object')
-        result['error'] = 'Точка должна быть JSON-объектом'
-        return result
-
-    obj = point.get('obj')
-    result['obj'] = obj
-    lat_raw = point.get('lat')
-    lon_raw = point.get('lon', point.get('lng'))
-    try:
-        lat = float(lat_raw)
-        lon = float(lon_raw)
-        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-            raise ValueError('out of range')
-    except (TypeError, ValueError):
-        _log_ingest_error(point, 'lat/lon missing or not numeric')
-        result['error'] = 'lat/lon обязательны и должны быть числами'
-        return result
-
-    metrics = {}
-    for field in ('acc', 'spd'):
-        raw = point.get(field)
-        if raw is None or raw == '':
-            metrics[field] = None
-            continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            value = None
-        if value is None or not math.isfinite(value) or value < 0:
-            _log_ingest_error(point, 'invalid ' + field)
-            result['error'] = f'{field} должен быть неотрицательным числом'
-            return result
-        metrics[field] = value
-
-    when = point.get('t')
-    if not isinstance(when, str) or not when.strip():
-        when = _utc_now_iso()
-    result['accepted'] = True
-    result['t'] = when
-
-    known = _track_known_object(obj)
-    if not known:
-        _log_ingest_error(point, 'unknown object')
-        return result
-
-    result['applied'] = _track_apply_position(known['type'], known['id'],
-                                              lat, lon, when,
-                                              acc=metrics['acc'],
-                                              spd=metrics['spd'])
-    return result
 
 
 @app.route('/api/v1/track', methods=['POST'])
@@ -7298,9 +4519,9 @@ def api_v1_track():
 @app.route('/api/v1/stream')
 def api_v1_stream():
     """Server-Sent Events: все изменения состояния в реальном времени."""
-    client_queue = queue.Queue(maxsize=_SSE_QUEUE_SIZE)
-    with _SSE_LOCK:
-        _SSE_CLIENTS.add(client_queue)
+    client_queue = queue.Queue(maxsize=_events._SSE_QUEUE_SIZE)
+    with _events._SSE_LOCK:
+        _events._SSE_CLIENTS.add(client_queue)
 
     def generate():
         try:
@@ -7314,92 +4535,16 @@ def api_v1_stream():
                 except queue.Empty:
                     yield ': ping\n\n'
         finally:
-            with _SSE_LOCK:
-                _SSE_CLIENTS.discard(client_queue)
+            with _events._SSE_LOCK:
+                _events._SSE_CLIENTS.discard(client_queue)
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache',
                              'X-Accel-Buffering': 'no'})
 
 
-def _attach_track_meta(item, kind):
-    """Добавляет к агенту последние acc/spd из принятых точек."""
-    with _TRACK_META_LOCK:
-        meta = _TRACK_META.get((kind, str(item.get('obj')))) \
-            or _TRACK_META.get((kind, str(item.get('id'))))
-    item['acc'] = meta.get('acc') if meta else None
-    item['spd'] = meta.get('spd') if meta else None
-    if meta and meta.get('t'):
-        item['t'] = meta['t']
-    return item
 
 
-def _agents_snapshot():
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization,
-                              e.status, e.task_step, e.task,
-                              COALESCE(g.lat, p.lat, e.coords_lat) AS lat,
-                              COALESCE(g.lng, p.lng, e.coords_lng) AS lng,
-                              g.updated_at AS gps_updated_at
-                       FROM engineers e
-                       LEFT JOIN map_object_positions g
-                         ON g.object_type='engineer_gps' AND g.object_id=e.id
-                       LEFT JOIN map_object_positions p
-                         ON p.object_type='engineer' AND p.object_id=e.id
-                       ORDER BY e.device_id""")
-        engineers = []
-        for row in cur.fetchall():
-            item = dict(row)
-            item['obj'] = str(item['id'])
-            item['kind'] = 'engineer'
-            item['label'] = item.get('device_id') or item.get('name') or item['id']
-            item['number'] = get_engineer_number_from_device(item.get('device_id'))
-            engineers.append(_attach_track_meta(item, 'engineer'))
-
-        cur.execute("""SELECT t.id, t.device_id, t.assigned_to,
-                              COALESCE(p.lat, t.lat) AS lat,
-                              COALESCE(p.lng, t.lng) AS lng
-                       FROM transport t
-                       LEFT JOIN map_object_positions p
-                         ON p.object_type='transport' AND p.object_id=CAST(t.id AS TEXT)
-                       ORDER BY t.id""")
-        transport = []
-        for row in cur.fetchall():
-            item = dict(row)
-            item['obj'] = str(item['id'])
-            item['kind'] = 'transport'
-            item['label'] = item.get('device_id') or ('CAR-' + str(item['id']))
-            transport.append(_attach_track_meta(item, 'transport'))
-
-        cur.execute("SELECT id, callsign, lat, lng, status, heading, speed "
-                    "FROM aircraft ORDER BY callsign")
-        aircraft = []
-        for row in cur.fetchall():
-            item = dict(row)
-            item['obj'] = item.get('callsign') or str(item['id'])
-            item['kind'] = 'aircraft'
-            item['label'] = item.get('callsign') or str(item['id'])
-            aircraft.append(_attach_track_meta(item, 'aircraft'))
-
-        cur.execute("""SELECT object_id, lat, lng, updated_at
-                       FROM map_object_positions WHERE object_type='aircraft'""")
-        known_aircraft = {str(a.get('obj')) for a in aircraft}
-        for row in cur.fetchall():
-            if str(row['object_id']) not in known_aircraft:
-                aircraft.append(_attach_track_meta({
-                    'id': row['object_id'], 'obj': row['object_id'],
-                    'kind': 'aircraft', 'label': row['object_id'],
-                    'callsign': row['object_id'],
-                    'lat': row['lat'], 'lng': row['lng'],
-                    'status': 'tracked', 'updated_at': row['updated_at']
-                }, 'aircraft'))
-
-        return {'server_time': _utc_now_iso(), 'engineers': engineers,
-                'transport': transport, 'aircraft': aircraft}
-    finally:
-        conn.close()
 
 
 @app.route('/api/v1/agents', methods=['GET'])
@@ -7438,7 +4583,7 @@ def api_v1_events():
     limit = max(1, min(limit, 5000))
     events = read_events(since=since, limit=limit)
     return jsonify({'events': events, 'count': len(events), 'since': since,
-                    'journal': os.path.basename(EVENTS_PATH)})
+                    'journal': os.path.basename(_events.EVENTS_PATH)})
 
 
 def _fill_events_sheet(ws, events):
@@ -7497,9 +4642,49 @@ def api_v1_events_export():
                     headers={'Content-Disposition': 'attachment; filename="' + filename + '"'})
 
 
+@app.route('/api/v1/events/export.csv', methods=['GET'])
+def api_v1_events_export_csv():
+    """CSV-экспорт журнала событий (вдобавок к XLSX)."""
+    if AUTH_REQUIRED and session.get('role') not in ('admin', 'dispatcher', 'mcc'):
+        return jsonify({'error': 'Недостаточно прав'}), 403
+    import csv
+    from io import StringIO
+
+    output = StringIO()
+    writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+    writer.writerow(['Время (ISO, мс)', 'Тип', 'Заявка', 'Участники', 'Параметры'])
+    for event in read_events(limit=0):
+        participants = ', '.join(str(value) for value in (
+            event.get('engineer'), event.get('actor'), event.get('engineer_id'),
+            event.get('selected_engineer'), event.get('previous_engineer')) if value)
+        params = {key: value for key, value in event.items()
+                  if key not in ('at', 'type', 'request_id', 'engineer', 'actor')}
+        writer.writerow([event.get('at', ''), event.get('type', ''),
+                         event.get('request_id') or '', participants,
+                         json.dumps(params, ensure_ascii=False, default=str)])
+    payload = '﻿' + output.getvalue()
+    filename = 'InTrAvia_events_' + datetime.utcnow().strftime('%Y%m%d_%H%M%S') + '.csv'
+    return Response(payload, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename="' + filename + '"'})
+
+
 @app.route('/m/agents')
 def mobile_agents_app():
     return render_template('mobile/agents.html')
+
+
+# --- Обратная совместимость: графы живут в intravia.routing ---
+def _sync_graph_globals():
+    global GRAPH_PEDESTRIAN, GRAPH_VEHICLE, GRAPH_AIRCRAFT, road_graph_vehicle
+    GRAPH_PEDESTRIAN = _routing.GRAPH_PEDESTRIAN
+    GRAPH_VEHICLE = _routing.GRAPH_VEHICLE
+    GRAPH_AIRCRAFT = _routing.GRAPH_AIRCRAFT
+    road_graph_vehicle = _routing.road_graph_vehicle
+
+
+def load_road_graph():
+    _routing.load_road_graph()
+    _sync_graph_globals()
 
 
 # ============================================================
@@ -7522,6 +4707,8 @@ def _startup():
 
 
 _startup()
+
+_sync_graph_globals()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)

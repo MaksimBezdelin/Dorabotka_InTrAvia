@@ -4,6 +4,7 @@ venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.pytest_cache/
 
 # --- IDE ---
 .idea/
@@ -50,3 +51,10 @@ Desktop.ini
 .DS_Store
 logs/
 *.bak_fim_*
+app.py.bak_*
+database.db.bak_*
+database_backup_*.db
+
+# --- Артефакты аудита и рефакторинга ---
+audit_tmp/
+audit_*.md

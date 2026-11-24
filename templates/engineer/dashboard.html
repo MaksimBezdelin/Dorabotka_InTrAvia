@@ -203,6 +203,16 @@
             .stats-grid { grid-template-columns: 1fr; }
             .page-header h1 { font-size: 20px; }
         }
+
+        /* Номера стоянок / сервисных зон из GeoJSON (перенесено из origin/main) */
+        .geojson-number-label-icon { background: transparent !important; border: 0 !important; }
+        .geojson-number-label {
+            display: flex; align-items: center; justify-content: center;
+            min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px;
+            background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72);
+            color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center;
+            white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -321,6 +331,7 @@
         var serverInitialAirport = {{ initial_airport|tojson }};
         var currentAirport = serverInitialAirport === 'vdnh' ? 'vdnh' : 'svo';
         var engineerAirportLayer = null;
+        var engineerParkingIdLayer = null;
         var engineerAirportInitialized = false;
         var airportRefreshInFlight = false;
         var airportRefreshTimer = null;
@@ -383,6 +394,93 @@
                     console.log('[PARKING] загружено стоянок:', Object.keys(PARKING_COORDS).length);
                 })
                 .catch(function(err) { console.warn('[PARKING] load failed', err); });
+        }
+
+        // ─── Номера стоянок / сервисных зон из GeoJSON ───
+        function createGeoJsonNumberIcon(rawId) {
+            var safeId = String(rawId).replace(/[&<>\"']/g, function(ch) {
+                return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch] || ch);
+            });
+            return L.divIcon({
+                className: 'geojson-number-label-icon',
+                html: '<span class="geojson-number-label">' + safeId + '</span>',
+                iconSize: [29, 23],
+                iconAnchor: [14, 11]
+            });
+        }
+
+        function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId) {
+            if (rawId === undefined || rawId === null || rawId === '') return;
+            if (!featureLayer || typeof featureLayer.getBounds !== 'function') return;
+            var bounds;
+            try { bounds = featureLayer.getBounds(); } catch (e) { return; }
+            if (!bounds || !bounds.isValid()) return;
+            L.marker(bounds.getCenter(), {
+                icon: createGeoJsonNumberIcon(rawId),
+                interactive: false,
+                keyboard: false,
+                zIndexOffset: 1800
+            }).addTo(targetLayer);
+        }
+
+        function addParkingCoordNumberLabels(targetLayer) {
+            var added = 0;
+            Object.keys(PARKING_COORDS).forEach(function(ref) {
+                var p = PARKING_COORDS[ref];
+                if (!p || !isFinite(Number(p.lat)) || !isFinite(Number(p.lng))) return;
+                L.marker([Number(p.lat), Number(p.lng)], {
+                    icon: createGeoJsonNumberIcon(ref),
+                    interactive: false,
+                    keyboard: false,
+                    zIndexOffset: 1450
+                }).addTo(targetLayer);
+                added++;
+            });
+            return added;
+        }
+
+        function clearEngineerParkingIdLayer() {
+            if (engineerParkingIdLayer && map && map.hasLayer(engineerParkingIdLayer)) {
+                map.removeLayer(engineerParkingIdLayer);
+            }
+            engineerParkingIdLayer = null;
+        }
+
+        function loadEngineerSvoParkingIdLabels() {
+            clearEngineerParkingIdLayer();
+            if (!mapInitialized || !map || currentAirport !== 'svo') return Promise.resolve();
+            engineerParkingIdLayer = L.layerGroup().addTo(map);
+            var targetLayer = engineerParkingIdLayer;
+            return fetch('/static/svo_all.geojson', { cache: 'no-store' })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('svo_all.geojson · HTTP ' + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    var added = 0;
+                    (data.features || []).forEach(function(feature) {
+                        var props = feature.properties || {};
+                        var geometry = feature.geometry || {};
+                        var coords = geometry.coordinates;
+                        if (props.category !== 'parking' || props.ref == null ||
+                            geometry.type !== 'Point' || !coords || coords.length < 2) return;
+                        var ref = String(props.ref);
+                        var marker = L.marker([Number(coords[1]), Number(coords[0])], {
+                            icon: createGeoJsonNumberIcon(ref),
+                            interactive: true,
+                            keyboard: false,
+                            zIndexOffset: 1450
+                        });
+                        if (props.name) marker.bindTooltip(String(props.name), { direction: 'top', offset: [0, -7] });
+                        marker.addTo(targetLayer);
+                        added++;
+                    });
+                    if (!added) addParkingCoordNumberLabels(targetLayer);
+                })
+                .catch(function(error) {
+                    console.warn('[PARKING LABELS] Не удалось загрузить номера стоянок SVO:', error);
+                    addParkingCoordNumberLabels(targetLayer);
+                });
         }
 
         var session = sessionStorage.getItem('userSession');
@@ -528,7 +626,10 @@
                         style: function() { return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
                         onEachFeature: function(f, lyr) {
                             var id = f.properties && f.properties.id;
-                            if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                            if (id != null) {
+                                lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                                addGeoJsonNumberLabel(engineerAirportLayer, lyr, id);
+                            }
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -552,7 +653,9 @@
                     L.geoJSON(objects, {
                         style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
                         onEachFeature: function(f, lyr) {
-                            if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                            var props = f.properties || {};
+                            if (props.name) lyr.bindTooltip(props.name, { sticky: true });
+                            if (props.id != null) addGeoJsonNumberLabel(engineerAirportLayer, lyr, props.id);
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -585,6 +688,7 @@
             currentAirport = nextAirport;
             engineerAirportInitialized = true;
             if (nextAirport === 'vdnh') {
+                clearEngineerParkingIdLayer();
                 stopEngineerAirportAircraft();
                 map.setView([55.8330, 37.6287], 14, { animate: false });
                 return loadEngineerVdnhMap();
@@ -593,6 +697,8 @@
             engineerAirportLayer = null;
             map.setView([55.981349, 37.388359], 13, { animate: false });
             return loadParkingCoords().then(function() {
+                return loadEngineerSvoParkingIdLabels();
+            }).then(function() {
                 startEngineerAmbientAircraft();
                 refreshEngineerRequestAircraft();
             });

@@ -227,10 +227,11 @@
         .employee-marker.status-busy { border-color: #e74c3c; }
         .employee-marker.status-free .marker-icon { color: #2ecc71; }
         .employee-marker.status-busy .marker-icon { color: #e74c3c; }
+        .dispatcher-gps-marker-wrap.leaflet-div-icon { background: transparent !important; border: 0 !important; }
         .dispatcher-gps-marker { width: 48px; height: 56px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow: visible; }
-        .dispatcher-gps-marker .gps-direction-arrow { width: 34px; height: 40px; transform-origin: 50% 50%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.32)); }
-        .dispatcher-gps-marker .gps-direction-arrow svg { display: block; width: 100%; height: 100%; }
-        .dispatcher-gps-marker .gps-direction-arrow path { fill: #1677f8; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
+        .dispatcher-gps-marker .dispatcher-gps-arrow { display: block; width: 39px; height: 44px; transform-origin: 50% 50%; transition: transform .12s linear; filter: drop-shadow(0 2px 3px rgba(0,0,0,.42)); }
+        .dispatcher-gps-marker .dispatcher-gps-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+        .dispatcher-gps-marker .dispatcher-gps-arrow path { fill: #0866dc; stroke: #fff; stroke-width: 3; stroke-linejoin: round; }
         .dispatcher-gps-marker .gps-marker-id { margin-top: -1px; font-size: 8px; line-height: 10px; padding: 1px 4px; border-radius: 5px; color: #fff; background: #0f4c9a; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 
         .car-marker {
@@ -429,6 +430,69 @@
         .tool-badge.warehouse { background: #fef3c7; color: #b45309; }
         .request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         .request-actions .btn { flex: 0 0 auto; }
+
+        /* PRIORITY TABLE (перенесено из origin/main, адаптировано под наш контракт) */
+        .priority-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .priority-table th {
+            text-align: left; padding: 9px 10px; font-size: 10px; text-transform: uppercase;
+            letter-spacing: 0.4px; color: var(--aero-gray); background: #f8fafc;
+            border-bottom: 1px solid var(--aero-gray-light); white-space: nowrap;
+        }
+        .priority-table td { padding: 10px; border-bottom: 1px solid var(--aero-gray-light); vertical-align: top; }
+        .priority-table tr:last-child td { border-bottom: none; }
+        .priority-table tr.priority-row-aog td:first-child { box-shadow: inset 3px 0 0 var(--aero-red); }
+        .priority-badge {
+            display: inline-block; padding: 4px 7px; border-radius: 5px;
+            font-size: 11px; font-weight: 800; white-space: nowrap;
+        }
+        .priority-badge.high { background: #fee2e2; color: #b91c1c; }
+        .priority-badge.medium { background: #fef3c7; color: #b45309; }
+        .priority-badge.low { background: #f1f5f9; color: #475569; }
+        .priority-aog-tag {
+            display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 4px;
+            background: #7f1d1d; color: #fff; font-size: 9px; font-weight: 800;
+            letter-spacing: 0.4px;
+        }
+        .priority-request-meta { color: var(--aero-gray); margin-top: 3px; }
+        .priority-empty-cell { padding: 18px; text-align: center; color: var(--aero-gray); }
+        .priority-note { font-size: 10px; color: var(--aero-gray); margin-top: 10px; line-height: 1.5; }
+        .priority-source-note { font-size: 10px; color: var(--aero-gray); margin-top: 4px; }
+
+        /* GEOJSON NUMBER LABELS (стоянки / сервисные зоны) */
+        .geojson-number-label-icon { background: transparent !important; border: 0 !important; }
+        .geojson-number-label {
+            display: flex; align-items: center; justify-content: center;
+            min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px;
+            background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72);
+            color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center;
+            white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none;
+        }
+
+        /* §5.1 ТЕСТОВЫЕ РЕЖИМЫ (организатор) */
+        .test-mode-block {
+            grid-column: 1/-1; border: 1px dashed #c7d2fe; background: #f8faff;
+            border-radius: 10px; padding: 12px 14px; margin: 4px 0 12px;
+        }
+        .test-mode-block .test-mode-title {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.4px; color: var(--aero-blue); margin-bottom: 8px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .test-mode-grid { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+        .test-mode-field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--aero-text-light); }
+        .test-mode-field input[type="number"] {
+            width: 72px; padding: 6px 8px; border: 1px solid #c7d2fe; border-radius: 6px;
+            font-family: inherit; font-size: 13px; background: #fff; color: var(--aero-text);
+        }
+        .test-mode-field input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; }
+        .test-mode-status {
+            margin-top: 9px; font-size: 11px; color: var(--aero-text-light);
+            line-height: 1.5;
+        }
+        .test-mode-status .test-mode-muted { color: var(--aero-gray); }
+        .test-mode-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .test-mode-actions .btn { flex: 0 0 auto; }
+
         .request-item .req-title { font-weight: 600; font-size: 13px; }
         .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
         .request-item .req-delete-btn {
@@ -1048,6 +1112,32 @@
             </div>
         </div>
 
+        <div class="card" id="dispatcherPriorityCard">
+            <div class="card-header">
+                <div>
+                    <h3><i class="fas fa-ranking-star" style="color:var(--aero-gold);margin-right:7px;"></i>Таблица приоритетов назначения инженеров</h3>
+                    <div style="font-size:11px;color:var(--aero-gray);margin-top:5px;">Сначала учитывается критичность заявки, затем допуск по специализации, доступность и расчётное время прибытия.</div>
+                </div>
+                <span class="badge-ai" id="dispatcherPriorityCount">0</span>
+            </div>
+            <div class="priority-table-wrap" style="width:100%;overflow-x:auto;">
+                <table class="priority-table" style="min-width:980px;">
+                    <thead><tr>
+                        <th>Приоритет</th>
+                        <th>Заявка / стоянка</th>
+                        <th>Инженер</th>
+                        <th>Специализация</th>
+                        <th>Прибытие</th>
+                        <th>Почему рекомендован</th>
+                        <th>Действие</th>
+                    </tr></thead>
+                    <tbody id="dispatcherPriorityBody"><tr><td colspan="7" class="priority-empty-cell">Загрузка рекомендаций…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="priority-note">Норматив подбора — не более 15 минут (для тестовой заявки может быть сокращён в её карточке). Назначение выполняется только после выбора диспетчером; рекомендации не назначают инженера автоматически. Заявки «Ожидание запчастей» к назначению не предлагаются.</div>
+            <div class="priority-source-note" id="dispatcherPrioritySourceNote"></div>
+        </div>
+
     </div>
 
     </div>
@@ -1474,6 +1564,17 @@ var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
 
 var pilotTableSignature = '';
 var workflowQueueInterval = null;
+var dispatcherPriorityInterval = null;
+var dispatcherPriorityBusy = false;
+// null — ещё не проверяли, true/false — есть ли /api/dispatcher/priorities.
+var dispatcherPrioritiesEndpointAvailable = null;
+// Кэш кандидатов для fallback-режима: не спамим /candidates на каждой отрисовке.
+var dispatcherPriorityCandidatesCache = {};
+var DISPATCHER_PRIORITY_CANDIDATE_TTL_MS = 30000;
+var DISPATCHER_PRIORITY_CANDIDATE_LIMIT = 6;
+// §5.1: известные тестовые настройки заявок (норматив/транспорт/пауза).
+var requestTestOptionsCache = {};
+var currentTestOptionsTicketId = null;
 var pilotAudioState = {};
 
 var transcriptionQueue = [];
@@ -1696,6 +1797,19 @@ function Employee(data) {
     this.task = data.task || '';
     this.taskStep = data.task_step || 'idle';
     this.taskStartedAt = data.task_started_at || null;
+    // GPS с телефона инженера: сервер может отдать gps_* или location/heading.
+    this.gpsLat = data.gps_lat == null ? null : Number(data.gps_lat);
+    this.gpsLng = data.gps_lng == null ? null : Number(data.gps_lng);
+    var rawGpsHeading = data.gps_heading != null ? data.gps_heading
+        : (data.heading != null ? data.heading : data.gpsHeading);
+    this.gpsHeading = rawGpsHeading == null ? null : Number(rawGpsHeading);
+    this.gpsUpdatedAt = data.gps_updated_at || null;
+    this.hasGps = this.gpsLat != null && this.gpsLng != null &&
+        isFinite(this.gpsLat) && isFinite(this.gpsLng);
+    if (this.hasGps) {
+        this.lat = this.gpsLat;
+        this.lng = this.gpsLng;
+    }
 }
 Employee.prototype.isFree = function() { return !this.busy; };
 Employee.prototype.distanceTo = function(lat, lng) { return distanceKm(this.lat, this.lng, lat, lng); };
@@ -1912,6 +2026,7 @@ function switchTab(tab) {
     if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
 
     if (tab === 'dispatch' && state.map) setTimeout(function() { state.map.invalidateSize(); }, 100);
+    if (tab === 'dispatch' && typeof loadDispatcherPriorityTable === 'function') loadDispatcherPriorityTable();
     if (tab === 'delays') { updateDelaysBadge(); renderDelays(); }
     if (tab === 'flights') renderFlights();
     if (tab === 'reports') renderReports();
@@ -1954,6 +2069,15 @@ function init() {
     relayDispatcherReportsToCpu();
     if (workflowQueueInterval) clearInterval(workflowQueueInterval);
     workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
+
+    bindDispatcherPriorityActions();
+    loadDispatcherPriorityTable();
+    if (dispatcherPriorityInterval) clearInterval(dispatcherPriorityInterval);
+    dispatcherPriorityInterval = setInterval(function() {
+        // /api/dispatcher/priorities пересчитывает маршруты, поэтому обновляем
+        // не чаще раза в 10 с и только когда вкладка видима.
+        if (state.currentTab === 'dispatch' && !document.hidden) loadDispatcherPriorityTable();
+    }, 10000);
 
             if (state.loadInterval) clearInterval(state.loadInterval);
             state.loadInterval = setInterval(function() {
@@ -2020,6 +2144,431 @@ function connectEventStream() {
     source.onerror = function() {
         setTimeout(function() { source.close(); connectEventStream(); }, 4000);
     };
+}
+
+// ============================================================
+// Таблица приоритетов назначения (критерии 16/17/19).
+// Основной источник — /api/dispatcher/priorities (если бэкенд его отдаёт).
+// Fallback: /api/dispatcher/queue + /api/dispatcher/candidates/<rid> с кэшем,
+// чтобы не спамить расчётом маршрутов. Контракт main адаптируется:
+// engineer_name/specialization_label/rank/no_candidate_reason -> наши поля.
+// ============================================================
+
+function setDispatcherPrioritySourceNote(text) {
+    var note = document.getElementById('dispatcherPrioritySourceNote');
+    if (note) note.textContent = text || '';
+}
+
+function dispatcherPriorityLevel(item) {
+    var raw = String((item && (item.priority || item.criticality || item.severity)) || '').toLowerCase();
+    if (item && (item.aog || item.aog_action || item.mcc_status === 'AOG_CONFIRMED')) return 'high';
+    if (raw === 'high' || raw === 'critical' || raw === 'aog') return 'high';
+    if (raw === 'low') return 'low';
+    return 'medium';
+}
+
+function dispatcherPriorityLabel(level, explicit) {
+    if (explicit) return explicit;
+    if (level === 'high') return 'Высокий';
+    if (level === 'low') return 'Низкий';
+    return 'Средний';
+}
+
+function normalizePriorityCandidate(raw, index) {
+    raw = raw || {};
+    var eligible = true;
+    if (raw.eligible !== undefined) {
+        eligible = (raw.eligible === true || raw.eligible === 1 ||
+                    raw.eligible === '1' || raw.eligible === 'true');
+    }
+    var travel = raw.travel_time != null && isFinite(Number(raw.travel_time))
+        ? Number(raw.travel_time) : null;
+    var score = raw.score != null && isFinite(Number(raw.score)) ? Number(raw.score) : null;
+    return {
+        engineer_id: raw.engineer_id != null ? raw.engineer_id : (raw.id != null ? raw.id : ''),
+        engineer_name: raw.engineer_name || raw.name || raw.device_id || 'Инженер',
+        device_id: raw.device_id || '',
+        specialization_label: raw.specialization_label ||
+            (CONFIG.SKILL_NAMES && CONFIG.SKILL_NAMES[raw.specialization]) ||
+            raw.specialization || '',
+        travel_time: travel,
+        score: score,
+        rank: raw.rank != null ? Number(raw.rank) : index + 1,
+        reason: raw.reason || '',
+        using_car: (raw.using_car === true || raw.using_car === 1 || raw.using_car === '1'),
+        best_car: raw.best_car || '',
+        eligible: eligible
+    };
+}
+
+function dispatcherFaultLabel(raw) {
+    var code = raw && (raw.fault_type || raw.fault);
+    if (!code) return raw && raw.description ? raw.description : '—';
+    var known = CONFIG.FAULT_TYPES && CONFIG.FAULT_TYPES[code];
+    return (known && known.name) || raw.description || code;
+}
+
+function normalizePriorityItem(raw) {
+    raw = raw || {};
+    var ranking = raw.ranking || raw;
+    var rawCandidates = ranking.candidates || raw.candidates || [];
+    // Наш бэкенд /api/dispatcher/priorities отдаёт одного best_candidate.
+    if (!rawCandidates.length && raw.best_candidate) rawCandidates = [raw.best_candidate];
+    var allCandidates = [];
+    for (var i = 0; i < rawCandidates.length; i++) {
+        allCandidates.push(normalizePriorityCandidate(rawCandidates[i], i));
+    }
+    var eligibleCandidates = [];
+    var ineligibleReasons = [];
+    for (var j = 0; j < allCandidates.length; j++) {
+        if (allCandidates[j].eligible && allCandidates[j].engineer_id !== '') eligibleCandidates.push(allCandidates[j]);
+        else if (allCandidates[j].reason) ineligibleReasons.push(allCandidates[j].reason);
+    }
+    var candidatesTotal = raw.candidates_total != null ? Number(raw.candidates_total) : rawCandidates.length;
+    var candidatesEligible = raw.candidates_eligible != null ? Number(raw.candidates_eligible) : null;
+    var serverNoCandidateReason = ranking.no_candidate_reason || raw.no_candidate_reason || '';
+    var noCandidateReason = serverNoCandidateReason;
+    if (!eligibleCandidates.length && !noCandidateReason) {
+        if (ineligibleReasons.length) {
+            noCandidateReason = 'Нет подходящего кандидата: ' + ineligibleReasons.slice(0, 2).join('; ');
+        } else if (candidatesTotal > 0) {
+            noCandidateReason = 'Ни один из ' + candidatesTotal +
+                ' кандидатов не допущен (заняты, нет допуска или не укладываются в норматив)';
+        } else {
+            noCandidateReason = 'Нет свободного инженера с нужным допуском';
+        }
+    }
+    var level = dispatcherPriorityLevel(raw);
+    var requestId = raw.request_id != null ? raw.request_id : (raw.id != null ? raw.id : '');
+    return {
+        request_id: String(requestId),
+        aircraft: raw.aircraft || 'ВС',
+        flight_number: raw.flight_number || '',
+        parking_id: raw.parking_id || raw.parking || '—',
+        description: dispatcherFaultLabel(raw),
+        level: level,
+        priority_label: dispatcherPriorityLabel(level, raw.priority_label),
+        aog: !!(raw.aog || raw.aog_action || raw.mcc_status === 'AOG_CONFIRMED'),
+        candidates: eligibleCandidates,
+        candidates_total: isFinite(candidatesTotal) ? candidatesTotal : null,
+        candidates_eligible: (candidatesEligible != null && isFinite(candidatesEligible))
+            ? candidatesEligible : null,
+        no_candidate_reason: noCandidateReason,
+        // true, если сервер сам прислал кандидатов/счётчики или причину отсутствия.
+        hasCandidateData: (rawCandidates.length > 0 || !!serverNoCandidateReason ||
+                           raw.best_candidate !== undefined || raw.candidates_total !== undefined),
+        status: raw.status || '',
+        deferred: false
+    };
+}
+
+function isAwaitingPartsItem(item) {
+    return !!(item && (item.status === 'awaiting_parts' || item.awaiting_parts === true));
+}
+
+function extractPriorityItems(payload) {
+    var list = [];
+    if (Array.isArray(payload)) list = payload;
+    else if (payload && Array.isArray(payload.requests)) list = payload.requests;
+    else if (payload && Array.isArray(payload.items)) list = payload.items;
+    var items = [];
+    for (var i = 0; i < list.length; i++) {
+        if (isAwaitingPartsItem(list[i])) continue;
+        items.push(normalizePriorityItem(list[i]));
+    }
+    return items;
+}
+
+function applyCandidatesToPriorityItem(item, data) {
+    var rows = (data && (data.candidates || data.ranking && data.ranking.candidates)) || [];
+    var normalized = [];
+    for (var i = 0; i < rows.length; i++) normalized.push(normalizePriorityCandidate(rows[i], i));
+    var eligible = [];
+    var reasons = [];
+    for (var j = 0; j < normalized.length; j++) {
+        if (normalized[j].eligible && normalized[j].engineer_id !== '') eligible.push(normalized[j]);
+        else if (normalized[j].reason) reasons.push(normalized[j].reason);
+    }
+    eligible.sort(function(a, b) {
+        var av = a.score != null ? a.score : (a.travel_time != null ? a.travel_time : 9999);
+        var bv = b.score != null ? b.score : (b.travel_time != null ? b.travel_time : 9999);
+        return av - bv;
+    });
+    for (var k = 0; k < eligible.length; k++) eligible[k].rank = k + 1;
+    item.candidates = eligible;
+    if (!eligible.length) {
+        item.no_candidate_reason = reasons.length
+            ? 'Нет подходящего кандидата: ' + reasons.slice(0, 2).join('; ')
+            : 'Нет свободного инженера с нужным допуском';
+    }
+    item.deferred = false;
+    return item;
+}
+
+function hydratePriorityCandidates(items) {
+    var limit = Math.min(items.length, DISPATCHER_PRIORITY_CANDIDATE_LIMIT);
+    var tasks = [];
+    for (var i = 0; i < limit; i++) {
+        (function(item) {
+            var cached = dispatcherPriorityCandidatesCache[item.request_id];
+            if (cached && (Date.now() - cached.ts) < DISPATCHER_PRIORITY_CANDIDATE_TTL_MS) {
+                tasks.push(Promise.resolve(applyCandidatesToPriorityItem(item, cached.data)));
+                return;
+            }
+            tasks.push(fetch(API_URL + '/dispatcher/candidates/' + encodeURIComponent(item.request_id), { cache: 'no-store' })
+                .then(function(res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(function(data) {
+                    dispatcherPriorityCandidatesCache[item.request_id] = { ts: Date.now(), data: data };
+                    return applyCandidatesToPriorityItem(item, data);
+                })
+                .catch(function(error) {
+                    item.no_candidate_reason = 'Расчёт кандидатов недоступен: ' + error.message;
+                    item.deferred = false;
+                    return item;
+                }));
+        })(items[i]);
+    }
+    return Promise.all(tasks).then(function(resolved) {
+        for (var r = 0; r < resolved.length; r++) items[r] = resolved[r];
+        for (var d = limit; d < items.length; d++) {
+            items[d].deferred = true;
+            items[d].no_candidate_reason = 'Кандидаты не рассчитаны: лимит ' +
+                DISPATCHER_PRIORITY_CANDIDATE_LIMIT + ' одновременных расчётов';
+        }
+        return items;
+    });
+}
+
+function buildPriorityItemsFromState() {
+    var items = [];
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        var ar = state.activeRequests[i];
+        if (ar.engineerId || ar.status === 'awaiting_parts') continue;
+        if (['completed', 'cancelled', 'flight_cancelled', 'draft'].indexOf(ar.status) !== -1) continue;
+        items.push(normalizePriorityItem({
+            request_id: ar.id,
+            aircraft: ar.aircraft,
+            parking_id: ar.parking,
+            description: ar.fault,
+            criticality: ar.criticality,
+            status: ar.status
+        }));
+    }
+    return items;
+}
+
+function loadDispatcherPriorityFromQueue() {
+    return fetch(API_URL + '/dispatcher/queue', { cache: 'no-store' })
+        .then(function(res) {
+            if (res.status === 404 || res.status === 405) {
+                return { items: buildPriorityItemsFromState(), source: 'local' };
+            }
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().then(function(rows) {
+                if (!Array.isArray(rows)) throw new Error('Некорректный ответ очереди');
+                var items = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var row = rows[i] || {};
+                    if (row.status === 'awaiting_parts') continue;
+                    if (['completed', 'cancelled', 'flight_cancelled', 'draft', 'deleted'].indexOf(row.status) !== -1) continue;
+                    items.push(normalizePriorityItem({
+                        request_id: row.id,
+                        aircraft: row.aircraft,
+                        flight_number: row.flight_number,
+                        parking_id: row.parking_id,
+                        description: row.description || row.fault_type,
+                        criticality: row.criticality,
+                        severity: row.severity,
+                        aog_action: row.aog_action,
+                        mcc_status: row.mcc_status,
+                        status: row.status
+                    }));
+                }
+                return { items: items, source: 'queue' };
+            });
+        })
+        .catch(function(error) {
+            var localItems = buildPriorityItemsFromState();
+            if (localItems.length || state.dataLoaded) return { items: localItems, source: 'local' };
+            throw error;
+        });
+}
+
+function loadDispatcherPriorityFallback() {
+    return loadDispatcherPriorityFromQueue().then(function(result) {
+        return hydratePriorityCandidates(result.items).then(function(items) {
+            renderDispatcherPriorityTable(items);
+            if (result.source === 'queue') {
+                setDispatcherPrioritySourceNote('Источник: очередь диспетчера + /api/dispatcher/candidates (эндпоинт /api/dispatcher/priorities недоступен).');
+            } else {
+                setDispatcherPrioritySourceNote('Источник: локальный список активных заявок (очередь диспетчера недоступна).');
+            }
+            return items;
+        });
+    });
+}
+
+function loadDispatcherPriorityTable() {
+    if (dispatcherPriorityBusy) return;
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    if (!tbody) return;
+    dispatcherPriorityBusy = true;
+
+    if (dispatcherPrioritiesEndpointAvailable === false) {
+        loadDispatcherPriorityFallback()
+            .catch(function(error) { renderDispatcherPriorityError(error); })
+            .finally(function() { dispatcherPriorityBusy = false; });
+        return;
+    }
+
+    fetch(API_URL + '/dispatcher/priorities', { cache: 'no-store' })
+        .then(function(response) {
+            if (response.status === 404 || response.status === 405) {
+                dispatcherPrioritiesEndpointAvailable = false;
+                return loadDispatcherPriorityFallback();
+            }
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json().then(function(payload) {
+                dispatcherPrioritiesEndpointAvailable = true;
+                var items = extractPriorityItems(payload);
+                // Если эндпоинт отдал только заявки без рекомендаций — добираем
+                // кандидатов тем же кэшированным способом, что и в fallback.
+                var needsHydration = false;
+                for (var h = 0; h < items.length; h++) {
+                    if (!items[h].hasCandidateData) { needsHydration = true; break; }
+                }
+                if (needsHydration) {
+                    return hydratePriorityCandidates(items).then(function(hydrated) {
+                        renderDispatcherPriorityTable(hydrated);
+                        setDispatcherPrioritySourceNote('Источник: /api/dispatcher/priorities + /api/dispatcher/candidates.');
+                    });
+                }
+                renderDispatcherPriorityTable(items);
+                setDispatcherPrioritySourceNote('Источник: /api/dispatcher/priorities.');
+            });
+        })
+        .catch(function(error) {
+            if (dispatcherPrioritiesEndpointAvailable === false) {
+                renderDispatcherPriorityError(error);
+                return;
+            }
+            // Эндпоинт ответил ошибкой: не считаем его отсутствующим, но
+            // показываем данные из очереди, чтобы дашборд не оставался пустым.
+            return loadDispatcherPriorityFallback().catch(function() {
+                renderDispatcherPriorityError(error);
+            });
+        })
+        .finally(function() { dispatcherPriorityBusy = false; });
+}
+
+function renderDispatcherPriorityError(error) {
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="priority-empty-cell" style="color:var(--aero-red);">' +
+        'Не удалось загрузить таблицу приоритетов: ' + escapeHtml(error && error.message ? error.message : 'ошибка') +
+        '</td></tr>';
+}
+
+function priorityRequestCellHtml(item) {
+    var counts = '';
+    if (item.candidates_total != null) {
+        counts = ' · допущено ' +
+            (item.candidates_eligible != null ? item.candidates_eligible : item.candidates.length) +
+            ' из ' + item.candidates_total;
+    }
+    return '<strong>' + escapeHtml(item.aircraft || 'ВС') + '</strong>' +
+        (item.flight_number ? '<div class="priority-request-meta">Рейс ' + escapeHtml(item.flight_number) + '</div>' : '') +
+        '<div style="margin-top:3px;">Стоянка ' + escapeHtml(item.parking_id || '—') + '</div>' +
+        '<div class="priority-request-meta">' + escapeHtml(item.description || '—') + counts + '</div>';
+}
+
+function priorityCandidateRowHtml(item, candidate) {
+    var etaText = candidate.travel_time != null && isFinite(candidate.travel_time)
+        ? candidate.travel_time.toFixed(1) + ' мин' : '—';
+    var transportText = candidate.using_car
+        ? ('Спецтранспорт' + (candidate.best_car ? ' ' + candidate.best_car : ''))
+        : 'Пешком';
+    var priorityHtml = '<span class="priority-badge ' + item.level + '">' + escapeHtml(item.priority_label) + '</span>' +
+        (item.aog ? '<span class="priority-aog-tag">AOG</span>' : '');
+    var deviceLine = candidate.device_id
+        ? '<div class="priority-request-meta">' + escapeHtml(candidate.device_id) + '</div>' : '';
+    return '<tr class="' + (item.aog ? 'priority-row-aog' : '') + '">' +
+        '<td>' + priorityHtml +
+            '<div class="priority-request-meta">Кандидат №' + escapeHtml(candidate.rank) + '</div></td>' +
+        '<td>' + priorityRequestCellHtml(item) + '</td>' +
+        '<td><strong>' + escapeHtml(candidate.engineer_name) + '</strong>' + deviceLine + '</td>' +
+        '<td>' + escapeHtml(candidate.specialization_label || '—') + '</td>' +
+        '<td style="white-space:nowrap;"><strong>' + etaText + '</strong>' +
+            '<div class="priority-request-meta">' + escapeHtml(transportText) + '</div></td>' +
+        '<td style="min-width:240px;max-width:420px;line-height:1.45;">' +
+            escapeHtml(candidate.reason || 'Совпадение специализации и минимальное ETA') + '</td>' +
+        '<td><button class="btn btn-primary btn-sm priority-assign-btn"' +
+            ' data-request-id="' + escapeHtml(item.request_id) + '"' +
+            ' data-engineer-id="' + escapeHtml(candidate.engineer_id) + '"' +
+            ' data-engineer-name="' + escapeHtml(candidate.engineer_name) + '"' +
+            ' data-rank="' + escapeHtml(candidate.rank) + '">' +
+            '<i class="fas fa-user-check"></i> Назначить</button></td>' +
+        '</tr>';
+}
+
+function renderDispatcherPriorityTable(items) {
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    var badge = document.getElementById('dispatcherPriorityCount');
+    if (!tbody) return;
+    items = items || [];
+    if (badge) badge.textContent = String(items.length);
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="priority-empty-cell">' +
+            '<i class="fas fa-circle-check" style="color:var(--aero-green);"></i> ' +
+            'Нет заявок, ожидающих назначения инженера</td></tr>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var priorityHtml = '<span class="priority-badge ' + item.level + '">' +
+            escapeHtml(item.priority_label) + '</span>' +
+            (item.aog ? '<span class="priority-aog-tag">AOG</span>' : '');
+        if (!item.candidates || !item.candidates.length) {
+            var reasonStyle = item.deferred ? 'color:var(--aero-gray);' : 'color:var(--aero-red);';
+            html += '<tr class="' + (item.aog ? 'priority-row-aog' : '') + '">' +
+                '<td>' + priorityHtml + '</td>' +
+                '<td>' + priorityRequestCellHtml(item) + '</td>' +
+                '<td colspan="4" style="' + reasonStyle + '">' +
+                    escapeHtml(item.no_candidate_reason || 'Нет доступного кандидата') + '</td>' +
+                '<td style="color:var(--aero-gray);">Ожидание</td></tr>';
+            continue;
+        }
+        for (var c = 0; c < item.candidates.length; c++) {
+            html += priorityCandidateRowHtml(item, item.candidates[c]);
+        }
+    }
+    tbody.innerHTML = html;
+}
+
+function assignPriorityCandidate(requestId, engineerId, engineerName) {
+    if (!requestId || !engineerId) return;
+    if (!confirm('Назначить ' + engineerName + ' на заявку?\n\nОснование: выбран из таблицы приоритетов.')) return;
+    delete dispatcherPriorityCandidatesCache[requestId];
+    assignCandidate(requestId, engineerId, engineerName);
+}
+
+function bindDispatcherPriorityActions() {
+    var tbody = document.getElementById('dispatcherPriorityBody');
+    if (!tbody || tbody._priorityBound) return;
+    tbody._priorityBound = true;
+    tbody.addEventListener('click', function(event) {
+        var button = event.target.closest ? event.target.closest('.priority-assign-btn') : null;
+        if (!button) return;
+        assignPriorityCandidate(
+            button.getAttribute('data-request-id') || '',
+            button.getAttribute('data-engineer-id') || '',
+            button.getAttribute('data-engineer-name') || 'Инженер'
+        );
+    });
 }
 
 function loadDataOnce() {
@@ -2411,14 +2960,20 @@ function refreshCoordsOnly() {
                 var e = data[i];
                 for (var j = 0; j < state.employees.length; j++) {
                     var emp = state.employees[j];
-                    if (emp.realId !== e.id) continue;
+                    if (String(emp.realId) !== String(e.id)) continue;
 
                     // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
-                    emp.gpsLat = e.gps_lat == null ? null : Number(e.gps_lat);
-                    emp.gpsLng = e.gps_lng == null ? null : Number(e.gps_lng);
+                    var gpsPayload = e.location || e.gps || {};
+                    var rawGpsLat = e.gps_lat != null ? e.gps_lat : gpsPayload.lat;
+                    var rawGpsLng = e.gps_lng != null ? e.gps_lng : gpsPayload.lng;
+                    emp.gpsLat = rawGpsLat == null ? null : Number(rawGpsLat);
+                    emp.gpsLng = rawGpsLng == null ? null : Number(rawGpsLng);
                     var previousGpsHeading = emp.gpsHeading;
                     var previousHasGps = emp.hasGps;
-                    emp.gpsHeading = e.gps_heading == null ? null : Number(e.gps_heading);
+                    var rawGpsHeading = e.gps_heading != null ? e.gps_heading
+                        : (e.heading != null ? e.heading
+                            : (e.gpsHeading != null ? e.gpsHeading : gpsPayload.heading));
+                    emp.gpsHeading = rawGpsHeading == null ? null : Number(rawGpsHeading);
                     emp.gpsUpdatedAt = e.gps_updated_at || null;
                     emp.hasGps = emp.gpsLat != null && emp.gpsLng != null && isFinite(emp.gpsLat) && isFinite(emp.gpsLng);
                     if (previousGpsHeading !== emp.gpsHeading || previousHasGps !== emp.hasGps) changed = true;
@@ -2454,23 +3009,17 @@ function refreshCoordsOnly() {
                     var mk = state.mapMarkers['emp_' + empK.realId];
                     if (mk && empK.lat != null && empK.lng != null) {
                         mk.setLatLng([empK.lat, empK.lng]);
-                        if (empK.hasGps && !mk._usesGpsIcon) {
-                            mk.setIcon(createEmployeeMapIcon(empK));
-                            mk._usesGpsIcon = true;
-                            if (mk.dragging && mk.dragging.disable) mk.dragging.disable();
-                        } else if (!empK.hasGps && mk._usesGpsIcon) {
-                            mk.setIcon(createEmployeeMapIcon(empK));
-                            mk._usesGpsIcon = false;
-                            if (mk.dragging && mk.dragging.enable) mk.dragging.enable();
-                        } else if (empK.hasGps) {
-                            var markerEl = mk.getElement && mk.getElement();
-                            var arrowEl = markerEl && markerEl.querySelector('.gps-direction-arrow');
-                            if (arrowEl) arrowEl.style.transform = 'rotate(' + (empK.gpsHeading == null ? 0 : empK.gpsHeading) + 'deg)';
-                        }
+                        syncDispatcherGpsDirection(empK, mk);
                     }
                 }
                 // Пересчитываем оставшееся время в карточках
                 if (typeof updateActiveRequests === 'function') updateActiveRequests();
+            }
+            // Держим стрелку GPS видимой и синхронизированной на каждом тике.
+            for (var gpsIndex = 0; gpsIndex < state.employees.length; gpsIndex++) {
+                var gpsEmployee = state.employees[gpsIndex];
+                var gpsMarker = state.mapMarkers['emp_' + gpsEmployee.realId];
+                if (gpsMarker && gpsEmployee.hasGps) syncDispatcherGpsDirection(gpsEmployee, gpsMarker);
             }
         })
         .catch(function(err) { console.error('[SYNC] refresh engineers', err); });
@@ -3146,6 +3695,33 @@ function vdnhObjectStyle(name) {
     return { color: '#0f766e', weight: 1.5, opacity: 0.9, fillColor: '#14b8a6', fillOpacity: 0.3 };
 }
 
+// Номера стоянок / сервисных зон из GeoJSON (перенесено из origin/main).
+function createGeoJsonNumberIcon(rawId) {
+    var safeId = String(rawId).replace(/[&<>\"']/g, function(ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch] || ch);
+    });
+    return L.divIcon({
+        className: 'geojson-number-label-icon',
+        html: '<span class="geojson-number-label">' + safeId + '</span>',
+        iconSize: [29, 23],
+        iconAnchor: [14, 11]
+    });
+}
+
+function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId) {
+    if (rawId === undefined || rawId === null || rawId === '') return;
+    if (!featureLayer || typeof featureLayer.getBounds !== 'function') return;
+    var bounds;
+    try { bounds = featureLayer.getBounds(); } catch (e) { return; }
+    if (!bounds || !bounds.isValid()) return;
+    L.marker(bounds.getCenter(), {
+        icon: createGeoJsonNumberIcon(rawId),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 1800
+    }).addTo(targetLayer);
+}
+
 function loadVdnhAirportMap() {
     var layer = state.vdnhLayer = L.layerGroup().addTo(map);
 
@@ -3171,7 +3747,10 @@ function loadVdnhAirportMap() {
                 },
                 onEachFeature: function(f, lyr) {
                     var id = f.properties && f.properties.id;
-                    if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                    if (id != null) {
+                        lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                        addGeoJsonNumberLabel(layer, lyr, id);
+                    }
                 }
             }).addTo(layer);
         }
@@ -3197,7 +3776,9 @@ function loadVdnhAirportMap() {
             L.geoJSON(objects, {
                 style: function(f) { return vdnhObjectStyle(f.properties && f.properties.name); },
                 onEachFeature: function(f, lyr) {
-                    if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                    var props = f.properties || {};
+                    if (props.name) lyr.bindTooltip(props.name, { sticky: true });
+                    if (props.id != null) addGeoJsonNumberLabel(layer, lyr, props.id);
                 }
             }).addTo(layer);
         }
@@ -3222,12 +3803,45 @@ function loadVdnhAirportMap() {
 function createEmployeeMapIcon(employee) {
     var statusClass = employee.isFree() ? 'free' : 'busy';
     if (employee.hasGps) {
-        var heading = employee.gpsHeading != null && isFinite(employee.gpsHeading) ? employee.gpsHeading : 0;
-        var html = '<div class="dispatcher-gps-marker"><div class="gps-direction-arrow" style="transform:rotate(' + heading + 'deg)"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div><span class="gps-marker-id">' + String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '') + '</span></div>';
+        var rawHeading = employee.gpsHeading;
+        var heading = rawHeading != null && isFinite(Number(rawHeading))
+            ? ((Number(rawHeading) % 360) + 360) % 360 : 0;
+        var safeDeviceId = String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '');
+        var html = '<div class="dispatcher-gps-marker">' +
+            '<div class="dispatcher-gps-arrow" style="transform:rotate(' + heading + 'deg)">' +
+                '<svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg>' +
+            '</div>' +
+            '<span class="gps-marker-id">' + safeDeviceId + '</span>' +
+        '</div>';
         return L.divIcon({ className: 'dispatcher-gps-marker-wrap status-' + statusClass, html: html, iconSize: [48, 56], iconAnchor: [24, 25] });
     }
-    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + employee.deviceId + '</span>';
+    var safeId = String(employee.deviceId || '').replace(/[&<>\"]/g, '');
+    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + safeId + '</span>';
     return L.divIcon({ className: 'employee-marker status-' + statusClass, html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18] });
+}
+
+function syncDispatcherGpsDirection(employee, marker) {
+    if (!employee || !marker) return;
+    if (!employee.hasGps) {
+        if (marker._usesGpsIcon) {
+            marker.setIcon(createEmployeeMapIcon(employee));
+            marker._usesGpsIcon = false;
+            if (marker.dragging && marker.dragging.enable) marker.dragging.enable();
+        }
+        return;
+    }
+    var element = marker.getElement && marker.getElement();
+    var arrow = element && element.querySelector('.dispatcher-gps-arrow');
+    if (!marker._usesGpsIcon || !arrow) {
+        marker.setIcon(createEmployeeMapIcon(employee));
+        marker._usesGpsIcon = true;
+        if (marker.dragging && marker.dragging.disable) marker.dragging.disable();
+        element = marker.getElement && marker.getElement();
+        arrow = element && element.querySelector('.dispatcher-gps-arrow');
+    }
+    var heading = employee.gpsHeading != null && isFinite(Number(employee.gpsHeading))
+        ? ((Number(employee.gpsHeading) % 360) + 360) % 360 : 0;
+    if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
 }
 
 function renderMapMarkers() {
@@ -3275,6 +3889,7 @@ function renderMapMarkers() {
             .addTo(map).bindPopup(createEmployeePopup(employee));
             marker._usesGpsIcon = !!employee.hasGps;
             state.mapMarkers['emp_' + employee.realId] = marker;
+            if (employee.hasGps) syncDispatcherGpsDirection(employee, marker);
         })(emp);
     }
 
@@ -4183,6 +4798,194 @@ function markPartsReceived(ticketId) {
         .catch(function(error) { showToast(error.message, 'error'); });
 }
 
+// ============================================================
+// §5.1. Тестовые режимы организатора для конкретной заявки.
+// Ожидаемый контракт бэкенда:
+//   GET/POST/PATCH /api/requests/<rid>/test_options
+//   { regulation_minutes: 1..60, force_transport: bool,
+//     paused: bool, paused_until: ISO|null }
+// Если эндпоинта ещё нет (404/405), UI не ломает модалку и остальной дашборд.
+// ============================================================
+
+function normalizeRequestTestOptions(raw) {
+    raw = raw || {};
+    var nested = raw.options || raw.test_options || raw.testOptions || raw;
+    var reg = Number(nested.regulation_minutes);
+    if (!isFinite(reg) || reg < 1 || reg > 60) reg = CONFIG.REGULATION_MINUTES;
+    return {
+        regulation_minutes: Math.round(reg),
+        force_transport: (nested.force_transport === true || nested.force_transport === 1 ||
+                          nested.force_transport === '1'),
+        paused: (nested.paused === true || nested.paused === 1 || nested.paused === '1'),
+        paused_until: nested.paused_until || null
+    };
+}
+
+function getKnownRequestTestOptions(ticket) {
+    var raw = requestTestOptionsCache[ticket && ticket.id];
+    if (!raw && ticket) raw = ticket.test_options || ticket.testOptions;
+    return normalizeRequestTestOptions(raw);
+}
+
+function syncRequestTestModeUI(ticketId, options) {
+    if (currentTestOptionsTicketId !== ticketId) return;
+    var block = document.getElementById('requestTestModeBlock');
+    if (!block) return;
+    var input = document.getElementById('testRegulationMinutes');
+    var force = document.getElementById('testForceTransport');
+    var pauseBtn = document.getElementById('testPauseToggle');
+    var status = document.getElementById('testOptionsStatus');
+    if (input) input.value = options.regulation_minutes;
+    if (force) force.checked = !!options.force_transport;
+    if (pauseBtn) {
+        pauseBtn.innerHTML = options.paused
+            ? '<i class="fas fa-play"></i> Продолжить'
+            : '<i class="fas fa-pause"></i> Пауза агента';
+        pauseBtn.className = options.paused ? 'btn btn-success btn-sm' : 'btn btn-warning btn-sm';
+    }
+    if (status) {
+        var parts = [
+            'Норматив: ' + options.regulation_minutes + ' мин',
+            options.force_transport ? 'маршрут: принудительно спецтранспорт' : 'маршрут: обычный подбор',
+        ];
+        if (options.paused) {
+            var until = options.paused_until ? new Date(options.paused_until) : null;
+            parts.push('агент на паузе' +
+                (until && !isNaN(until.getTime()) ? ' до ' + until.toLocaleTimeString('ru-RU') : ''));
+        } else {
+            parts.push('агент активен');
+        }
+        status.innerHTML = '<span>' + escapeHtml(parts.join(' · ')) + '</span>' +
+            '<div class="test-mode-muted">Изменения применяются только к этой заявке и пишутся в журнал.</div>';
+    }
+}
+
+function bindRequestTestModeControls(ticketId, options) {
+    currentTestOptionsTicketId = ticketId;
+    requestTestOptionsCache[ticketId] = normalizeRequestTestOptions(options);
+    syncRequestTestModeUI(ticketId, requestTestOptionsCache[ticketId]);
+    var saveBtn = document.getElementById('testOptionsSave');
+    if (saveBtn) saveBtn.onclick = function() { saveRequestTestOptions(ticketId); };
+    var pauseBtn = document.getElementById('testPauseToggle');
+    if (pauseBtn) pauseBtn.onclick = function() { toggleRequestTestPause(ticketId); };
+}
+
+function applyLoadedRequestTestOptions(ticketId, data) {
+    var opts = normalizeRequestTestOptions(data);
+    requestTestOptionsCache[ticketId] = opts;
+    syncRequestTestModeUI(ticketId, opts);
+}
+
+function loadRequestTestOptions(ticketId) {
+    fetch(API_URL + '/requests/' + encodeURIComponent(ticketId) + '/test_options', {
+        cache: 'no-store', headers: { 'Accept': 'application/json' }
+    })
+        .then(function(res) {
+            if (!res.ok) {
+                var error = new Error('HTTP ' + res.status);
+                error.status = res.status;
+                throw error;
+            }
+            return res.json();
+        })
+        .then(function(data) { applyLoadedRequestTestOptions(ticketId, data); })
+        .catch(function(error) {
+            if (error.status !== 405) return; // эндпоинта нет — молча оставляем значения
+            // Текущий бэкенд принимает только POST. Пустое тело не меняет
+            // настройки, но возвращает актуальные options (read-only).
+            sendRequestTestOptions(ticketId, {}, 'POST')
+                .then(function(res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(function(data) {
+                    if (data && data.success !== false) applyLoadedRequestTestOptions(ticketId, data);
+                })
+                .catch(function() { /* остаёмся на значениях по умолчанию */ });
+        });
+}
+
+function sendRequestTestOptions(ticketId, payload, method) {
+    return fetch(API_URL + '/requests/' + encodeURIComponent(ticketId) + '/test_options', {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+}
+
+function postRequestTestOptions(ticketId, payload, method, okMessage) {
+    var saveBtn = document.getElementById('testOptionsSave');
+    var pauseBtn = document.getElementById('testPauseToggle');
+    if (saveBtn) saveBtn.disabled = true;
+    if (pauseBtn) pauseBtn.disabled = true;
+    sendRequestTestOptions(ticketId, payload, method)
+        .then(function(res) {
+            // Контракт в задании упоминает PATCH для паузы, но текущий бэкенд
+            // принимает только POST. При 405 повторяем тот же запрос через POST.
+            if (res.status === 405 && method !== 'POST') {
+                return sendRequestTestOptions(ticketId, payload, 'POST');
+            }
+            return res;
+        })
+        .then(function(res) {
+            if (res.status === 404 || res.status === 405) {
+                var missing = new Error('Тестовые режимы пока недоступны: бэкенд ещё не добавил POST /api/requests/<rid>/test_options.');
+                missing.code = 'TEST_OPTIONS_MISSING';
+                throw missing;
+            }
+            return res.json().catch(function() { return {}; }).then(function(data) {
+                if (!res.ok || data.success === false) {
+                    throw new Error(data.error || ('HTTP ' + res.status));
+                }
+                return data;
+            });
+        })
+        .then(function(data) {
+            var merged = {};
+            var prev = requestTestOptionsCache[ticketId] || {};
+            for (var k in prev) if (prev.hasOwnProperty(k)) merged[k] = prev[k];
+            for (var p in payload) if (payload.hasOwnProperty(p)) merged[p] = payload[p];
+            var opts = normalizeRequestTestOptions(data.options || data.test_options || merged);
+            requestTestOptionsCache[ticketId] = opts;
+            syncRequestTestModeUI(ticketId, opts);
+            showToast(okMessage, 'success');
+        })
+        .catch(function(error) {
+            showToast(error.message, error.code === 'TEST_OPTIONS_MISSING' ? 'warning' : 'error');
+        })
+        .finally(function() {
+            if (saveBtn) saveBtn.disabled = false;
+            if (pauseBtn) pauseBtn.disabled = false;
+        });
+}
+
+function saveRequestTestOptions(ticketId) {
+    var input = document.getElementById('testRegulationMinutes');
+    var force = document.getElementById('testForceTransport');
+    var reg = input ? parseInt(input.value, 10) : NaN;
+    if (!isFinite(reg) || reg < 1 || reg > 60) {
+        showToast('Норматив должен быть целым числом от 1 до 60 минут', 'warning');
+        if (input) input.focus();
+        return;
+    }
+    var prev = requestTestOptionsCache[ticketId] || getKnownRequestTestOptions({ id: ticketId });
+    postRequestTestOptions(ticketId, {
+        regulation_minutes: reg,
+        force_transport: !!(force && force.checked),
+        paused: !!prev.paused,
+        paused_until: prev.paused_until || null
+    }, 'POST', 'Тестовый режим применён к заявке');
+}
+
+function toggleRequestTestPause(ticketId) {
+    var prev = requestTestOptionsCache[ticketId] || getKnownRequestTestOptions({ id: ticketId });
+    var nextPaused = !prev.paused;
+    postRequestTestOptions(ticketId, {
+        paused: nextPaused,
+        paused_until: null
+    }, 'PATCH', nextPaused ? 'Агент поставлен на паузу' : 'Агент продолжает работу');
+}
+
 function openRequestModal(ticketId) {
     var ticket = null;
     for (var i = 0; i < state.tickets.length; i++) if (state.tickets[i].id === ticketId) { ticket = state.tickets[i]; break; }
@@ -4239,6 +5042,28 @@ function openRequestModal(ticketId) {
         : '';
     var toolBadge = toolStatusBadgeHtml(toolStatus) ||
         '<span style="font-size:12px;color:var(--aero-gray);">не указан</span>';
+    var testOptions = getKnownRequestTestOptions(ticket);
+    var testModeBlock =
+        '<div class="test-mode-block" id="requestTestModeBlock">' +
+            '<div class="test-mode-title"><i class="fas fa-flask"></i> Тестовые режимы (организатор)</div>' +
+            '<div class="test-mode-grid">' +
+                '<label class="test-mode-field">Норматив, мин' +
+                    '<input type="number" id="testRegulationMinutes" min="1" max="60" step="1" value="' +
+                    escapeHtml(testOptions.regulation_minutes) + '">' +
+                '</label>' +
+                '<label class="test-mode-field">' +
+                    '<input type="checkbox" id="testForceTransport"' + (testOptions.force_transport ? ' checked' : '') + '>' +
+                    ' Принудительно спецтранспорт</label>' +
+                '<button type="button" class="btn ' + (testOptions.paused ? 'btn-success' : 'btn-warning') + ' btn-sm" id="testPauseToggle">' +
+                    (testOptions.paused ? '<i class="fas fa-play"></i> Продолжить' : '<i class="fas fa-pause"></i> Пауза агента') +
+                '</button>' +
+            '</div>' +
+            '<div class="test-mode-status" id="testOptionsStatus"></div>' +
+            '<div class="test-mode-actions">' +
+                '<button type="button" class="btn btn-primary btn-sm" id="testOptionsSave">' +
+                    '<i class="fas fa-flask"></i> Применить тестовый режим</button>' +
+            '</div>' +
+        '</div>';
 
     document.getElementById('requestModalTitle').textContent = 'Заявка: ' + (ticket.aircraft || ticket.id);
     document.getElementById('requestModalContent').innerHTML =
@@ -4261,8 +5086,11 @@ function openRequestModal(ticketId) {
         '<option value="medium" ' + (ticket.criticality === 'medium' ? 'selected' : '') + '>Средняя</option>' +
         '<option value="high" ' + (ticket.criticality === 'high' ? 'selected' : '') + '>Высокая</option>' +
         '</select></div>' +
+        testModeBlock +
         '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + safeTicketId + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
     document.getElementById('requestModal').classList.add('show');
+    bindRequestTestModeControls(ticket.id, testOptions);
+    loadRequestTestOptions(ticket.id);
     if (needsAssignment) loadDispatcherCandidates(ticket.id);
 }
 
@@ -4331,8 +5159,10 @@ function assignCandidate(ticketId, engineerId, engineerName) {
               throw new Error(result.body.error || 'Не удалось назначить инженера');
           }
           showToast('Инженер ' + (engineerName || engineerId) + ' назначен', 'success');
+          delete dispatcherPriorityCandidatesCache[ticketId];
           closeRequestModal();
           loadDataOnce();
+          if (typeof loadDispatcherPriorityTable === 'function') loadDispatcherPriorityTable();
       })
       .catch(function(error) { showToast(error.message, 'error'); });
 }
@@ -4383,7 +5213,10 @@ function saveTicketChanges(ticketId) {
     .catch(function() { showToast('Ошибка', 'error'); });
 }
 
-function closeRequestModal() { document.getElementById('requestModal').classList.remove('show'); }
+function closeRequestModal() {
+    document.getElementById('requestModal').classList.remove('show');
+    currentTestOptionsTicketId = null;
+}
 
 function updateDelaysBadge() {
     /* Бейдж убран — оставлено для совместимости */

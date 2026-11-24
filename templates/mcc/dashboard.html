@@ -627,6 +627,8 @@ var currentQueueDetailId = null;
 var currentAssignId = null;
 var currentAssessId = null;
 var currentAogId = null;
+// null — не проверяли, false — прямого маршрута нет (работаем через ЦПУ).
+var mccDirectDispatcherSupported = null;
 
 var mccAction = '';
 
@@ -771,6 +773,7 @@ function init() {
     if (moscowClockInterval) clearInterval(moscowClockInterval);
     moscowClockInterval = setInterval(updateMoscowClock, 1000);
 
+    probeMccDirectDispatcherRoute();
     reloadData();
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(reloadData, 5000);
@@ -791,7 +794,7 @@ window.reloadData = reloadData;
 function mapServerToLocal(r) {
     var s = r.mcc_status;
     var localStatus = 'open';
-    if (s === 'INSPECTION' || s === 'MEL_REVIEW' || s === 'MEL_PENDING_CPU' || s === 'MEL_MAINTENANCE_REQUIRED' || s === 'MEL_CPU_CHECKED') localStatus = 'assigned';
+    if (s === 'INSPECTION' || s === 'DIRECT_TO_DISPATCHER' || s === 'MEL_REVIEW' || s === 'MEL_PENDING_CPU' || s === 'MEL_MAINTENANCE_REQUIRED' || s === 'MEL_CPU_CHECKED') localStatus = 'assigned';
     else if (s === 'AOG_CONFIRMED' || s === 'MEL_CPU_RECHECK') localStatus = 'in_work';
     else if (['MEL','MEL_READY','MEL_ACTIVE','MEL_EXPIRED'].indexOf(s) >= 0) localStatus = 'deferred';
     else if (s === 'REPAIRED') localStatus = 'repaired';
@@ -1046,7 +1049,9 @@ function renderInspection() {
         }
         var btn = canFin
             ? '<span class="row-open-link">' + (e.melWorkflow ? 'Решение по MEL →' : 'Вердикт и решение →') + '</span>'
-            : '<span class="row-open-link disabled">Ожидаем отчёт инженера</span>';
+            : (e.routingStage === 'dispatcher'
+                ? '<span class="row-open-link disabled">Передано диспетчеру</span>'
+                : '<span class="row-open-link disabled">Ожидаем отчёт инженера</span>');
         return '<tr class="' + (canFin ? 'clickable' : '') + '" data-entry-id="' + esc(e.id) + '">' +
             '<td><span class="time-age">' + age.text + '</span></td>' +
             '<td><strong style="font-family:var(--mono);">' + esc(e.aircraft) + '</strong><br><span style="font-size:11px;color:var(--aero-gray);">Стоянка ' + esc(e.parking || '—') + '</span></td>' +
@@ -1325,23 +1330,111 @@ function openQueueDetail(id) {
         '<div class="defect-label"><i class="fas fa-clipboard-list"></i> Описание дефекта</div>' +
         esc(e.defect) + '</div>';
 
-    html += '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
-        '<div class="footer-hint">Результат MEL / AOG / «Устранено» определяет техник после диагностики. MCC направляет заявку в ЦПУ.</div>' +
-        '<div class="footer-actions" style="flex-wrap:wrap;justify-content:flex-end;">' +
-            '<button class="btn btn-primary" id="qBtnAog"><i class="fas fa-paper-plane"></i> Передать в ЦПУ на диагностику</button>' +
-        '</div></div>';
+    var isPilotDirect = e.source === 'pilot' && e.routingStage === 'mcc' && e.serverStatus === 'PENDING';
+    var useDirectRoute = isPilotDirect && mccDirectDispatcherSupported === true;
+
+    if (e.routingStage === 'dispatcher') {
+        html += '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
+            '<div class="footer-hint">Заявка передана диспетчеру: он подберёт инженера и назначит выезд. Дополнительных действий MCC не требуется.</div>' +
+            '<div class="footer-actions" style="flex-wrap:wrap;justify-content:flex-end;">' +
+                '<button class="btn btn-secondary" onclick="closeQueueDetail()">Закрыть</button>' +
+            '</div></div>';
+    } else if (useDirectRoute) {
+        html += '<div class="info-block"><strong>Маршрут пилотской заявки:</strong> после первичной проверки MCC заявка будет направлена сразу диспетчеру для подбора инженера. Этап ЦПУ пропускается.</div>' +
+            '<div class="form-group"><label>Комментарий MCC (необязательно)</label><textarea class="form-control" id="pilotDirectMccComment" rows="2" placeholder="Комментарий или основание передачи"></textarea></div>' +
+            '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
+                '<div class="footer-hint">Диспетчер увидит заявку в таблице приоритетов и сможет выбрать рекомендованного инженера.</div>' +
+                '<div class="footer-actions" style="flex-wrap:wrap;justify-content:flex-end;">' +
+                    '<button class="btn btn-primary" id="qBtnDirectDispatcher"><i class="fas fa-share"></i> Передать диспетчеру без ЦПУ</button>' +
+                '</div></div>';
+    } else {
+        html += '<div class="modal-footer" style="padding:16px 0 0;border-top:1px solid #e8ecf0;background:transparent;margin-top:8px;border-radius:0;">' +
+            '<div class="footer-hint">Результат MEL / AOG / «Устранено» определяет техник после диагностики. MCC направляет заявку в ЦПУ.' +
+                (isPilotDirect ? ' Прямой маршрут MCC → диспетчер на этом стенде недоступен.' : '') + '</div>' +
+            '<div class="footer-actions" style="flex-wrap:wrap;justify-content:flex-end;">' +
+                '<button class="btn btn-primary" id="qBtnAog"><i class="fas fa-paper-plane"></i> Передать в ЦПУ на диагностику</button>' +
+            '</div></div>';
+    }
 
     document.getElementById('queueDetailContent').innerHTML = html;
     document.getElementById('queueDetailModal').classList.add('show');
 
-    document.getElementById('qBtnAog').onclick = function() {
-        var eid = currentQueueDetailId;
-        closeQueueDetail();
-        if (eid) openCPUModal(eid);
-    };
+    if (useDirectRoute) {
+        document.getElementById('qBtnDirectDispatcher').onclick = submitPilotDirectToDispatcher;
+    } else if (e.routingStage !== 'dispatcher') {
+        document.getElementById('qBtnAog').onclick = function() {
+            var eid = currentQueueDetailId;
+            closeQueueDetail();
+            if (eid) openCPUModal(eid);
+        };
+    }
     // MEL is selected by the technician only after diagnosis.
 }
 window.openQueueDetail = openQueueDetail;
+
+// Прямой маршрут MCC → диспетчер — необязательная возможность бэкенда.
+// Проверяем наличие ручки один раз; если её нет (404), интерфейс продолжает
+// работать по прежней цепочке через ЦПУ.
+function probeMccDirectDispatcherRoute() {
+    fetch(API_URL + '/mcc/send_to_dispatcher', { method: 'OPTIONS' })
+        .then(function(res) {
+            mccDirectDispatcherSupported = (res.status !== 404);
+        })
+        .catch(function() { mccDirectDispatcherSupported = false; });
+    // Не держим пользователя в неведении дольше 3 секунд: по умолчанию — ЦПУ.
+    setTimeout(function() {
+        if (mccDirectDispatcherSupported === null) mccDirectDispatcherSupported = false;
+    }, 3000);
+}
+
+function submitPilotDirectToDispatcher() {
+    var rid = currentQueueDetailId;
+    if (!rid) return;
+    var commentInput = document.getElementById('pilotDirectMccComment');
+    var comment = commentInput ? commentInput.value.trim() : '';
+    // Бэкенд требует непустой комментарий — подставляем основание по умолчанию.
+    if (!comment) comment = 'MCC передал заявку пилота диспетчеру для подбора инженера (без ЦПУ).';
+    var button = document.getElementById('qBtnDirectDispatcher');
+    if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Передача...'; }
+    var user = {};
+    try { user = JSON.parse(sessionStorage.getItem('userSession') || '{}'); } catch (_) {}
+    fetch(API_URL + '/mcc/send_to_dispatcher', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({request_id: rid, comment: comment, actor: user.name || 'MCC'})
+    })
+        .then(function(response) {
+            if (response.status === 404 || response.status === 405) {
+                mccDirectDispatcherSupported = false;
+                var missing = new Error('Прямой маршрут недоступен — используйте передачу в ЦПУ.');
+                missing.code = 'DIRECT_MISSING';
+                throw missing;
+            }
+            return response.json().then(function(data) {
+                if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось передать заявку диспетчеру');
+                return data;
+            });
+        })
+        .then(function() {
+            closeQueueDetail();
+            showToast('Заявка пилота передана диспетчеру напрямую, без ЦПУ', 'success');
+            reloadData();
+        })
+        .catch(function(error) {
+            if (error.code === 'DIRECT_MISSING') {
+                // Бэкенд без прямого маршрута: возвращаем диспетчера в привычную
+                // цепочку через ЦПУ, не оставляя модалку в тупике.
+                showToast(error.message, 'warning');
+                closeQueueDetail();
+                if (rid && typeof openCPUModal === 'function') openCPUModal(rid);
+                return;
+            }
+            showToast('Ошибка: ' + error.message, 'error');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-share"></i> Передать диспетчеру без ЦПУ';
+            }
+        });
+}
 
 function closeQueueDetail() {
     document.getElementById('queueDetailModal').classList.remove('show');
