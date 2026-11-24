@@ -98,6 +98,19 @@
         .task-item .task-route { font-size: 13px; color: var(--aero-text-light); background: rgba(255,255,255,0.7); padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .task-item .task-route .route-icon { font-size: 15px; color: var(--aero-blue); }
         .task-item .task-actions { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+        .task-item .task-route .btn-voice { margin-left: auto; padding: 6px 12px; font-size: 12px; }
+        .tool-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .tool-switch-label { font-size: 12px; font-weight: 600; color: var(--aero-text-light); margin-right: 4px; }
+        .tool-opt {
+            padding: 6px 12px; border-radius: 6px; border: 1px solid var(--aero-gray-light);
+            background: #fff; color: var(--aero-text-light); font-size: 12px; font-weight: 600;
+            cursor: pointer; font-family: inherit; transition: all var(--transition);
+        }
+        .tool-opt:hover { border-color: var(--aero-blue); }
+        .tool-opt.active { background: var(--aero-blue); border-color: var(--aero-blue); color: #fff; }
+        .tool-opt.active.tool-missing { background: var(--aero-red); border-color: var(--aero-red); }
+        .tool-opt.active.tool-warehouse { background: var(--aero-orange); border-color: var(--aero-orange); }
+        .tool-opt:disabled { opacity: 0.6; cursor: wait; }
 
         .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; gap: 8px; }
         .btn-primary { background: var(--aero-blue); color: white; }
@@ -298,6 +311,7 @@
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <script>
     (function() {
+        var API_URL = '/api';
         var engineerData = null;
         var engineerId = null;
         var map = null;
@@ -313,9 +327,13 @@
         var blockReloadUntil = 0;
         var lastRouteSignature = '';
         var PARKING_COORDS = {};
+        // Маршрут через склад при статусе инструмента «На складе».
+        var warehouseRouteData = null;
+        var warehouseRouteBuilding = false;
         // Полноценная симуляция самолётов инженера по связанной сети руления.
         var engineerAircraftMarkers={}, engineerAircraftSimulations={}, engineerTaxiGraph=null;
         var engineerAmbientTaxiAreaNodes=null, engineerAircraftTimer=null, engineerAmbientTarget=5;
+        var engineerAmbientAircraft=[];
         function engineerPlaneIcon(){return L.divIcon({className:'moving-aircraft-marker',html:'<div style="font-size:25px;line-height:28px;filter:drop-shadow(0 1px 2px #111);">✈️</div>',iconSize:[30,30],iconAnchor:[15,15]});}
         function engineerTaxiDistance(a,b){var R=6371000,r=Math.PI/180,dl=(b[0]-a[0])*r,dg=(b[1]-a[1])*r,x=Math.sin(dl/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dg/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
         function buildEngineerTaxiGraph(data){var nodes={},edges=0;function node(c){var lat=+c[1],lng=+c[0],k=lat.toFixed(5)+','+lng.toFixed(5);return nodes[k]||(nodes[k]={key:k,point:[lat,lng],edges:[]});}(data.features||[]).forEach(function(f){var cat=String((f.properties||{}).category||'').toLowerCase(),c=f.geometry&&f.geometry.coordinates;if(!c||f.geometry.type!=='LineString'||['runway','taxiway','apron'].indexOf(cat)<0||c.length<2)return;var line=c.map(node);for(var i=1;i<line.length;i++){var x=line[i-1],y=line[i];if(x.key===y.key)continue;var w=engineerTaxiDistance(x.point,y.point);x.edges.push({to:y.key,weight:w});y.edges.push({to:x.key,weight:w});edges++;}});engineerTaxiGraph={nodes:nodes,edgeCount:edges};engineerAmbientTaxiAreaNodes=null;console.log('[AIRCRAFT] Сеть руления инженера:',Object.keys(nodes).length,'узлов');}
@@ -711,6 +729,290 @@
             }
         }
 
+        // ─── Инструмент и маршрут через склад ───
+        function parseApiResponse(res) {
+            return res.text().then(function(text) {
+                var body = {};
+                if (text) {
+                    try { body = JSON.parse(text); }
+                    catch (_) { body = { error: 'Сервер вернул неожиданный ответ' }; }
+                }
+                return { ok: res.ok, body: body || {} };
+            });
+        }
+
+        function normalizeLatLngPath(path) {
+            if (!Array.isArray(path)) return [];
+            var out = [];
+            for (var i = 0; i < path.length; i++) {
+                var point = path[i], lat, lng;
+                if (Array.isArray(point)) { lat = Number(point[0]); lng = Number(point[1]); }
+                else if (point && typeof point === 'object') {
+                    lat = Number(point.lat);
+                    lng = Number(point.lng != null ? point.lng : point.lon);
+                } else continue;
+                if (isFinite(lat) && isFinite(lng)) out.push([lat, lng]);
+            }
+            return out;
+        }
+
+        function getEngineerStartPoint() {
+            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
+                var lat = Number(engineerData.coords_lat), lng = Number(engineerData.coords_lng);
+                if (isFinite(lat) && isFinite(lng)) return { lat: lat, lng: lng };
+            }
+            if (currentRoute && currentRoute.from) {
+                var flat = Number(currentRoute.from.lat), flng = Number(currentRoute.from.lng);
+                if (isFinite(flat) && isFinite(flng)) return { lat: flat, lng: flng };
+            }
+            if (window.__vdnhCenter && window.__vdnhCenter.length === 2) {
+                return { lat: Number(window.__vdnhCenter[0]), lng: Number(window.__vdnhCenter[1]) };
+            }
+            return null;
+        }
+
+        function findWarehousePoint(location) {
+            var objects = (location && location.objects) || [];
+            for (var i = 0; i < objects.length; i++) {
+                var obj = objects[i] || {};
+                if (obj.role === 'warehouse1' || obj.id === 'warehouse1') {
+                    var centroid = obj.centroid;
+                    if (!centroid) return null;
+                    var lat = Number(centroid.lat);
+                    var lng = Number(centroid.lon != null ? centroid.lon : centroid.lng);
+                    if (isFinite(lat) && isFinite(lng)) return { lat: lat, lng: lng, name: obj.name || 'Склад №1' };
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        function buildWarehouseRoute(request) {
+            if (warehouseRouteBuilding) return Promise.resolve(warehouseRouteData);
+            warehouseRouteBuilding = true;
+            var finish = function() { warehouseRouteBuilding = false; };
+
+            if (!request || !request.parking_id) {
+                finish();
+                return Promise.reject(new Error('Не указана стоянка заявки'));
+            }
+            var start = getEngineerStartPoint();
+            if (!start) {
+                finish();
+                return Promise.reject(new Error('Не удалось определить ваше местоположение'));
+            }
+            var parkingRef = String(request.parking_id);
+            var parking = PARKING_COORDS[parkingRef];
+            if (!parking && currentRoute && currentRoute.to) {
+                parking = { lat: Number(currentRoute.to.lat), lng: Number(currentRoute.to.lng) };
+            }
+            if (!parking || !isFinite(Number(parking.lat)) || !isFinite(Number(parking.lng))) {
+                finish();
+                return Promise.reject(new Error('Координаты стоянки не найдены'));
+            }
+            var target = { lat: Number(parking.lat), lng: Number(parking.lng) };
+
+            return fetch(API_URL + '/location')
+                .then(function(res) {
+                    if (!res.ok) throw new Error('Не удалось загрузить объекты площадки');
+                    return res.json();
+                })
+                .then(function(location) {
+                    var warehouse = findWarehousePoint(location);
+                    if (!warehouse) throw new Error('Объект склада warehouse1 не найден');
+                    return fetch(API_URL + '/route', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            agent_type: 'engineer',
+                            start: start,
+                            waypoints: [{ lat: warehouse.lat, lng: warehouse.lng }],
+                            target: target,
+                            use_transport: false
+                        })
+                    }).then(parseApiResponse).then(function(result) {
+                        if (!result.ok || !result.body.success) {
+                            throw new Error(result.body.error || 'Не удалось построить маршрут через склад');
+                        }
+                        var body = result.body || {};
+                        var path = normalizeLatLngPath(body.path);
+                        var legs = [];
+                        var rawLegs = body.legs || [];
+                        for (var i = 0; i < rawLegs.length; i++) {
+                            var leg = rawLegs[i] || {};
+                            var legPath = normalizeLatLngPath(leg.path);
+                            legs.push({
+                                mode: leg.mode || 'walk',
+                                path: legPath,
+                                distance_m: Number(leg.distance_m) || 0,
+                                time_s: Number(leg.time_s) || 0
+                            });
+                            if (!path.length && legPath.length) path = legPath.slice();
+                        }
+                        if (!path.length && legs.length) {
+                            for (var j = 0; j < legs.length; j++) {
+                                var lp = legs[j].path;
+                                for (var k = 0; k < lp.length; k++) {
+                                    if (!path.length || path[path.length - 1][0] !== lp[k][0] || path[path.length - 1][1] !== lp[k][1]) {
+                                        path.push(lp[k]);
+                                    }
+                                }
+                            }
+                        }
+                        if (path.length < 2) throw new Error('Маршрут через склад не построен');
+
+                        var etaMin = Number(body.eta_min);
+                        if (!isFinite(etaMin)) etaMin = (Number(body.time_s) || 0) / 60;
+                        var routeData = {
+                            from: start,
+                            to: target,
+                            time: Math.max(1, Math.round(etaMin || 0)),
+                            walkTime: Math.max(1, Math.round(etaMin || 0)),
+                            usingCar: false,
+                            parkingId: request.parking_id,
+                            path: path,
+                            legs: legs,
+                            viaWarehouse: warehouse.name
+                        };
+                        warehouseRouteData = routeData;
+                        if (moveInterval) stopMoving();
+                        currentRoute = routeData;
+                        lastRouteSignature = 'warehouse:' + path.length + ':' +
+                            path[0][0] + ',' + path[0][1] + ':' +
+                            path[path.length - 1][0] + ',' + path[path.length - 1][1];
+                        drawRouteOnMap(routeData);
+                        var routeInfo = document.getElementById('routeInfo');
+                        if (routeInfo) {
+                            routeInfo.innerHTML += '<div style="margin-top:4px;font-size:12px;color:var(--aero-orange);">' +
+                                '<i class="fas fa-warehouse"></i> через ' + escapeTaskHtml(warehouse.name) + '</div>';
+                        }
+                        updateTaskWithRoute(request);
+                        return routeData;
+                    });
+                })
+                .then(function(data) { finish(); return data; })
+                .catch(function(error) { finish(); throw error; });
+        }
+
+        window.setToolStatus = function(status) {
+            if (!taskData || !taskData.id || !engineerId) {
+                showToast('Нет активной задачи', 'error');
+                return;
+            }
+            if (['available', 'missing', 'warehouse'].indexOf(status) < 0) return;
+            var buttons = document.querySelectorAll('.tool-switch .tool-opt');
+            for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+
+            fetch(API_URL + '/requests/' + encodeURIComponent(taskData.id) + '/tool_status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engineer_id: engineerId, status: status })
+            }).then(parseApiResponse).then(function(result) {
+                if (!result.ok || !result.body.success) {
+                    throw new Error(result.body.error || 'Не удалось изменить статус инструмента');
+                }
+                var savedStatus = result.body.tool_status || status;
+                taskData.tool_status = savedStatus;
+                if (savedStatus === 'warehouse') {
+                    showToast('Инструмент на складе — строю маршрут через склад', 'info');
+                    return buildWarehouseRoute(taskData).then(function() {
+                        showToast('Маршрут через склад построен', 'success');
+                    });
+                }
+                warehouseRouteData = null;
+                showToast(savedStatus === 'missing' ? 'Инструмент отсутствует' : 'Инструмент есть', 'success');
+                updateTaskWithRoute(taskData);
+                loadRequestDetails();
+            }).catch(function(error) {
+                showToast(error.message || 'Не удалось изменить статус инструмента', 'error');
+                updateTaskWithRoute(taskData);
+            }).finally(function() {
+                var buttons2 = document.querySelectorAll('.tool-switch .tool-opt');
+                for (var j = 0; j < buttons2.length; j++) buttons2[j].disabled = false;
+            });
+        };
+
+        window.startWork = function() {
+            if (!taskData || !taskData.id || !engineerId) {
+                showToast('Не удалось определить назначенную заявку', 'error');
+                return;
+            }
+            var buttons = document.querySelectorAll('.task-actions button');
+            for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+            fetch(API_URL + '/requests/' + encodeURIComponent(taskData.id) + '/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engineer_id: engineerId })
+            }).then(parseApiResponse).then(function(result) {
+                if (!result.ok || !result.body.success) {
+                    throw new Error(result.body.error || 'Не удалось перевести заявку в работу');
+                }
+                if (taskStep === 'pending') taskStep = 'accepted';
+                showToast('Заявка переведена в работу', 'success');
+                loadTasks();
+                loadRequestDetails();
+            }).catch(function(error) {
+                showToast(error.message || 'Не удалось перевести заявку в работу', 'error');
+                loadTasks();
+            });
+        };
+
+        // ─── Озвучка маршрута (Д1) ───
+        function canSpeakRoute() {
+            return !!(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function');
+        }
+
+        function speechDistanceText(meters) {
+            var m = Number(meters);
+            if (!isFinite(m) || m <= 0) return '';
+            if (m >= 1000) {
+                var km = Math.round(m / 100) / 10;
+                return ' ' + String(km).replace('.', ',') + ' километра';
+            }
+            return ' ' + Math.round(m) + ' метров';
+        }
+
+        function speakRoute() {
+            if (!canSpeakRoute()) {
+                showToast('Озвучка маршрута не поддерживается браузером', 'warning');
+                return;
+            }
+            if (!currentRoute) {
+                showToast('Нет активного маршрута для озвучки', 'warning');
+                return;
+            }
+            var modeNames = { walk: 'Пешком', transport: 'На спецтранспорте', aircraft: 'На воздушном судне' };
+            var parts = [];
+            var destination = currentRoute.parkingId || (taskData && taskData.parking_id) || '';
+            parts.push(destination ? 'Маршрут до стоянки ' + destination + '.' : 'Маршрут построен.');
+            if (currentRoute.viaWarehouse) parts.push('Маршрут проходит через ' + currentRoute.viaWarehouse + '.');
+            if (currentRoute.time) parts.push('Общее время в пути ' + currentRoute.time + ' минут.');
+            var legs = currentRoute.legs || [];
+            if (legs.length) {
+                for (var i = 0; i < legs.length; i++) {
+                    var leg = legs[i] || {};
+                    var phrase = modeNames[leg.mode] || 'Пешком';
+                    phrase += speechDistanceText(leg.distance_m);
+                    var minutes = Math.round((Number(leg.time_s) || 0) / 60);
+                    if (minutes > 0) phrase += ', ' + minutes + ' минут';
+                    parts.push((i === 0 ? 'Начните: ' : 'Далее: ') + phrase + '.');
+                }
+            } else if (currentRoute.time) {
+                parts.push(currentRoute.usingCar ? 'Продолжайте на спецтранспорте.' : 'Продолжайте пешком.');
+            }
+            parts.push(destination ? 'Прибытие на стоянку ' + destination + '.' : 'Вы прибыли на место.');
+            try {
+                window.speechSynthesis.cancel();
+                var utterance = new window.SpeechSynthesisUtterance(parts.join(' '));
+                utterance.lang = 'ru-RU';
+                utterance.rate = 0.95;
+                window.speechSynthesis.speak(utterance);
+            } catch (error) {
+                showToast('Не удалось запустить озвучку маршрута', 'error');
+            }
+        }
+        window.speakRoute = speakRoute;
+
         function saveReportDraft() {
             var form = document.querySelector('.report-form');
             if (!form) return null;
@@ -791,6 +1093,7 @@
                         stopMoving();
                         taskStep = 'idle'; taskData = null; currentRoute = null; lastRequestId = null;
                         lastRouteSignature = '';
+                        warehouseRouteData = null;
                         drawRouteOnMap(null);
                     }
                     if (isFree && (currentRoute || Object.keys(routeMarkers).length > 0)) {
@@ -861,6 +1164,9 @@
                     }
 
                     taskData = request;
+                    if (request.tool_status !== 'warehouse' && warehouseRouteData) {
+                        warehouseRouteData = null;
+                    }
                     // До принятия показываем предварительный маршрут от метки инженера
                     // до стоянки. Движение и таймер до принятия не запускаются.
                     if (taskStep === 'idle' && engineerData.status === 'busy') taskStep = 'pending';
@@ -877,6 +1183,17 @@
                     if (lastRequestId !== request.id) {
                         lastRequestId = request.id;
                         if (taskStep === 'idle' || taskStep === 'completed') taskStep = 'pending';
+                    }
+
+                    // Пока инструмент «На складе», сохраняем построенный маршрут
+                    // через склад и не даём серверному маршруту перерисовать его.
+                    if (request.tool_status === 'warehouse' && warehouseRouteData) {
+                        currentRoute = warehouseRouteData;
+                        if (!moveInterval && !routeMarkers['polyline'] && !routeMarkers['polylineLayers']) {
+                            drawRouteOnMap(warehouseRouteData);
+                        }
+                        updateTaskWithRoute(request);
+                        return;
                     }
 
                     var routeData = parseRouteFromComment(request.engineer_comment);
@@ -1078,28 +1395,49 @@
                 return;
             }
 
+            var canStart = (request.status === 'assigned' || request.status === 'arriving');
+            var startBtn = canStart
+                ? '<button class="btn btn-primary" onclick="startWork()"><i class="fas fa-play"></i> В работе</button>'
+                : '';
             var actionsHtml = '';
             if (taskStep === 'pending') {
                 actionsHtml =
+                    startBtn +
                     '<button class="btn btn-success" onclick="acceptTask()"><i class="fas fa-check"></i> Принять</button>' +
-                    '<button class="btn btn-danger" onclick="rejectTask(\'' + request.id + '\')"><i class="fas fa-times"></i> Отклонить</button>';
+                    '<button class="btn btn-danger" onclick="rejectTask(\'' + escapeTaskHtml(request.id) + '\')"><i class="fas fa-times"></i> Отклонить</button>';
             } else if (taskStep === 'accepted') {
                 if (currentRoute && currentRoute.usingCar) {
-                    actionsHtml =
+                    actionsHtml = startBtn +
                         '<button class="btn btn-primary" onclick="stepInCar()"><i class="fas fa-car"></i> Сел в спецтранспорт</button>';
                 } else {
-                    actionsHtml =
+                    actionsHtml = startBtn +
                         '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>';
                 }
             } else if (taskStep === 'in_car') {
-                actionsHtml = '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>';
+                actionsHtml = startBtn + '<button class="btn btn-primary" onclick="stepArrived()"><i class="fas fa-map-marker-alt"></i> Я на месте</button>';
             } else if (taskStep === 'arrived') {
-                actionsHtml = '<button class="btn btn-primary" onclick="stepStartDiagnostics()"><i class="fas fa-search"></i> Начать диагностику</button>';
+                actionsHtml = startBtn + '<button class="btn btn-primary" onclick="stepStartDiagnostics()"><i class="fas fa-search"></i> Начать диагностику</button>';
             } else if (taskStep === 'diagnosing') {
                 actionsHtml = renderReportForm();
             } else if (taskStep === 'completed') {
                 actionsHtml = '<div style="color:var(--aero-blue);font-weight:600;"><i class="fas fa-check"></i> Задача завершена</div>';
             }
+
+            var toolStatus = request.tool_status || '';
+            var toolOption = function(value, label, extraClass) {
+                var active = toolStatus === value ? ' active' : '';
+                return '<button type="button" class="tool-opt' + active + ' ' + (extraClass || '') +
+                    '" onclick="setToolStatus(\'' + value + '\')">' + label + '</button>';
+            };
+            var toolSwitchHtml = '<div class="tool-switch">' +
+                '<span class="tool-switch-label"><i class="fas fa-toolbox"></i> Инструмент:</span>' +
+                toolOption('available', 'Есть', '') +
+                toolOption('missing', 'Нет', 'tool-missing') +
+                toolOption('warehouse', 'На складе', 'tool-warehouse') +
+                '</div>';
+            var speakBtn = (currentRoute && canSpeakRoute())
+                ? '<button type="button" class="btn btn-secondary btn-voice" onclick="speakRoute()"><i class="fas fa-volume-high"></i> Озвучить маршрут</button>'
+                : '';
 
             var draft = saveReportDraft();
 
@@ -1109,9 +1447,11 @@
                 '<div>' +
                 '<div class="task-title"><i class="fas fa-plane"></i> ' + escapeTaskHtml(request.aircraft || 'ВС') + ' — ' + escapeTaskHtml(faultName) + '</div>' +
                 '<div class="task-detail"><i class="fas fa-map-marker-alt"></i> Стоянка: ' + escapeTaskHtml(request.parking_id || '—') + ' • Статус: ' + escapeTaskHtml(status.label) + '</div>' +
+                toolSwitchHtml +
                 '<div class="task-route">' +
                 '<span class="route-icon"><i class="fas fa-route"></i></span>' +
                 '<span>' + escapeTaskHtml(routeText) + '</span>' +
+                speakBtn +
                 '</div>' +
                 melTaskHtml +
                 previousReportHtml +

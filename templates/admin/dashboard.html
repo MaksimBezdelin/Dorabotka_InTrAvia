@@ -1832,5 +1832,19 @@
         window.saveEdit = saveEdit; window.deleteFromModal = deleteFromModal; window.closeModal = closeModal;
         window.refreshData = refreshData; window.logout = logout; window.openProfileModal = openProfileModal;
     </script>
+
+<script>
+/* Серверная сессия — источник истины для роли. */
+(function () {
+    fetch('/api/auth/session').then(function (r) {
+        return r.json().catch(function () { return {}; });
+    }).then(function (body) {
+        if (!body || !body.user || body.user.role !== 'admin') {
+            sessionStorage.removeItem('userSession');
+            window.location.href = '/login.html';
+        }
+    }).catch(function () {});
+})();
+</script>
 </body>
 </html>

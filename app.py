@@ -305,6 +305,67 @@ WRITE_ROLE_PREFIXES = (
     ('/api/clear_all_pilot_requests', {'admin'}),
 )
 
+# Точечная матрица прав для изменяющих запросов: (regexp, роли[, режим]).
+# Роли задаются либо множеством, либо словарём {метод: множество ролей}.
+# Режим 'engineer_self' дополнительно требует, чтобы id в пути совпадал
+# с id инженера из сессии. Проверяется только при AUTH_REQUIRED=1; admin
+# обходит матрицу (как и WRITE_ROLE_PREFIXES).
+WRITE_ENDPOINT_ROLES = (
+    # Инженер меняет только свой шаг; диспетчер и MCC — любой.
+    (r'/api/engineers/(?P<engineer_id>[^/]+)/step',
+     {'engineer', 'dispatcher', 'mcc'}, 'engineer_self'),
+    # Справочник инженеров редактирует администратор.
+    (r'/api/engineers', {'admin'}),
+    (r'/api/engineers/(?P<engineer_id>[^/]+)', {'admin'}),
+    # Транспорт — зона диспетчера.
+    (r'/api/transport(?:/.*)?', {'dispatcher'}),
+    # Справочник пилотов — зона администратора.
+    (r'/api/pilots(?:/.*)?', {'admin'}),
+    # Заявка: редактирование — пилот/диспетчер/MCC, удаление — диспетчер.
+    (r'/api/requests/(?P<rid>[^/]+)',
+     {'PUT': {'pilot', 'dispatcher', 'mcc'}, 'DELETE': {'dispatcher'}}),
+    (r'/api/requests/(?P<rid>[^/]+)/(?:accept|reject)', {'engineer'}),
+    (r'/api/requests/(?P<rid>[^/]+)/cancel',
+     {'engineer', 'dispatcher', 'mcc', 'pilot'}),
+    (r'/api/requests/(?P<rid>[^/]+)/pilot-signature', {'pilot'}),
+    # Статусная модель и ожидание запчастей.
+    (r'/api/requests/(?P<rid>[^/]+)/start', {'engineer', 'dispatcher', 'mcc'}),
+    (r'/api/requests/(?P<rid>[^/]+)/tool_status', {'engineer'}),
+    (r'/api/requests/(?P<rid>[^/]+)/unassign', {'dispatcher', 'mcc'}),
+    (r'/api/requests/(?P<rid>[^/]+)/awaiting_parts', {'dispatcher', 'mcc'}),
+    (r'/api/requests/(?P<rid>[^/]+)/parts_received', {'dispatcher', 'mcc'}),
+)
+
+
+def _endpoint_roles_for(rule, method):
+    """Возвращает набор ролей для метода из правила WRITE_ENDPOINT_ROLES."""
+    roles = rule[1]
+    if isinstance(roles, dict):
+        return roles.get(method, set())
+    return roles
+
+
+def _enforce_endpoint_roles(path, method, role):
+    """Проверяет точечную матрицу. Возвращает None или (jsonify, status)."""
+    for rule in WRITE_ENDPOINT_ROLES:
+        match = re.fullmatch(rule[0], path)
+        if not match:
+            continue
+        allowed = _endpoint_roles_for(rule, method)
+        if role not in allowed:
+            append_event('role_denied', path=path, method=method,
+                         role=role, reason='endpoint_forbidden')
+            return jsonify({'error': 'Недостаточно прав'}), 403
+        if len(rule) > 2 and rule[2] == 'engineer_self' and role == 'engineer':
+            target_id = match.groupdict().get('engineer_id')
+            own_id = str(session.get('user_id') or '')
+            if target_id is not None and str(target_id) != own_id:
+                append_event('role_denied', path=path, method=method,
+                             role=role, reason='foreign_engineer')
+                return jsonify({'error': 'Можно менять только свой профиль'}), 403
+        return None
+    return None
+
 
 @app.before_request
 def _enforce_server_auth():
@@ -321,6 +382,14 @@ def _enforce_server_auth():
             return jsonify({'error': 'Требуется авторизация'}), 401
         role = session.get('role')
         if role == 'admin':
+            return None
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            denied = _enforce_endpoint_roles(path, request.method, role)
+            if denied is not None:
+                return denied
+        # ЦПУ (роль mcc) читает очереди диспетчера для своего экрана.
+        if (request.method == 'GET' and role == 'mcc'
+                and path in ('/api/dispatcher/queue', '/api/dispatcher/assigned')):
             return None
         for prefix, roles in WRITE_ROLE_PREFIXES:
             if path == prefix or path.startswith(prefix):
@@ -1619,6 +1688,207 @@ FAULT_SYNONYMS = {
 }
 
 
+# Открытый классификатор неисправностей. Каталог хранится отдельно от БД
+# (схему database.db не меняем): data/fault_catalog.json.
+FAULT_CATALOG_PATH = (os.environ.get('INTRAVIA_FAULT_CATALOG', '').strip()
+                      or os.path.join(BASE_DIR, 'data', 'fault_catalog.json'))
+_FAULT_CATALOG_LOCK = threading.Lock()
+
+FAULT_ATA_BY_SKILL = {
+    'engine': '72',
+    'avionics': '34',
+    'hydraulics': '29',
+    'electrical': '24',
+    'mechanical': '32',
+    'general': '',
+}
+
+FAULT_NAMES = {
+    'engine_failure': 'Отказ двигателя',
+    'engine_oil': 'Масляная система двигателя',
+    'engine_overheat': 'Перегрев двигателя',
+    'engine_vibration': 'Повышенная вибрация двигателя',
+    'engine_start': 'Запуск двигателя',
+    'fuel_leak': 'Течь топлива',
+    'fuel_system': 'Топливная система',
+    'avionics_nav': 'Навигационное оборудование',
+    'avionics_radio': 'Радиосвязное оборудование',
+    'avionics_autopilot': 'Автопилот',
+    'avionics_transponder': 'Транспондер (ответчик)',
+    'avionics_display': 'Дисплеи кабины',
+    'avionics_gps': 'GPS-оборудование',
+    'hydraulic': 'Гидравлическая система',
+    'hydraulic_leak': 'Течь гидравлики',
+    'hydraulic_pressure': 'Падение давления гидравлики',
+    'electrical': 'Электрическая система',
+    'electrical_generator': 'Генератор',
+    'electrical_battery': 'Аккумулятор',
+    'electrical_short': 'Короткое замыкание',
+    'electrical_lighting': 'Освещение',
+    'landing_gear': 'Шасси',
+    'pneumatic': 'Пневматическая система',
+    'brake_system': 'Тормозная система',
+    'flap_issue': 'Закрылки',
+    'aileron_issue': 'Элероны',
+    'rudder_issue': 'Руль направления',
+    'wing_damage': 'Повреждение крыла',
+    'fuselage_damage': 'Повреждение фюзеляжа',
+    'door_issue': 'Дверь/люк',
+    'air_condition': 'Система кондиционирования',
+    'pressurization': 'Герметизация кабины',
+    'oxygen_system': 'Кислородная система',
+    'fire_system': 'Пожарная система',
+    'deicing_system': 'Противообледенительная система',
+    'pilot_voice': 'Голосовая заявка пилота',
+    'other': 'Прочее',
+}
+
+
+def _default_fault_catalog():
+    """Каталог по умолчанию, если файл ещё не создан или повреждён."""
+    catalog = []
+    for code, skill in FAULT_SKILL.items():
+        catalog.append({
+            'code': code,
+            'name': FAULT_NAMES.get(code, code),
+            'ata': FAULT_ATA_BY_SKILL.get(skill, ''),
+            'skill': skill,
+            'synonyms': list(FAULT_SYNONYMS.get(code, [])),
+            'custom': False,
+        })
+    for code, synonyms in FAULT_SYNONYMS.items():
+        if all(entry['code'] != code for entry in catalog):
+            skill = FAULT_SKILL.get(code, 'general')
+            catalog.append({
+                'code': code,
+                'name': FAULT_NAMES.get(code, code),
+                'ata': FAULT_ATA_BY_SKILL.get(skill, ''),
+                'skill': skill,
+                'synonyms': list(synonyms),
+                'custom': False,
+            })
+    return catalog
+
+
+def _normalize_catalog_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    code = str(entry.get('code') or '').strip()
+    if not code:
+        return None
+    skill = str(entry.get('skill') or 'general').strip() or 'general'
+    synonyms = entry.get('synonyms') or []
+    if not isinstance(synonyms, list):
+        synonyms = [str(synonyms)]
+    return {
+        'code': code,
+        'name': str(entry.get('name') or code),
+        'ata': str(entry.get('ata') or ''),
+        'skill': skill,
+        'synonyms': [str(s) for s in synonyms if str(s).strip()],
+        'custom': bool(entry.get('custom')),
+    }
+
+
+def _load_fault_catalog():
+    """Читает каталог с диска; при любой ошибке возвращает встроенный набор."""
+    try:
+        with open(FAULT_CATALOG_PATH, encoding='utf-8') as fh:
+            raw = json.load(fh)
+        entries = [e for e in (_normalize_catalog_entry(x) for x in raw)
+                   if e is not None]
+        if entries:
+            return entries
+    except (OSError, ValueError, TypeError):
+        pass
+    return _default_fault_catalog()
+
+
+def _write_fault_catalog(entries):
+    """Атомарно перезаписывает каталог (tmp-файл в том же каталоге)."""
+    directory = os.path.dirname(os.path.abspath(FAULT_CATALOG_PATH)) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix='.fault_catalog.', suffix='.tmp',
+                                    dir=directory)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump(entries, fh, ensure_ascii=False, indent=2)
+            fh.write('\n')
+        os.replace(tmp_path, FAULT_CATALOG_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _match_fault_entry(catalog, raw):
+    """Ищет запись по code/name/синониму, затем по самой длинной подстроке."""
+    text = str(raw or '').strip().lower()
+    if not text:
+        return None
+    for entry in catalog:
+        candidates = [entry['code'], entry['name'], *entry.get('synonyms', [])]
+        if any(text == str(c).strip().lower() for c in candidates if str(c).strip()):
+            return entry
+    best, best_len = None, 0
+    for entry in catalog:
+        candidates = [entry['code'], entry['name'], *entry.get('synonyms', [])]
+        for candidate in candidates:
+            value = str(candidate or '').strip().lower()
+            if value and value in text and len(value) > best_len:
+                best, best_len = entry, len(value)
+    return best
+
+
+def classify_fault(raw):
+    """Классифицирует текст в запись каталога, пополняя его custom-записями.
+
+    Возвращает {'code', 'ata', 'skill', 'matched', 'name'}. Никогда не падает
+    из-за ошибки записи: в этом случае возвращается custom-результат в памяти.
+    """
+    text = str(raw or '').strip()
+    if not text:
+        entry = _match_fault_entry(_default_fault_catalog(), 'other') or {
+            'code': 'other', 'ata': '', 'skill': 'general', 'name': 'Прочее'}
+        return {'code': entry['code'], 'ata': entry['ata'],
+                'skill': entry['skill'], 'matched': True,
+                'name': entry['name']}
+
+    catalog = _load_fault_catalog()
+    entry = _match_fault_entry(catalog, text)
+    if entry:
+        return {'code': entry['code'], 'ata': entry['ata'],
+                'skill': entry['skill'], 'matched': True,
+                'name': entry['name']}
+
+    code = 'custom_' + hashlib.sha1(text.lower().encode('utf-8')).hexdigest()[:8]
+    custom = {
+        'code': code,
+        'name': text,
+        'ata': '',
+        'skill': 'general',
+        'synonyms': [],
+        'custom': True,
+    }
+    try:
+        with _FAULT_CATALOG_LOCK:
+            current = _load_fault_catalog()
+            existing = _match_fault_entry(current, text)
+            if existing:
+                return {'code': existing['code'], 'ata': existing['ata'],
+                        'skill': existing['skill'], 'matched': True,
+                        'name': existing['name']}
+            if not any(e['code'] == code for e in current):
+                current.append(custom)
+                _write_fault_catalog(current)
+    except Exception as exc:
+        print(f'[FAULT] Не удалось сохранить custom-запись: {exc}')
+    return {'code': code, 'ata': '', 'skill': 'general',
+            'matched': False, 'name': text}
+
+
 def normalize_fault_type(raw):
     if not raw:
         return 'other'
@@ -2300,7 +2570,7 @@ def _archive_requests_before_delete(cur, where_sql, params=(), reason='Удал�
     return len(rows)
 
 
-def _log_routing_event(conn, rid, stage, actor, note=''):
+def _log_routing_event(conn, rid, stage, actor, note='', **extra):
     cur = conn.cursor()
     cur.execute("SELECT routing_history FROM requests WHERE id=?", (rid,))
     row = cur.fetchone()
@@ -2310,12 +2580,14 @@ def _log_routing_event(conn, rid, stage, actor, note=''):
         history = json.loads(row['routing_history'] or '[]')
     except Exception:
         history = []
-    history.append({
+    event = {
         'at': datetime.now(timezone.utc).isoformat(),
         'stage': stage,
         'actor': actor,
         'note': note,
-    })
+    }
+    event.update(extra)
+    history.append(event)
     cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
                 (json.dumps(history, ensure_ascii=False), rid))
 
@@ -3259,16 +3531,16 @@ def engineer_submit_report():
         str(row['mcc_mel_ref'] or '').strip().casefold() == mel_item_ref.casefold() and row['cpu_mel_applicability_confirmed'])
 
     flight_reason = (
-        'AOG установлен инженером: полёт запрещён. Отчёт передан в ЦПУ.' if preliminary_verdict == 'AOG' else
+        'AOG установлен инженером: полёт запрещён. Отчёт передан диспетчеру.' if preliminary_verdict == 'AOG' else
         ('Инженер сопоставил дефект с пунктом MEL ' + str(mel_values['mcc_mel_ref']) +
-         '. Условная эксплуатация не активна; ожидаются проверка ЦПУ и решение MCC.' if preliminary_verdict == 'MEL' else
-         'Инженер завершил диагностику. Отчёт передан в ЦПУ; полёт запрещён до решения MCC и отдельного допуска.')
+         '. Условная эксплуатация не активна; ожидаются проверка диспетчером, ЦПУ и решение MCC.' if preliminary_verdict == 'MEL' else
+         'Инженер завершил диагностику. Отчёт передан диспетчеру; полёт запрещён до решения MCC и отдельного допуска.')
     )
-    # При передаче отчёта в ЦПУ маршрут инженера удаляется; в комментарии остаётся только отчёт.
+    # Отчёт сначала проходит диспетчера, затем ЦПУ и MCC: звено не пропускается.
     cur.execute("""UPDATE requests SET
-        status='report_submitted', routing_stage='cpu_report',
+        status='report_submitted', routing_stage='dispatcher_report',
         engineer_condition=?, engineer_verdict=?, engineer_verdict_at=CURRENT_TIMESTAMP,
-        engineer_report_at=CURRENT_TIMESTAMP, cpu_report_at=CURRENT_TIMESTAMP,
+        engineer_report_at=CURRENT_TIMESTAMP, cpu_report_at=NULL,
         engineer_comment=?,
         mcc_mel_choice=?, mcc_ata=?, mcc_mel_ref=?, mcc_mel_category=?, mcc_due_date=?,
         mcc_due_condition=?, mcc_mel_revision=?, mcc_mel_description=?, mcc_mel_restrictions=?,
@@ -3299,10 +3571,10 @@ def engineer_submit_report():
     if row['engineer_id']:
         release_engineers_without_active_requests(conn, [row['engineer_id']])
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
-    event_text = 'Техник установил результат «' + preliminary_verdict + '». Отчёт передан в ЦПУ. Состояние: ' + condition
+    event_text = 'Техник установил результат «' + preliminary_verdict + '». Отчёт передан диспетчеру. Состояние: ' + condition
     if preliminary_verdict == 'MEL':
         event_text += ' · выбран пункт ' + str(mel_values['mcc_mel_ref']) + ' · Cat ' + str(mel_values['mcc_mel_category'])
-    _log_routing_event(conn, rid, 'cpu_report', 'Инженер', event_text)
+    _log_routing_event(conn, rid, 'dispatcher_report', 'Инженер', event_text)
     conn.commit()
     conn.close()
     _recalc_route_for_request_id(rid, force=True)
@@ -3311,7 +3583,7 @@ def engineer_submit_report():
         try_reassign_queued()
     except Exception as exc:
         print('[ENGINEER REPORT] queued auto-assign:', exc)
-    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'cpu_report',
+    return jsonify({'success': True, 'request_id': rid, 'routing_stage': 'dispatcher_report',
                     'status': 'report_submitted', 'engineer_verdict': preliminary_verdict,
         'flight_status': 'DO_NOT_FLY', 'flight_status_reason': flight_reason})
 
@@ -5146,6 +5418,13 @@ def get_requests():
             r['routing_history'] = json.loads(r['routing_history'] or '[]')
         except Exception:
             r['routing_history'] = []
+        # Последний отчёт об инструменте из журнала маршрута (без изменения схемы).
+        r['tool_status'] = None
+        for event in reversed(r['routing_history']):
+            if isinstance(event, dict) and event.get('stage') == 'tool_status':
+                r['tool_status'] = (event.get('tool_status')
+                                    or event.get('status'))
+                break
     return jsonify(res)
 
 
@@ -5159,11 +5438,26 @@ def update_request(rid):
         conn.close()
         return jsonify({'error': 'Не найдена'}), 404
 
-    cur.execute("SELECT routing_stage FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT status, routing_stage FROM requests WHERE id=?", (rid,))
     current = cur.fetchone()
-    if data.get('status') == 'completed' and current and current['routing_stage'] in ('technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize'):
-        conn.close()
-        return jsonify({'success': False, 'error': 'Нельзя закрыть техническую задачу вручную. Инженер отправляет отчёт, затем он проходит диспетчера, ЦПУ и MCC.'}), 409
+    new_status = data.get('status')
+    if new_status is not None:
+        # Статус меняется только по разрешённым переходам. Ручное закрытие
+        # технической задачи и произвольные скачки запрещены.
+        allowed_transitions = {
+            ('assigned', 'arriving'),
+            ('arriving', 'in_progress'),
+            ('in_progress', 'report_submitted'),
+        }
+        current_status = str((current['status'] if current else '') or '')
+        if str(new_status) != current_status and \
+                (current_status, str(new_status)) not in allowed_transitions:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Недопустимый переход статуса: '
+                         f'{current_status or "—"} → {new_status}'
+            }), 400
 
     def _optional_float(key):
         if key not in data or data.get(key) is None or data.get(key) == '':
@@ -5199,7 +5493,6 @@ def update_request(rid):
                  walk_to_car, car_time, 1 if 'best_car' in data else 0,
                  data.get('best_car') or None, rid))
 
-    new_status = data.get('status')
     if new_status == 'completed':
         cur.execute("SELECT engineer_id FROM requests WHERE id=?", (rid,))
         r = cur.fetchone()
@@ -5246,6 +5539,219 @@ def delete_request(rid):
 
 
 # ============================================================
+# Статусная модель заявки и ожидание запчастей
+# ============================================================
+def _engineer_self_error(engineer_id):
+    """Для инженера разрешает действие только от собственного имени."""
+    if not AUTH_REQUIRED:
+        return None
+    role = session.get('role')
+    if role == 'admin':
+        return None
+    if role != 'engineer' or str(session.get('user_id') or '') != str(engineer_id):
+        append_event('role_denied', path=request.path, method=request.method,
+                     role=role, reason='foreign_engineer')
+        return jsonify({'success': False,
+                        'error': 'Инженер может действовать только от своего имени'}), 403
+    return None
+
+
+def _request_actor():
+    if not AUTH_REQUIRED:
+        return 'Система'
+    return session.get('name') or session.get('user_id') or 'Система'
+
+
+@app.route('/api/requests/<rid>/start', methods=['POST'])
+def start_request(rid):
+    """Инженер начинает работу: assigned/arriving → in_progress (идемпотентно)."""
+    data = request.get_json() or {}
+    engineer_id = str(data.get('engineer_id') or '').strip()
+    if not engineer_id:
+        return jsonify({'success': False, 'error': 'Не указан инженер'}), 400
+    denied = _engineer_self_error(engineer_id)
+    if denied is not None:
+        return denied
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, engineer_id, engineer_name, status, routing_stage
+                   FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+    is_admin = AUTH_REQUIRED and session.get('role') == 'admin'
+    if row['engineer_id'] and str(row['engineer_id']) != engineer_id and not is_admin:
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому инженеру'}), 403
+
+    if row['status'] == 'in_progress':
+        conn.close()
+        return jsonify({'success': True, 'status': 'in_progress',
+                        'already_started': True})
+    if row['status'] not in ('assigned', 'arriving'):
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Начать работу можно только по назначенной заявке'}), 409
+
+    actor = row['engineer_name'] or engineer_id
+    cur.execute("""UPDATE requests
+                   SET status='in_progress', routing_stage='technician'
+                   WHERE id=?""", (rid,))
+    _log_routing_event(conn, rid, 'in_progress', actor,
+                       'Инженер приступил к работе')
+    conn.commit()
+    conn.close()
+    append_event('status_changed', request_id=rid, previous_status=row['status'],
+                 status='in_progress', actor='engineer', engineer_id=engineer_id)
+    return jsonify({'success': True, 'status': 'in_progress'})
+
+
+@app.route('/api/requests/<rid>/tool_status', methods=['POST'])
+def set_tool_status(rid):
+    """Инженер отмечает наличие инструмента: available/missing/warehouse."""
+    data = request.get_json() or {}
+    engineer_id = str(data.get('engineer_id') or '').strip()
+    tool_status = str(data.get('status') or '').strip().lower()
+    comment = str(data.get('comment') or '').strip()
+    if not engineer_id:
+        return jsonify({'success': False, 'error': 'Не указан инженер'}), 400
+    if tool_status not in ('available', 'missing', 'warehouse'):
+        return jsonify({'success': False,
+                        'error': 'status: available, missing или warehouse'}), 400
+    denied = _engineer_self_error(engineer_id)
+    if denied is not None:
+        return denied
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, engineer_id, engineer_name FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    is_admin = AUTH_REQUIRED and session.get('role') == 'admin'
+    if row['engineer_id'] and str(row['engineer_id']) != engineer_id and not is_admin:
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Заявка назначена другому инженеру'}), 403
+
+    actor = row['engineer_name'] or engineer_id
+    _log_routing_event(conn, rid, 'tool_status', actor, comment,
+                       tool_status=tool_status)
+    conn.commit()
+    conn.close()
+    append_event('tool_status', request_id=rid, engineer_id=engineer_id,
+                 tool_status=tool_status, comment=comment)
+    return jsonify({'success': True, 'tool_status': tool_status})
+
+
+@app.route('/api/requests/<rid>/unassign', methods=['POST'])
+def unassign_request(rid):
+    """Снимает инженера с заявки и возвращает её в очередь диспетчера."""
+    data = request.get_json() or {}
+    reason = str(data.get('reason') or '').strip()
+    confirmed_by = str(data.get('confirmed_by') or '').strip()
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, status, engineer_id, engineer_name
+                   FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+    if row['status'] in ('in_progress', 'working', 'arriving') and not confirmed_by:
+        conn.close()
+        return jsonify({'success': False,
+                        'error': 'Для отмены назначения требуется подтверждение '
+                                 'старшего смены'}), 400
+
+    old_engineer = row['engineer_id']
+    if old_engineer:
+        set_engineer_free(conn, old_engineer)
+    cur.execute("""UPDATE requests
+                   SET engineer_id=NULL, engineer_name=NULL, engineer_comment=NULL,
+                       status='queued', routing_stage='dispatcher'
+                   WHERE id=?""", (rid,))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
+    note = reason or 'Инженер снят с заявки'
+    if confirmed_by:
+        note += f'; подтвердил: {confirmed_by}'
+    _log_routing_event(conn, rid, 'dispatcher', _request_actor(), note,
+                       previous_engineer=old_engineer, confirmed_by=confirmed_by)
+    conn.commit()
+    conn.close()
+    append_event('unassigned', request_id=rid, previous_engineer=old_engineer,
+                 reason=reason, confirmed_by=confirmed_by,
+                 actor=_request_actor())
+    return jsonify({'success': True, 'status': 'queued'})
+
+
+@app.route('/api/requests/<rid>/awaiting_parts', methods=['POST'])
+def awaiting_parts(rid):
+    """Переводит заявку в ожидание запчастей и освобождает инженера."""
+    data = request.get_json() or {}
+    reason = str(data.get('reason') or '').strip()
+    by = str(data.get('by') or '').strip() or _request_actor()
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, status, engineer_id FROM requests WHERE id=?""", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+    old_engineer = row['engineer_id']
+    if old_engineer:
+        set_engineer_free(conn, old_engineer)
+    cur.execute("""UPDATE requests
+                   SET engineer_id=NULL, engineer_name=NULL, engineer_comment=NULL,
+                       status='awaiting_parts', routing_stage='dispatcher'
+                   WHERE id=?""", (rid,))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
+    note = reason or 'Ожидание запчастей'
+    _log_routing_event(conn, rid, 'awaiting_parts', by, note,
+                       previous_engineer=old_engineer)
+    conn.commit()
+    conn.close()
+    append_event('awaiting_parts', request_id=rid, reason=reason, by=by,
+                 previous_engineer=old_engineer)
+    return jsonify({'success': True, 'status': 'awaiting_parts'})
+
+
+@app.route('/api/requests/<rid>/parts_received', methods=['POST'])
+def parts_received(rid):
+    """Запчасти получены: заявка возвращается в очередь диспетчера."""
+    data = request.get_json() or {}
+    by = str(data.get('by') or '').strip() or _request_actor()
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, status FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+
+    cur.execute("""UPDATE requests
+                   SET status='queued', routing_stage='dispatcher',
+                       delay_reason='Запчасть получена'
+                   WHERE id=?""", (rid,))
+    _log_routing_event(conn, rid, 'parts_received', by, 'Запчасть получена')
+    conn.commit()
+    conn.close()
+    append_event('parts_received', request_id=rid, previous_status=row['status'],
+                 by=by)
+    return jsonify({'success': True, 'status': 'queued'})
+
+
+# ============================================================
 # DISPATCH — создание заявки
 # ============================================================
 @app.route('/api/dispatch', methods=['POST'])
@@ -5285,28 +5791,38 @@ def dispatch():
             conn.commit()
             conn.close()
             _append_request_created(rid, 'pilot', aircraft, None, None, 'draft', 'mcc')
-            return jsonify({'success': True, 'request_id': rid})
+            return jsonify({'success': True, 'request_id': rid,
+                            'fault': {'code': 'other', 'ata': '', 'skill': 'general',
+                                      'matched': False}})
 
         parking_id = str(data.get('parking_id') or '')
         if not parking_id:
             conn.close()
             return jsonify({'success': False, 'error': 'Не указана стоянка'}), 400
         flight_number = (data.get('flight_number') or '').strip()
-        fault = normalize_fault_type(data.get('fault_type', 'other'))
-        description = data.get('description', fault)
+        raw_fault = data.get('fault_type') or data.get('description') or 'other'
+        fault_info = classify_fault(raw_fault)
+        fault = fault_info['code']
+        description = data.get('description') or str(raw_fault)
+        ata_note = ('ATA ' + fault_info['ata']) if fault_info['ata'] else ''
         severity = 'medium'
 
         rid = 'req_' + str(int(time.time() * 1000))
         cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
             parking_id, description, source, status, criticality, mcc_status, routing_stage,
-            pilot_name, pilot_rank)
-            VALUES (?,?,?,?,?,?,?,'pilot','new',?,'PENDING','mcc',?,?)""",
+            pilot_name, pilot_rank, mcc_comment, mcc_ata)
+            VALUES (?,?,?,?,?,?,?,'pilot','new',?,'PENDING','mcc',?,?,?,?)""",
                     (rid, aircraft or '—', flight_number, fault, severity, parking_id, description,
-                     severity, pilot_name, pilot_rank))
+                     severity, pilot_name, pilot_rank, ata_note, fault_info['ata']))
+        if ata_note:
+            _log_routing_event(conn, rid, 'mcc', pilot_name, ata_note)
         conn.commit()
         conn.close()
         _append_request_created(rid, 'pilot', aircraft, parking_id, flight_number, 'new', 'mcc')
-        return jsonify({'success': True, 'request_id': rid})
+        return jsonify({'success': True, 'request_id': rid,
+                        'fault': {'code': fault_info['code'], 'ata': fault_info['ata'],
+                                  'skill': fault_info['skill'],
+                                  'matched': fault_info['matched']}})
 
     # source == 'dispatcher'
     aircraft = (data.get('aircraft') or '').strip()
@@ -5316,9 +5832,12 @@ def dispatch():
         return jsonify({'success': False, 'error': 'Не указан борт или стоянка'}), 400
 
     flight_number = (data.get('flight_number') or '').strip()
-    fault = normalize_fault_type(data.get('fault_type', 'other'))
+    raw_fault = data.get('fault_type') or data.get('description') or 'other'
+    fault_info = classify_fault(raw_fault)
+    fault = fault_info['code']
     severity = data.get('severity', 'medium')
-    description = data.get('description', fault)
+    description = data.get('description') or str(raw_fault)
+    ata_note = ('ATA ' + fault_info['ata']) if fault_info['ata'] else ''
     pilot_name = (data.get('pilot_name') or '').strip() or None
     pilot_rank = (data.get('pilot_rank') or '').strip() or None
 
@@ -5353,14 +5872,17 @@ def dispatch():
         cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
             parking_id, description, source, status, criticality, mcc_status, routing_stage,
             engineer_id, engineer_name, travel_time, using_car, walk_to_car, car_time, best_car,
-            pilot_name, pilot_rank)
-            VALUES (?,?,?,?,?,?,?,?,'assigned',?,'PENDING','technician',?,?,?,?,?,?,?,?,?)""",
+            pilot_name, pilot_rank, mcc_comment, mcc_ata)
+            VALUES (?,?,?,?,?,?,?,?,'assigned',?,'PENDING','technician',?,?,?,?,?,?,?,?,?,?,?)""",
                     (rid, aircraft, flight_number, fault, severity, parking_id, description,
                      source, severity,
                      eng['id'], eng['name'],
-                     0, 0, 0, 0, None, pilot_name, pilot_rank))
+                     0, 0, 0, 0, None, pilot_name, pilot_rank,
+                     ata_note, fault_info['ata']))
         cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + aircraft, eng['id']))
+        if ata_note:
+            _log_routing_event(conn, rid, 'technician', eng['name'], ata_note)
         conn.commit()
         conn.close()
         _append_request_created(rid, source, aircraft, parking_id, flight_number,
@@ -5400,15 +5922,19 @@ def dispatch():
                 'score': selected.get('score'),
                 'reason': selected.get('reason')
             },
+            'fault': {'code': fault_info['code'], 'ata': fault_info['ata'],
+                      'skill': fault_info['skill'], 'matched': fault_info['matched']},
             'candidates': table
         })
 
     cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
         parking_id, description, source, status, criticality, mcc_status, routing_stage,
-        pilot_name, pilot_rank, delay_started_at, delay_reason)
-        VALUES (?,?,?,?,?,?,?,?,'queued',?,'PENDING','dispatcher',?,?,CURRENT_TIMESTAMP,'Ожидание инженера')""",
+        pilot_name, pilot_rank, delay_started_at, delay_reason, mcc_comment, mcc_ata)
+        VALUES (?,?,?,?,?,?,?,?,'queued',?,'PENDING','dispatcher',?,?,CURRENT_TIMESTAMP,'Ожидание инженера',?,?)""",
                 (rid, aircraft, flight_number, fault, severity, parking_id, description,
-                 source, severity, pilot_name, pilot_rank))
+                 source, severity, pilot_name, pilot_rank, ata_note, fault_info['ata']))
+    if ata_note:
+        _log_routing_event(conn, rid, 'dispatcher', 'Диспетчер', ata_note)
     conn.commit()
     conn.close()
     _append_request_created(rid, source, aircraft, parking_id, flight_number,
@@ -5416,6 +5942,8 @@ def dispatch():
     _schedule_recheck(rid)
     return jsonify({'success': True, 'queued': True, 'request_id': rid,
                     'message': 'Заявка в очереди — нет свободных специалистов',
+                    'fault': {'code': fault_info['code'], 'ata': fault_info['ata'],
+                              'skill': fault_info['skill'], 'matched': fault_info['matched']},
                     'candidates': table})
 
 

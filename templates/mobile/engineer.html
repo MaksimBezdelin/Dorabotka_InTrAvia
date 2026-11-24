@@ -109,6 +109,17 @@
   .arrival{background:#e7f7ed;border:1px solid #86efac;color:#166534;border-radius:11px;
     padding:10px 12px;font-size:12px;font-weight:800;margin-bottom:10px}
   .login-note{font-size:12px;color:var(--muted);margin:-4px 0 12px}
+  .tool-block{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .tool-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#375273}
+  .tool-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px}
+  .tool-btn{border:1px solid #cfdae8;background:#f7f9fc;border-radius:11px;padding:11px 6px;
+    font-size:12px;font-weight:800;color:#24476f;font-family:inherit}
+  .tool-btn.on.ok{background:#e7f7ed;border-color:#86efac;color:var(--green)}
+  .tool-btn.on.bad{background:#fde8e8;border-color:#fca5a5;color:var(--red)}
+  .tool-btn.on.warn{background:#fff4d6;border-color:#fcd34d;color:var(--amber)}
+  .queue{margin-top:8px;font-size:11px;font-weight:700;color:var(--muted)}
+  .queue.warn{color:var(--amber)}
+  .queue.bad{color:var(--red)}
 </style>
 </head>
 <body>
@@ -144,6 +155,7 @@
           <input type="checkbox" id="gpsToggle">
         </label>
       </div>
+      <div class="queue" id="queueStatus">офлайн: 0 точек в очереди</div>
       <p class="muted" style="margin:8px 0 0">Точки уходят на <code>/api/v1/track</code> не чаще раза в 2 секунды и сразу обновляют карту диспетчера.</p>
     </div>
   </section>
@@ -188,6 +200,14 @@
 
   var LS_ENGINEER = 'intravia.mobile.engineer';
   var LS_GPS = 'intravia.mobile.gps';
+  var LS_QUEUE = 'intravia.queue.engineer';
+  var LS_LAST_GPS = 'intravia.mobile.gps.last';
+  var LS_LAST_TRACK = 'intravia.mobile.lastTrackAt';
+  var LS_TOOL = 'intravia.mobile.toolStatus';
+  var MAX_QUEUE = 500;
+
+  var TOOL_LABELS = { available: 'Есть', missing: 'Нет', warehouse: 'На складе' };
+  var TOOL_PILLS = { available: 'ok', missing: 'bad', warehouse: 'warn' };
 
   var state = {
     engineerId: localStorage.getItem(LS_ENGINEER) || '',
@@ -209,7 +229,11 @@
     parkings: {},
     zoneLayers: {},
     locationLayers: [],
-    arrival: null
+    arrival: null,
+    queue: loadQueue(),
+    queueFlushing: false,
+    lastTrackAt: Number(localStorage.getItem(LS_LAST_TRACK) || 0) || 0,
+    toolStatus: loadToolStatus()
   };
 
   var map = null;
@@ -228,6 +252,323 @@
     return isFinite(n) ? n : null;
   }
 
+  // ---------- localStorage: офлайн-очередь / последняя GPS-точка ----------
+  function readStoredJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); }
+    catch (error) { console.warn('[STORAGE]', key, error); }
+  }
+
+  function loadQueue() {
+    var rows = readStoredJson(LS_QUEUE, []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(function (point) {
+      return point && typeof point === 'object' && point.obj != null &&
+        isFinite(Number(point.lat)) && isFinite(Number(point.lon));
+    }).slice(-MAX_QUEUE);
+  }
+
+  function saveQueue() {
+    writeStoredJson(LS_QUEUE, state.queue);
+  }
+
+  function normalizeQueuedPoint(point) {
+    var item = {
+      obj: String(point.obj),
+      lat: Number(point.lat),
+      lon: Number(point.lon),
+      t: point.t || new Date().toISOString()
+    };
+    if (point.acc != null && isFinite(Number(point.acc))) item.acc = Number(point.acc);
+    if (point.spd != null && isFinite(Number(point.spd))) item.spd = Number(point.spd);
+    return item;
+  }
+
+  function sameQueuedPoint(a, b) {
+    if (!a || !b) return false;
+    return String(a.obj) === String(b.obj) &&
+      Math.abs(Number(a.lat) - Number(b.lat)) < 1e-7 &&
+      Math.abs(Number(a.lon) - Number(b.lon)) < 1e-7;
+  }
+
+  function queueKey(point) {
+    return String(point.obj) + '|' + Number(point.lat).toFixed(7) + '|' +
+      Number(point.lon).toFixed(7) + '|' + String(point.t || '');
+  }
+
+  function enqueuePoint(point) {
+    if (!point || point.obj == null) return false;
+    var item = normalizeQueuedPoint(point);
+    if (!isFinite(item.lat) || !isFinite(item.lon)) return false;
+    var last = state.queue[state.queue.length - 1];
+    // Без дублей подряд: одна и та же позиция не попадает в очередь дважды.
+    if (last && sameQueuedPoint(last, item)) {
+      updateQueueStatus();
+      return false;
+    }
+    state.queue.push(item);
+    while (state.queue.length > MAX_QUEUE) state.queue.shift();
+    saveQueue();
+    updateQueueStatus();
+    return true;
+  }
+
+  function removeQueuedPoint(point) {
+    if (!point) return;
+    var key = queueKey(normalizeQueuedPoint(point));
+    var before = state.queue.length;
+    state.queue = state.queue.filter(function (item) { return queueKey(item) !== key; });
+    if (state.queue.length !== before) {
+      saveQueue();
+      updateQueueStatus();
+    }
+  }
+
+  function two(value) {
+    value = Number(value) || 0;
+    return value < 10 ? ('0' + value) : String(value);
+  }
+
+  function clockTime(ms, withSeconds) {
+    var date = new Date(Number(ms));
+    if (!isFinite(date.getTime())) return '—';
+    var text = two(date.getHours()) + ':' + two(date.getMinutes());
+    return withSeconds ? (text + ':' + two(date.getSeconds())) : text;
+  }
+
+  function lastPointTime() {
+    if (state.lastGpsPoint && state.lastGpsPoint.t) {
+      var parsed = Date.parse(state.lastGpsPoint.t);
+      if (isFinite(parsed)) return parsed;
+    }
+    if (state.lastGpsPoint && state.lastGpsPoint.savedAt) return state.lastGpsPoint.savedAt;
+    return state.lastTrackAt || 0;
+  }
+
+  function updateQueueStatus() {
+    var box = $('queueStatus');
+    if (!box) return;
+    var count = state.queue ? state.queue.length : 0;
+    var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    if (offline) {
+      var pointAt = lastPointTime();
+      box.textContent = 'офлайн: ' + count + ' точек в очереди · позиция от ' +
+        (pointAt ? clockTime(pointAt, false) : '—') + ' (нет связи)';
+      box.className = 'queue bad';
+      return;
+    }
+    box.textContent = 'офлайн: ' + count + ' точек в очереди · последняя отправка ' +
+      (state.lastTrackAt ? clockTime(state.lastTrackAt, true) : '—');
+    box.className = 'queue' + (count ? ' warn' : '');
+  }
+
+  function markTrackSuccess() {
+    state.lastTrackAt = Date.now();
+    try { localStorage.setItem(LS_LAST_TRACK, String(state.lastTrackAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function flushQueue() {
+    updateQueueStatus();
+    if (state.queueFlushing || !state.queue || !state.queue.length) return Promise.resolve();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
+    state.queueFlushing = true;
+    var sent = state.queue.slice();
+    var sentKeys = {};
+    sent.forEach(function (point) { sentKeys[queueKey(point)] = true; });
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: sent })
+    }).then(function (rows) {
+      state.queue = state.queue.filter(function (point) { return !sentKeys[queueKey(point)]; });
+      saveQueue();
+      markTrackSuccess();
+      var results = Array.isArray(rows) ? rows : [];
+      var discarded = 0;
+      sent.forEach(function (point, index) {
+        var row = results[index];
+        if (!row || row.applied !== true) {
+          discarded += 1;
+          console.warn('[QUEUE] точка снята с очереди: applied=' +
+            (row ? row.applied : 'нет ответа'), point.obj, point.t);
+        }
+      });
+      if (discarded) toast('Очередь: ' + discarded + ' точек не применены', 'err');
+      updateQueueStatus();
+      return rows;
+    }).catch(function (error) {
+      console.warn('[QUEUE] очередь не отправлена', error);
+      updateQueueStatus();
+    }).finally(function () {
+      state.queueFlushing = false;
+    });
+  }
+
+  function persistGpsPoint(body) {
+    writeStoredJson(LS_LAST_GPS, {
+      obj: body.obj, lat: body.lat, lon: body.lon,
+      acc: body.acc, spd: body.spd, t: body.t,
+      sent: false, savedAt: Date.now()
+    });
+  }
+
+  function markGpsDelivered(body, applied) {
+    var stored = readStoredJson(LS_LAST_GPS, null);
+    if (stored && String(stored.t) === String(body.t) &&
+        String(stored.obj) === String(body.obj)) {
+      stored.sent = true;
+      stored.applied = !!applied;
+      stored.savedAt = Date.now();
+      writeStoredJson(LS_LAST_GPS, stored);
+    }
+    state.lastGpsPoint = {
+      lat: Number(body.lat), lng: Number(body.lon),
+      t: body.t, savedAt: Date.now()
+    };
+  }
+
+  // Последняя GPS-точка переживает перезагрузку; недоставленная — досылается.
+  function restoreLastGps() {
+    var stored = readStoredJson(LS_LAST_GPS, null);
+    if (!stored) return;
+    var lat = Number(stored.lat);
+    var lon = Number(stored.lon);
+    if (!isFinite(lat) || !isFinite(lon)) return;
+    state.lastGpsPoint = {
+      lat: lat, lng: lon, t: stored.t || '',
+      savedAt: Number(stored.savedAt) || 0
+    };
+    setOwnPosition(lat, lon);
+    if (state.gpsOn && state.engineerId && stored.sent !== true &&
+        (!stored.obj || String(stored.obj) === String(state.engineerId))) {
+      var point = {
+        obj: String(stored.obj || state.engineerId),
+        lat: lat, lon: lon,
+        t: stored.t || new Date().toISOString()
+      };
+      if (stored.acc != null) point.acc = stored.acc;
+      if (stored.spd != null) point.spd = stored.spd;
+      enqueuePoint(point);
+    }
+    updateQueueStatus();
+  }
+
+  // ---------- инструмент ----------
+  function loadToolStatus() {
+    var data = readStoredJson(LS_TOOL, {});
+    return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+  }
+
+  function saveToolStatus() {
+    writeStoredJson(LS_TOOL, state.toolStatus);
+  }
+
+  function toolStatusForRequest(request) {
+    if (!request) return '';
+    var remote = request.tool_status || request.tool;
+    var status = (remote && TOOL_LABELS[remote]) ? remote :
+      (state.toolStatus[String(request.id)] || '');
+    return TOOL_LABELS[status] ? status : '';
+  }
+
+  function warehousePoint() {
+    var objects = (state.location && state.location.objects) || [];
+    for (var i = 0; i < objects.length; i++) {
+      var obj = objects[i] || {};
+      var isWarehouse = String(obj.role || '') === 'warehouse1' ||
+        String(obj.id || '') === 'warehouse1';
+      if (!isWarehouse || !obj.centroid) continue;
+      var lat = Number(obj.centroid.lat);
+      var lon = obj.centroid.lon != null ? obj.centroid.lon : obj.centroid.lng;
+      if (isFinite(lat) && isFinite(Number(lon))) {
+        return {
+          lat: lat, lng: Number(lon), role: 'warehouse1',
+          name: obj.name || 'Склад №1'
+        };
+      }
+    }
+    return null;
+  }
+
+  function toolStatusPill(status) {
+    var label = TOOL_LABELS[status] || 'не отмечен';
+    var kind = TOOL_PILLS[status] || '';
+    return '<span class="pill ' + kind + '">Инструмент: ' + esc(label) + '</span>';
+  }
+
+  function toolBlockHtml(status) {
+    function button(value, label, kind) {
+      return '<button class="tool-btn' + (status === value ? ' on ' + kind : '') +
+        '" data-tool="' + value + '">' + label + '</button>';
+    }
+    return '<div class="tool-block">' +
+      '<div class="tool-head">Инструмент' + toolStatusPill(status) + '</div>' +
+      '<div class="tool-btns">' +
+        button('available', 'Есть', 'ok') +
+        button('missing', 'Нет', 'bad') +
+        button('warehouse', 'На складе', 'warn') +
+      '</div></div>';
+  }
+
+  function setToolStatus(status) {
+    var request = state.request;
+    if (!request || !state.engineerId || !TOOL_LABELS[status]) return;
+    var rid = String(request.id);
+    api('/api/requests/' + encodeURIComponent(rid) + '/tool_status', {
+      method: 'POST',
+      body: JSON.stringify({ engineer_id: state.engineerId, status: status })
+    }).then(function () {
+      state.toolStatus[rid] = status;
+      saveToolStatus();
+      toast('Инструмент: ' + TOOL_LABELS[status], 'ok');
+      renderTask();
+      if (status === 'warehouse') return buildWarehouseRoute(request);
+      return null;
+    }).catch(function (error) {
+      toast('Инструмент: ' + error.message, 'err');
+    });
+  }
+
+  function buildWarehouseRoute(request) {
+    var start = ownPoint();
+    var target = zonePoint(request.parking_id);
+    var warehouse = warehousePoint();
+    if (!start || !target || !warehouse) {
+      toast('Маршрут через склад недоступен: нет геоданных', 'err');
+      return Promise.resolve();
+    }
+    return api('/api/route', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_type: 'engineer',
+        start: start,
+        waypoints: [{ lat: warehouse.lat, lng: warehouse.lng, role: 'warehouse1' }],
+        target: target
+      })
+    }).then(function (payload) {
+      if (payload && Array.isArray(payload.path) && payload.path.length > 1) {
+        drawRoute(payload);
+        toast('Маршрут через ' + warehouse.name, 'ok');
+        renderTask();
+      } else {
+        toast('Сервер не построил маршрут через склад', 'err');
+      }
+    }).catch(function (error) {
+      toast('Маршрут через склад: ' + error.message, 'err');
+    });
+  }
+
   var toastTimer = null;
   function toast(message, kind) {
     var el = $('toast');
@@ -244,7 +585,10 @@
       return response.json().catch(function () { return {}; })
         .then(function (body) {
           if (!response.ok) {
-            throw new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+            var error = new Error(body && (body.error || body.message) || ('HTTP ' + response.status));
+            error.status = response.status;
+            error.body = body;
+            throw error;
           }
           return body;
         });
@@ -516,6 +860,7 @@
     }
     var eta = state.route && isFinite(Number(state.route.tt)) ? Math.round(Number(state.route.tt)) : null;
     var usingCar = state.route && state.route.uc;
+    var toolStatus = toolStatusForRequest(request);
     var actions = '';
 
     if (request.status === 'assigned') {
@@ -546,7 +891,8 @@
       '<p class="req-sub">' + esc(request.fault_type || 'неисправность') +
         ' · стоянка ' + esc(request.parking_id || '—') +
         ' · <span class="pill ' + (request.status === 'assigned' ? 'warn' : 'ok') + '">' +
-        esc(statusLabel(request.status)) + '</span></p>' +
+        esc(statusLabel(request.status)) + '</span>' +
+        ' · ' + toolStatusPill(toolStatus) + '</p>' +
       '<div class="eta"><strong>' + (eta == null ? '—' : esc(eta)) + '</strong><small>мин до борта (ETA)</small></div>' +
       '<div class="grid2">' +
         '<div class="kv"><b>Маршрут</b><span>' + esc(routeText) + '</span></div>' +
@@ -555,6 +901,7 @@
         '<div class="kv"><b>MEL / ATA</b><span>' + esc(request.mcc_mel_ref || '—') + ' / ' + esc(request.mcc_ata || '—') + '</span></div>' +
       '</div>' +
       (actions ? '<div class="actions">' + actions + '</div>' : '') +
+      toolBlockHtml(toolStatus) +
       '<p class="muted" style="margin:12px 0 0">' + esc(request.description || '') + '</p>';
 
     var accept = $('acceptBtn');
@@ -567,6 +914,9 @@
     if (arrive) arrive.onclick = function () { reportStep('arrived'); };
     var diagnose = $('diagnoseBtn');
     if (diagnose) diagnose.onclick = function () { reportStep('diagnosing'); };
+    card.querySelectorAll('button[data-tool]').forEach(function (button) {
+      button.onclick = function () { setToolStatus(button.getAttribute('data-tool')); };
+    });
     highlightOwnZone(request.parking_id);
   }
 
@@ -603,7 +953,18 @@
   function buildRouteForRequest(request) {
     var start = ownPoint();
     var target = zonePoint(request.parking_id);
-    var waypoints = Array.isArray(request.waypoints) ? request.waypoints : [];
+    var waypoints = Array.isArray(request.waypoints) ? request.waypoints.slice() : [];
+    if (toolStatusForRequest(request) === 'warehouse') {
+      var warehouse = warehousePoint();
+      var hasWarehouse = waypoints.some(function (wp) {
+        return wp && String(wp.role || '') === 'warehouse1';
+      });
+      if (warehouse && !hasWarehouse) {
+        waypoints.unshift({
+          lat: warehouse.lat, lng: warehouse.lng, role: 'warehouse1'
+        });
+      }
+    }
     if (start && target) {
       // Основной маршрут — серверный роутер с промежуточными точками.
       return api('/api/route', {
@@ -700,14 +1061,25 @@
       body: JSON.stringify(body)
     }).then(function (result) {
       if (state.pendingGps && state.pendingGps.t === body.t) state.pendingGps = null;
-      $('gpsText').textContent = result.applied
-        ? ('GPS · ' + Number(body.lat).toFixed(5) + ', ' + Number(body.lon).toFixed(5))
-        : 'GPS: сервер не принял точку';
+      if (result.applied) {
+        $('gpsText').textContent =
+          'GPS · ' + Number(body.lat).toFixed(5) + ', ' + Number(body.lon).toFixed(5);
+        markTrackSuccess();
+      } else {
+        $('gpsText').textContent = 'GPS: сервер не принял точку';
+        console.warn('[GPS] точка не применена', body.obj, body.t);
+      }
+      markGpsDelivered(body, result.applied);
+      removeQueuedPoint(body);
+      updateQueueStatus();
       return result;
-    }).catch(function () {
-      // Нет связи: держим последнюю точку и повторяем, когда сеть вернётся.
+    }).catch(function (error) {
+      // Нет связи: точка уходит в localStorage-очередь, последняя держится для повтора.
+      enqueuePoint(body);
       $('gpsText').textContent = 'GPS: нет связи с сервером, повтор…';
       scheduleGpsRetry();
+      updateQueueStatus();
+      return null;
     });
   }
 
@@ -728,7 +1100,8 @@
       Math.abs(last.lng - coords.longitude) > 0.00002;
     if (!moved && now - state.lastGpsSentAt < 5000) return;
     state.lastGpsSentAt = now;
-    state.lastGpsPoint = { lat: coords.latitude, lng: coords.longitude };
+    var pointTime = new Date().toISOString();
+    state.lastGpsPoint = { lat: coords.latitude, lng: coords.longitude, t: pointTime };
     setOwnPosition(coords.latitude, coords.longitude);
     state.pendingGps = {
       obj: state.engineerId,
@@ -736,8 +1109,10 @@
       lon: coords.longitude,
       acc: coords.accuracy != null ? coords.accuracy : null,
       spd: coords.speed != null ? coords.speed : null,
-      t: new Date().toISOString()
+      t: pointTime
     };
+    persistGpsPoint(state.pendingGps);
+    updateQueueStatus();
     sendGpsBody(state.pendingGps);
   }
 
@@ -773,6 +1148,12 @@
       state.engineerId = state.user.id;
       localStorage.setItem(LS_ENGINEER, state.engineerId);
       refreshAll();
+      return;
+    }
+    if (state.user && state.user.role !== 'admin') {
+      // Чужая роль не выбирает инженера: это нарушает матрицу полномочий.
+      $('who').textContent = 'Нет доступа: требуется роль инженера';
+      toast('Выбор инженера доступен только администратору', 'err');
       return;
     }
     var sheet = $('engineerSheet');
@@ -891,6 +1272,7 @@
 
   function startUi() {
     initMap();
+    restoreLastGps();
     $('changeEngineer').onclick = openEngineerSheet;
     $('gpsToggle').checked = state.gpsOn;
     $('gpsToggle').onchange = function () {
@@ -901,16 +1283,29 @@
     if (!state.engineerId) openEngineerSheet();
     loadLocation().then(refreshAll).then(function () {
       if (state.gpsOn) startGps();
+      flushQueue();
     });
     connectStream();
     setInterval(function () {
       refreshAgents();
       refreshTask();
     }, 7000);
+    setInterval(flushQueue, 10000);
+    window.addEventListener('online', function () {
+      updateQueueStatus();
+      flushQueue();
+    });
+    window.addEventListener('offline', updateQueueStatus);
+    updateQueueStatus();
+    flushQueue();
   }
 
   // Точка входа для диагностики GPS и автотестов (не влияет на работу UI).
-  window.__intravia = { state: state, sendGps: sendGps, sendGpsBody: sendGpsBody };
+  window.__intravia = {
+    state: state, sendGps: sendGps, sendGpsBody: sendGpsBody,
+    flushQueue: flushQueue, enqueuePoint: enqueuePoint,
+    updateQueueStatus: updateQueueStatus
+  };
 
   document.addEventListener('DOMContentLoaded', boot);
 })();

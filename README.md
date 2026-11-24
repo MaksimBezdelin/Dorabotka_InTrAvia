@@ -32,7 +32,7 @@ copy .env.example .env
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `SECRET_KEY` | случайный | подпись cookie сессии |
-| `APP_PORT` | `8080` | порт waitress |
+| `INTRAVIA_PORT` | `8080` | порт waitress |
 | `AUTH_REQUIRED` | `1` | серверная авторизация; `0` — демо-стенд |
 | `CORS_ORIGINS` | пусто | список origin через запятую; пусто — same-origin |
 | `SESSION_COOKIE_SECURE` | `0` | `1` при работе по HTTPS |
@@ -40,6 +40,77 @@ copy .env.example .env
 | `INTRAVIA_EVENTS` | `data/events.jsonl` | журнал событий |
 | `LLM_ENABLED`, `LLM_MODEL` | `1`, `qwen2.5:3b` | Ollama для подсказок |
 | `WHISPER_MODEL` | `small` | распознавание голосовых заявок |
+
+## Публичный доступ через Cloudflare Tunnel
+
+Quick Tunnel даёт временный HTTPS-адрес `https://*.trycloudflare.com` без
+регистрации и настройки DNS. Этого достаточно для демонстрации и проверки
+с телефона, но не для постоянной эксплуатации.
+
+### Быстрый запуск
+
+```powershell
+# из корня репозитория
+powershell -ExecutionPolicy Bypass -File tools\start_public.ps1
+# другой порт:
+powershell -ExecutionPolicy Bypass -File tools\start_public.ps1 -Port 5001
+
+# остановка из другого окна (или Ctrl+C в окне запуска)
+powershell -ExecutionPolicy Bypass -File tools\stop_public.ps1
+```
+
+Скрипт `tools/start_public.ps1`:
+
+1. проверяет `.venv\Scripts\python.exe` и наличие `cloudflared`;
+2. поднимает `serve.py` (waitress) на `127.0.0.1:5000` с `INTRAVIA_PORT`;
+3. ждёт `http://127.0.0.1:5000/login.html` до 30 секунд;
+4. запускает `cloudflared` с `GODEBUG=http2client=0` (обход зависания
+   HTTP/2-клиента), пишет лог в `logs/cloudflared.log`;
+5. находит в логе `https://*.trycloudflare.com` и печатает публичный URL;
+6. по Ctrl+C или через `tools/stop_public.ps1` останавливает оба процесса.
+
+PID-файл — `logs/public_pids.txt`. Логи (`logs/server.log`,
+`logs/server.err.log`, `logs/cloudflared.log`) в репозиторий не коммитятся.
+Если `cloudflared` не найден, скрипт предупреждает и оставляет только
+локальный сервер.
+
+### Ручной запуск
+
+```powershell
+# окно 1 — сервер
+$env:INTRAVIA_PORT = '5000'
+.venv\Scripts\python.exe serve.py
+
+# окно 2 — туннель
+$env:GODEBUG = 'http2client=0'
+& 'C:\Program Files (x86)\cloudflared\cloudflared.exe' tunnel --url http://127.0.0.1:5000 --no-autoupdate
+```
+
+`GODEBUG=http2client=0` отключает HTTP/2 в клиенте cloudflared: без него
+quick tunnel на этом окружении падает с `context deadline exceeded`.
+Публичный URL печатается в логе туннеля.
+
+### Ограничения quick tunnel
+
+- URL меняется при каждом запуске — организаторам нужно сообщать актуальный.
+- Нет гарантии uptime и стабильности: туннель зависит от Cloudflare и
+  локального ПК; при обрыве соединения процесс нужно перезапустить.
+- Нет своего домена, HTTPS-сертификат — от Cloudflare.
+- Для сдачи и постоянного стенда используйте **named tunnel** (свой домен,
+  `cloudflared tunnel create/run` как служба) или **VPS** с Caddy/nginx и
+  systemd; quick tunnel оставьте для демонстрации.
+
+### Пароли перед публикацией
+
+Демонстрационные пароли слабые. Перед публичным стендом смените их:
+
+```powershell
+.venv\Scripts\python.exe tools/rotate_demo_passwords.py --email admin@aeroflot.ru
+# пароль запросится интерактивно и не будет показан
+```
+
+Скрипт обновляет только `users.password` (хэш werkzeug scrypt). Без аргументов
+он ничего не меняет.
 
 ## Полигон ВДНХ
 
@@ -102,6 +173,57 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`. В приложении зад
 `POST /api/v1/track` и SSE остаются публичными по контракту организаторов;
 остальные API закрыты сессией.
 
+## Новые эндпоинты
+
+Точечные операции статусной модели и работы с запчастями. Все требуют сессию;
+доступ проверяется матрицей ролей (`WRITE_ENDPOINT_ROLES` в `app.py`).
+
+| Метод | Путь | Роль | Назначение |
+|---|---|---|---|
+| POST | `/api/requests/<rid>/start` | инженер | назначенная заявка → `in_progress` |
+| POST | `/api/requests/<rid>/tool_status` | инженер | наличие инструмента: `available`, `missing`, `warehouse` |
+| POST | `/api/requests/<rid>/unassign` | диспетчер, MCC | снять инженера и вернуть заявку в очередь |
+| POST | `/api/requests/<rid>/awaiting_parts` | диспетчер, MCC | ожидание запчастей, инженер освобождается |
+| POST | `/api/requests/<rid>/parts_received` | диспетчер, MCC | запчасти получены → заявка снова в очереди |
+| GET | `/api/dispatcher/candidates/<rid>` | диспетчер, admin | таблица кандидатов с обоснованием |
+
+**`POST /api/requests/<rid>/start`** — тело `{"engineer_id": "eng_3"}`.
+Идемпотентно: повторный вызов возвращает `{"success": true,
+"status": "in_progress", "already_started": true}`. Ошибки: `400` без
+`engineer_id`, `403` чужой инженер, `404` нет заявки, `409` заявка не в
+`assigned`/`arriving`.
+
+**`POST /api/requests/<rid>/tool_status`** — тело
+`{"engineer_id": "eng_3", "status": "available|missing|warehouse",
+"comment": "..."}`. Ответ `{"success": true, "tool_status": "..."}`;
+факт пишется в `routing_history` и журнал событий. `warehouse` означает
+«инструмент на складе» — мобильный интерфейс строит маршрут через склад.
+
+**`POST /api/requests/<rid>/unassign`** — тело
+`{"reason": "...", "confirmed_by": "старший смены"}`. Для заявки в
+`in_progress`/`working`/`arriving` поле `confirmed_by` обязательно (`400`
+без него). Инженер освобождается, заявка получает `status: "queued"` и
+возвращается диспетчеру; пишется событие `unassigned`.
+
+**`POST /api/requests/<rid>/awaiting_parts`** — тело
+`{"reason": "...", "by": "..."}`. Заявка получает `status:
+"awaiting_parts"`, инженер освобождается (`set_engineer_free`); событие
+`awaiting_parts`.
+
+**`POST /api/requests/<rid>/parts_received`** — тело `{"by": "..."}`.
+Заявка возвращается в очередь диспетчера: `{"success": true,
+"status": "queued"}`; событие `parts_received`.
+
+**`GET /api/dispatcher/candidates/<rid>`** — возвращает закэшированную или
+только что построенную таблицу:
+`{"request_id", "built_at", "duration_ms", "selected_engineer_id",
+"candidates": [...]}`. В каждом кандидате: `engineer_id`, `name`,
+`device_id`, `specialization`, `eligible`, `reason`, `travel_time`,
+`walk_time`, `using_car`, `best_car`, `walk_to_car`, `car_time`, `workload`,
+`score`, `path`. `reason` содержит и основание допуска, и причину отказа
+(занят, нет допуска, не успевает и т.п.). Время построения таблицы
+(`duration_ms`) фиксируется событием `candidates_built`.
+
 ## Архитектура
 
 ```mermaid
@@ -124,7 +246,7 @@ flowchart LR
 ## Тесты и проверка
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q          # 48 passed, 104 skipped
+.venv\Scripts\python.exe -m pytest -q          # 69 passed, 104 skipped
 .venv\Scripts\python.exe tools/smoke_vdnh.py   # 3 заявки, прибытия, журнал, XLSX
 .venv\Scripts\python.exe tools/build_location_config.py
 .venv\Scripts\python.exe tools/apply_vdnh_location.py
@@ -146,7 +268,7 @@ flowchart LR
 2. **Функционал.** Заявка от пилота, MEL/ATA в MCC, назначение диспетчером,
    маршрут по графу с waypoints и спецтранспортом, ETA, автофиксация
    прибытия, норматив 15 минут, журнал и XLSX, мобильные приложения.
-3. **Разработка и качество.** Итерации по этапам, pytest (48 тестов),
+3. **Разработка и качество.** Итерации по этапам, pytest (69 тестов),
    smoke-скрипт на копии БД, ревью безопасности, ИИ-ассистент для
    рефакторинга и тестов; найденные XSS и открытый API исправлены.
 4. **Авторство.** Людьми: постановка цепочки ролей, схема данных, интерфейсы

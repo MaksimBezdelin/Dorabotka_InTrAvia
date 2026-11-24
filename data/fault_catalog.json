@@ -1,0 +1,379 @@
+[
+  {
+    "code": "engine_failure",
+    "name": "Отказ двигателя",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "отказ двиг",
+      "двигател",
+      "engine",
+      "помпаж",
+      "не тянет"
+    ],
+    "custom": false
+  },
+  {
+    "code": "engine_oil",
+    "name": "Масляная система двигателя",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "масл",
+      "oil"
+    ],
+    "custom": false
+  },
+  {
+    "code": "engine_overheat",
+    "name": "Перегрев двигателя",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "перегрев",
+      "температур",
+      "overheat"
+    ],
+    "custom": false
+  },
+  {
+    "code": "engine_vibration",
+    "name": "Повышенная вибрация двигателя",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "вибрац",
+      "тряс",
+      "vibrat"
+    ],
+    "custom": false
+  },
+  {
+    "code": "engine_start",
+    "name": "Запуск двигателя",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "запуск",
+      "start",
+      "не заводится"
+    ],
+    "custom": false
+  },
+  {
+    "code": "fuel_leak",
+    "name": "Течь топлива",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [
+      "утечк топлив",
+      "течь топлив",
+      "fuel leak"
+    ],
+    "custom": false
+  },
+  {
+    "code": "fuel_system",
+    "name": "Топливная система",
+    "ata": "72",
+    "skill": "engine",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "avionics_nav",
+    "name": "Навигационное оборудование",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [
+      "навигац",
+      "курс",
+      "nav"
+    ],
+    "custom": false
+  },
+  {
+    "code": "avionics_radio",
+    "name": "Радиосвязное оборудование",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [
+      "связ",
+      "радио",
+      "radio"
+    ],
+    "custom": false
+  },
+  {
+    "code": "avionics_autopilot",
+    "name": "Автопилот",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [
+      "автопилот",
+      "autopilot"
+    ],
+    "custom": false
+  },
+  {
+    "code": "avionics_transponder",
+    "name": "Транспондер (ответчик)",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [
+      "транспондер",
+      "ответчик"
+    ],
+    "custom": false
+  },
+  {
+    "code": "avionics_display",
+    "name": "Дисплеи кабины",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "avionics_gps",
+    "name": "GPS-оборудование",
+    "ata": "34",
+    "skill": "avionics",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "hydraulic",
+    "name": "Гидравлическая система",
+    "ata": "29",
+    "skill": "hydraulics",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "hydraulic_leak",
+    "name": "Течь гидравлики",
+    "ata": "29",
+    "skill": "hydraulics",
+    "synonyms": [
+      "утечк гидравлик",
+      "hydraul leak",
+      "гидравлик"
+    ],
+    "custom": false
+  },
+  {
+    "code": "hydraulic_pressure",
+    "name": "Падение давления гидравлики",
+    "ata": "29",
+    "skill": "hydraulics",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "electrical",
+    "name": "Электрическая система",
+    "ata": "24",
+    "skill": "electrical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "electrical_generator",
+    "name": "Генератор",
+    "ata": "24",
+    "skill": "electrical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "electrical_battery",
+    "name": "Аккумулятор",
+    "ata": "24",
+    "skill": "electrical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "electrical_short",
+    "name": "Короткое замыкание",
+    "ata": "24",
+    "skill": "electrical",
+    "synonyms": [
+      "замыкан",
+      "short",
+      "кз",
+      "искр"
+    ],
+    "custom": false
+  },
+  {
+    "code": "electrical_lighting",
+    "name": "Освещение",
+    "ata": "24",
+    "skill": "electrical",
+    "synonyms": [
+      "освещ",
+      "свет",
+      "фар"
+    ],
+    "custom": false
+  },
+  {
+    "code": "landing_gear",
+    "name": "Шасси",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [
+      "шасси",
+      "стойк",
+      "gear"
+    ],
+    "custom": false
+  },
+  {
+    "code": "pneumatic",
+    "name": "Пневматическая система",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "brake_system",
+    "name": "Тормозная система",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [
+      "тормоз",
+      "brake"
+    ],
+    "custom": false
+  },
+  {
+    "code": "flap_issue",
+    "name": "Закрылки",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "aileron_issue",
+    "name": "Элероны",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "rudder_issue",
+    "name": "Руль направления",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "wing_damage",
+    "name": "Повреждение крыла",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "fuselage_damage",
+    "name": "Повреждение фюзеляжа",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "door_issue",
+    "name": "Дверь/люк",
+    "ata": "32",
+    "skill": "mechanical",
+    "synonyms": [
+      "двер",
+      "door",
+      "люк"
+    ],
+    "custom": false
+  },
+  {
+    "code": "air_condition",
+    "name": "Система кондиционирования",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [
+      "кондиционер",
+      "климат",
+      "air cond"
+    ],
+    "custom": false
+  },
+  {
+    "code": "pressurization",
+    "name": "Герметизация кабины",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [
+      "разгормат",
+      "разгерм",
+      "герметич",
+      "декомпресс",
+      "pressur",
+      "утечк воздух"
+    ],
+    "custom": false
+  },
+  {
+    "code": "oxygen_system",
+    "name": "Кислородная система",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [
+      "кислород",
+      "oxygen"
+    ],
+    "custom": false
+  },
+  {
+    "code": "fire_system",
+    "name": "Пожарная система",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [
+      "пожар",
+      "fire",
+      "дым"
+    ],
+    "custom": false
+  },
+  {
+    "code": "deicing_system",
+    "name": "Противообледенительная система",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "pilot_voice",
+    "name": "Голосовая заявка пилота",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [],
+    "custom": false
+  },
+  {
+    "code": "other",
+    "name": "Прочее",
+    "ata": "",
+    "skill": "general",
+    "synonyms": [],
+    "custom": false
+  }
+]

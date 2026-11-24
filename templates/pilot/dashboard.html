@@ -329,6 +329,7 @@
                 <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="reviewParking" placeholder="SZ-1"></div>
             </div>
             <div class="defects-list" id="reviewDefectsList"></div>
+            <div class="info-box" id="reviewAta" style="display:none;"></div>
             <button type="button" class="btn-add-defect" onclick="addReviewDefectRow()">
                 <i class="fas fa-plus"></i> Добавить ещё дефект
             </button>
@@ -360,6 +361,7 @@
                 <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="textParking" placeholder="SZ-1"></div>
             </div>
             <div class="defects-list" id="defectsList"></div>
+            <div class="info-box" id="textAta" style="display:none;"></div>
             <button type="button" class="btn-add-defect" onclick="addDefectRow()">
                 <i class="fas fa-plus"></i> Добавить ещё дефект
             </button>
@@ -476,6 +478,32 @@ function showToast(message, type) {
     }, 5000);
 }
 window.showToast = showToast;
+
+function extractFaultAta(response) {
+    if (!response || !response.fault) return '';
+    var fault = response.fault;
+    if (Array.isArray(fault)) {
+        for (var i = 0; i < fault.length; i++) {
+            if (fault[i] && fault[i].ata) return String(fault[i].ata);
+        }
+        return '';
+    }
+    return fault.ata ? String(fault.ata) : '';
+}
+
+function showDispatchAta(elementId, response) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var ata = extractFaultAta(response);
+    if (!ata) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = '<i class="fas fa-microchip"></i> ATA: <strong>' + escapeHtml(ata) + '</strong>';
+    el.style.display = 'block';
+}
+window.showDispatchAta = showDispatchAta;
 
 function formatTime(seconds) {
     var min = Math.floor(seconds / 60), sec = Math.floor(seconds % 60);
@@ -1145,6 +1173,7 @@ function submitTextRequest(event) {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (!res.success) throw new Error(res.error || 'dispatch failed');
+        showDispatchAta('textAta', res);
         var rid = res.request_id;
         var commentText = '📝 Заявка от КВС ' + (user.name||'') + (user.rank?' ('+user.rank+')':'') +
             (defects.length > 1 ? ' ['+defects.length+' дефектов]' : '') + ':\n' + fullDescription;
@@ -1202,6 +1231,7 @@ function analyzeRequest() {
         .then(function(res) {
             if (!res.success) throw new Error(res.error || 'dispatch failed');
             currentDraftId = res.request_id;
+            showDispatchAta('reviewAta', res);
             return fetch(API_URL + '/requests/' + currentDraftId + '/transcribe', { method: 'POST' });
         })
         .then(function(r) { return r.json(); })

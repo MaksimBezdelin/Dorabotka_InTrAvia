@@ -75,6 +75,9 @@
   .leaflet-container{font-family:inherit}
   .hint{background:#fff7e6;border:1px solid #f1d9a7;color:#7c5b13;border-radius:11px;
     padding:10px 12px;font-size:11px;line-height:1.45;margin-top:10px}
+  .queue{margin-top:9px;font-size:11px;font-weight:700;color:var(--muted)}
+  .queue.warn{color:var(--amber)}
+  .queue.bad{color:var(--red)}
   .login{position:fixed;inset:0;z-index:6000;background:rgba(8,20,36,.6);display:none;
     align-items:flex-end;justify-content:center}
   .login.show{display:flex}
@@ -148,6 +151,7 @@
           <input type="checkbox" id="batchToggle" checked style="width:auto">
           <span>Пакетная отправка для спецтранспорта и ВС (по 5 точек за запрос)</span>
         </label>
+        <div class="queue" id="queueStatus">офлайн: 0 точек в очереди</div>
       </div>
     </div>
   </section>
@@ -181,6 +185,16 @@
 (function () {
   'use strict';
 
+  var LS_QUEUE = 'intravia.queue.agents';
+  var LS_FORM = 'intravia.agents.form';
+  var LS_BATCH = 'intravia.agents.batch';
+  var LS_LAST_TRACK = 'intravia.agents.lastTrackAt';
+  var LS_LAST_POINT = 'intravia.agents.lastPointAt';
+  var MAX_QUEUE = 500;
+
+  var pendingForm = null;
+  var restoringForm = false;
+
   var state = {
     agents: { engineers: [], transport: [], aircraft: [] },
     markers: {},
@@ -195,7 +209,11 @@
     location: null,
     locationLayers: [],
     batch: [],
-    batchMode: true
+    batchMode: true,
+    queue: loadQueue(),
+    queueFlushing: false,
+    lastTrackAt: Number(localStorage.getItem(LS_LAST_TRACK) || 0) || 0,
+    lastPointAt: Number(localStorage.getItem(LS_LAST_POINT) || 0) || 0
   };
 
   var map = null;
@@ -206,6 +224,229 @@
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // ---------- localStorage: офлайн-очередь, форма и пакет ----------
+  function readStoredJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); }
+    catch (error) { console.warn('[STORAGE]', key, error); }
+  }
+
+  function normalizePoint(point) {
+    var lon = point.lon != null ? point.lon : point.lng;
+    var item = {
+      obj: String(point.obj),
+      lat: Number(Number(point.lat).toFixed(7)),
+      lon: Number(Number(lon).toFixed(7)),
+      t: point.t || new Date().toISOString()
+    };
+    if (point.acc != null && isFinite(Number(point.acc))) item.acc = Number(point.acc);
+    if (point.spd != null && isFinite(Number(point.spd))) item.spd = Number(point.spd);
+    return item;
+  }
+
+  function isPointLike(point) {
+    if (!point || typeof point !== 'object' || point.obj == null) return false;
+    var lon = point.lon != null ? point.lon : point.lng;
+    return isFinite(Number(point.lat)) && isFinite(Number(lon));
+  }
+
+  function loadQueue() {
+    var rows = readStoredJson(LS_QUEUE, []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(isPointLike).map(normalizePoint).slice(-MAX_QUEUE);
+  }
+
+  function saveQueue() {
+    writeStoredJson(LS_QUEUE, state.queue);
+  }
+
+  function sameQueuedPoint(a, b) {
+    if (!a || !b) return false;
+    return String(a.obj) === String(b.obj) &&
+      Math.abs(Number(a.lat) - Number(b.lat)) < 1e-7 &&
+      Math.abs(Number(a.lon) - Number(b.lon)) < 1e-7;
+  }
+
+  function queueKey(point) {
+    return String(point.obj) + '|' + Number(point.lat).toFixed(7) + '|' +
+      Number(point.lon).toFixed(7) + '|' + String(point.t || '');
+  }
+
+  function enqueuePoint(point) {
+    if (!isPointLike(point)) return false;
+    var item = normalizePoint(point);
+    var last = state.queue[state.queue.length - 1];
+    // Без дублей подряд: одинаковая позиция не попадает в очередь дважды.
+    if (last && sameQueuedPoint(last, item)) {
+      updateQueueStatus();
+      return false;
+    }
+    state.queue.push(item);
+    while (state.queue.length > MAX_QUEUE) state.queue.shift();
+    saveQueue();
+    updateQueueStatus();
+    return true;
+  }
+
+  function removeQueuedPoint(point) {
+    if (!isPointLike(point)) return;
+    var key = queueKey(normalizePoint(point));
+    var before = state.queue.length;
+    state.queue = state.queue.filter(function (item) { return queueKey(item) !== key; });
+    if (state.queue.length !== before) {
+      saveQueue();
+      updateQueueStatus();
+    }
+  }
+
+  function two(value) {
+    value = Number(value) || 0;
+    return value < 10 ? ('0' + value) : String(value);
+  }
+
+  function clockTime(ms, withSeconds) {
+    var date = new Date(Number(ms));
+    if (!isFinite(date.getTime())) return '—';
+    var text = two(date.getHours()) + ':' + two(date.getMinutes());
+    return withSeconds ? (text + ':' + two(date.getSeconds())) : text;
+  }
+
+  function updateQueueStatus() {
+    var box = $('queueStatus');
+    if (!box) return;
+    var count = state.queue ? state.queue.length : 0;
+    var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    if (offline) {
+      box.textContent = 'офлайн: ' + count + ' точек в очереди · позиция от ' +
+        (state.lastPointAt ? clockTime(state.lastPointAt, false) : '—') + ' (нет связи)';
+      box.className = 'queue bad';
+      return;
+    }
+    box.textContent = 'офлайн: ' + count + ' точек в очереди · последняя отправка ' +
+      (state.lastTrackAt ? clockTime(state.lastTrackAt, true) : '—');
+    box.className = 'queue' + (count ? ' warn' : '');
+  }
+
+  function markTrackSuccess() {
+    state.lastTrackAt = Date.now();
+    try { localStorage.setItem(LS_LAST_TRACK, String(state.lastTrackAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function touchPointTime() {
+    state.lastPointAt = Date.now();
+    try { localStorage.setItem(LS_LAST_POINT, String(state.lastPointAt)); }
+    catch (error) { console.warn('[STORAGE]', error); }
+    updateQueueStatus();
+  }
+
+  function flushQueue() {
+    updateQueueStatus();
+    if (state.queueFlushing || !state.queue || !state.queue.length) return Promise.resolve();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
+    state.queueFlushing = true;
+    var sent = state.queue.slice();
+    var sentKeys = {};
+    sent.forEach(function (point) { sentKeys[queueKey(point)] = true; });
+    var started = performance.now();
+    return api('/api/v1/track', {
+      method: 'POST',
+      body: JSON.stringify({ points: sent })
+    }).then(function (rows) {
+      state.queue = state.queue.filter(function (point) { return !sentKeys[queueKey(point)]; });
+      saveQueue();
+      markTrackSuccess();
+      var results = Array.isArray(rows) ? rows : [];
+      var applied = 0;
+      var discarded = 0;
+      sent.forEach(function (point, index) {
+        var row = results[index];
+        if (row && row.applied === true) { applied += 1; return; }
+        discarded += 1;
+        addLog(point.obj, {
+          accepted: !!(row && row.accepted),
+          applied: false,
+          error: row ? row.error : 'нет ответа'
+        }, 0);
+        console.warn('[QUEUE] точка снята с очереди: applied=' +
+          (row ? row.applied : 'нет ответа'), point.obj, point.t);
+      });
+      addLog('очередь ×' + sent.length,
+        { accepted: true, applied: applied > 0 },
+        Math.round(performance.now() - started));
+      if (discarded) toast('Очередь: ' + discarded + ' точек не применены', 'err');
+      updateQueueStatus();
+      return rows;
+    }).catch(function (error) {
+      console.warn('[QUEUE] очередь не отправлена', error);
+      updateQueueStatus();
+    }).finally(function () {
+      state.queueFlushing = false;
+    });
+  }
+
+  function saveBatch() {
+    writeStoredJson(LS_BATCH, state.batch);
+  }
+
+  function restoreBatch() {
+    var rows = readStoredJson(LS_BATCH, []);
+    if (!Array.isArray(rows)) return;
+    state.batch = rows.filter(isPointLike).map(normalizePoint).slice(-MAX_QUEUE);
+    saveBatch();
+    if (state.batch.length) {
+      $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
+    }
+  }
+
+  // Введённую точку и выбранного агента не теряем при перезагрузке страницы.
+  function saveForm() {
+    if (restoringForm) return;
+    if (!$('agentSelect') || !$('customObj')) return;
+    writeStoredJson(LS_FORM, {
+      obj: $('agentSelect').value,
+      custom: $('customObj').value,
+      lat: $('latInput').value,
+      lon: $('lonInput').value,
+      savedAt: state.lastPointAt
+    });
+  }
+
+  function restoreForm() {
+    var form = readStoredJson(LS_FORM, null);
+    if (!form || typeof form !== 'object') return;
+    pendingForm = form;
+    $('customObj').value = form.custom || '';
+    $('latInput').value = form.lat || '';
+    $('lonInput').value = form.lon || '';
+    var lat = Number(form.lat);
+    var lon = Number(form.lon);
+    if (form.lat !== '' && form.lon !== '' && isFinite(lat) && isFinite(lon)) {
+      var savedAt = Number(form.savedAt) || 0;
+      restoringForm = true;
+      setPoint(lat, lon, true);
+      restoringForm = false;
+      if (savedAt) {
+        state.lastPointAt = savedAt;
+        try { localStorage.setItem(LS_LAST_POINT, String(savedAt)); }
+        catch (error) { console.warn('[STORAGE]', error); }
+        updateQueueStatus();
+      }
+    }
+    updateSelectedBadge();
   }
 
   var toastTimer = null;
@@ -347,6 +588,8 @@
         targetMarker.setLatLng([lat, lng]);
       }
     }
+    touchPointTime();
+    saveForm();
     updateSelectedBadge();
   }
 
@@ -409,6 +652,18 @@
       var found = Array.prototype.slice.call(select.options).some(function (option) { return option.value === current; });
       if (found) select.value = current;
     }
+    if (pendingForm && pendingForm.obj) {
+      var savedObj = String(pendingForm.obj);
+      var restored = Array.prototype.slice.call(select.options).some(function (option) {
+        return option.value === savedObj;
+      });
+      if (restored) {
+        select.value = savedObj;
+        state.selectedObj = savedObj;
+      }
+      pendingForm = null;
+      saveForm();
+    }
     updateSelectedBadge();
   }
 
@@ -461,22 +716,35 @@
   function flushBatch(silent) {
     if (!state.batch.length) return Promise.resolve();
     var points = state.batch.splice(0, state.batch.length);
+    saveBatch();
     var agent = selectedAgent();
     var started = performance.now();
     return api('/api/v1/track', {
       method: 'POST',
       body: JSON.stringify({ points: points })
     }).then(function (rows) {
-      var applied = (rows || []).filter(function (row) { return row && row.applied; }).length;
+      var results = Array.isArray(rows) ? rows : [];
+      var applied = results.filter(function (row) { return row && row.applied; }).length;
+      results.forEach(function (row, index) {
+        if (row && row.applied === true) return;
+        addLog(points[index] ? points[index].obj : 'пакет', {
+          accepted: !!(row && row.accepted),
+          applied: false,
+          error: row ? row.error : 'нет ответа'
+        }, 0);
+      });
       addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
         { accepted: true, applied: applied > 0 }, Math.round(performance.now() - started));
       $('beaconMeta').textContent = state.beaconSends + ' отправок · пакет ' + points.length;
+      markTrackSuccess();
       if (!silent) toast('Пакет: ' + applied + ' из ' + points.length + ' принято', applied ? 'ok' : 'err');
       return rows;
     }).catch(function (error) {
+      // Пакет не ушёл — сохраняем точки в офлайн-очередь, а не теряем.
+      points.forEach(enqueuePoint);
       addLog((agent ? agent.obj : 'пакет') + ' ×' + points.length,
         { accepted: false, applied: false, error: error.message }, 0);
-      if (!silent) toast(error.message, 'err');
+      if (!silent) toast(error.message + ' · точки в очереди', 'err');
     });
   }
 
@@ -496,6 +764,7 @@
       if (point.acc != null) batchPoint.acc = point.acc;
       if (point.spd != null) batchPoint.spd = point.spd;
       state.batch.push(batchPoint);
+      saveBatch();
       $('beaconMeta').textContent = 'в пакете: ' + state.batch.length;
       return state.batch.length >= 5 ? flushBatch(silent) : Promise.resolve();
     }
@@ -515,13 +784,21 @@
     }).then(function (result) {
       var ms = Math.round(performance.now() - started);
       addLog(agent.obj, result, ms);
+      if (result.applied) {
+        markTrackSuccess();
+      } else {
+        console.warn('[TRACK] точка не применена', agent.obj, payload.t);
+      }
+      removeQueuedPoint(payload);
       if (!silent) {
         toast(result.applied ? 'Точка принята' : 'Сервер не знает такого агента', result.applied ? 'ok' : 'err');
       }
       return result;
     }).catch(function (error) {
+      // Неудачную отправку складываем в localStorage-очередь для повтора.
+      enqueuePoint(payload);
       addLog(agent.obj, { accepted: false, applied: false, error: error.message }, Math.round(performance.now() - started));
-      if (!silent) toast(error.message, 'err');
+      if (!silent) toast(error.message + ' · точка в очереди', 'err');
     }).finally(function () {
       state.sending = false;
     });
@@ -549,7 +826,7 @@
     if ($('beaconSource').value === 'gps' && !startGps()) return;
     var interval = Number($('beaconInterval').value) || 2000;
     state.beaconSends = 0;
-    state.batch = [];
+    if (state.batch.length) flushBatch(true);
     $('beaconBox').classList.add('on');
     $('beaconTitle').textContent = 'Маяк: ' + agent.obj;
     $('beaconMeta').textContent = '0 отправок';
@@ -641,8 +918,11 @@
 
   function startUi() {
     initMap();
+    restoreBatch();
+    restoreForm();
     $('agentSelect').onchange = function () {
       state.selectedObj = this.value;
+      saveForm();
       updateSelectedBadge();
       var agent = selectedAgent();
       if (agent) {
@@ -653,7 +933,10 @@
         if (item && isFinite(Number(item.lat))) setPoint(Number(item.lat), Number(item.lng), true);
       }
     };
-    $('customObj').oninput = updateSelectedBadge;
+    $('customObj').oninput = function () {
+      saveForm();
+      updateSelectedBadge();
+    };
     $('latInput').onchange = function () { setPoint(Number(this.value), Number($('lonInput').value), true); };
     $('lonInput').onchange = function () { setPoint(Number($('latInput').value), Number(this.value), true); };
     $('sendBtn').onclick = function () { sendPoint(false); };
@@ -667,6 +950,15 @@
     loadLocation().then(refreshAgents);
     connectStream();
     setInterval(refreshAgents, 10000);
+    setInterval(flushQueue, 10000);
+    window.addEventListener('online', function () {
+      updateQueueStatus();
+      flushQueue();
+    });
+    window.addEventListener('offline', updateQueueStatus);
+    updateQueueStatus();
+    if (state.batch.length) flushBatch(true);
+    flushQueue();
   }
 
   document.addEventListener('DOMContentLoaded', boot);

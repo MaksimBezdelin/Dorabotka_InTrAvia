@@ -1209,5 +1209,19 @@ function logout() {
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
+
+<script>
+/* Серверная сессия — источник истины для роли. */
+(function () {
+    fetch('/api/auth/session').then(function (r) {
+        return r.json().catch(function () { return {}; });
+    }).then(function (body) {
+        if (!body || !body.user || body.user.role !== 'mcc') {
+            sessionStorage.removeItem('userSession');
+            window.location.href = '/login.html';
+        }
+    }).catch(function () {});
+})();
+</script>
 </body>
 </html>

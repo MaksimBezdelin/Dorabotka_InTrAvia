@@ -405,6 +405,25 @@
         .candidates-table th { text-align: left; padding: 7px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--aero-gray); border-bottom: 1px solid var(--aero-gray-light); }
         .candidates-table td { padding: 7px 8px; border-bottom: 1px solid var(--aero-gray-light); vertical-align: top; }
         .candidates-table tr:last-child td { border-bottom: none; }
+        .candidates-table tr.candidate-best td { background: #f0fdf4; }
+        .candidates-table tr.candidate-best td:first-child { box-shadow: inset 3px 0 0 var(--aero-green); }
+        .candidate-best-label {
+            display: inline-block; margin-left: 6px; padding: 1px 6px;
+            border-radius: 4px; background: #dcfce7; color: var(--aero-green);
+            font-size: 9px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .tool-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 10px; font-weight: 700; white-space: nowrap;
+            vertical-align: middle;
+        }
+        .tool-badge.available { background: #dcfce7; color: var(--aero-green); }
+        .tool-badge.missing { background: #fee2e2; color: var(--aero-red); }
+        .tool-badge.warehouse { background: #fef3c7; color: #b45309; }
+        .request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .request-actions .btn { flex: 0 0 auto; }
         .request-item .req-title { font-weight: 600; font-size: 13px; }
         .request-item .req-detail { font-size: 12px; color: var(--aero-text-light); margin-top: 2px; }
         .request-item .req-delete-btn {
@@ -2102,6 +2121,7 @@ function processRequestsData(data) {
             engineerId: t.engineer_id || null,
             time: t.travel_time || 0,
             status: t.status || 'assigned',
+            toolStatus: t.tool_status || null,
             criticality: t.criticality || 'medium',
             comment: t.engineer_comment || '',
             isReplacement: !!t.replaces_request_id,
@@ -3805,20 +3825,24 @@ function updateActiveRequests() {
         // Длительность маршрута отображается на карте рядом с линией маршрута.
         var statusText = req.engineerId ? 'Назначен' : (req.status === 'queued' ? 'Ожидает назначения' : 'Автоподбор инженера');
         var statusColor = req.engineerId ? 'var(--aero-blue)' : 'var(--aero-orange)';
+        if (req.status === 'awaiting_parts') { statusText = 'Ожидание запчастей'; statusColor = 'var(--aero-orange)'; }
+        else if (req.status === 'in_progress') { statusText = 'В работе'; statusColor = 'var(--aero-green)'; }
+        else if (req.status === 'arriving') { statusText = 'В пути'; statusColor = 'var(--aero-blue)'; }
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
         var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
         var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : req.engineer);
+        var toolBadge = toolStatusBadgeHtml(req.toolStatus);
 
-        html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
+        html += '<div class="request-item" onclick="openRequestModal(\'' + escapeHtml(req.id) + '\')">' +
             '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + escapeHtml(req.aircraft) + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
-            '<div class="req-detail">' + escapeHtml(req.fault) + ' • Стоянка ' + escapeHtml(req.parking) + '</div>' +
+            '<div class="req-detail">' + escapeHtml(req.fault) + ' • Стоянка ' + escapeHtml(req.parking) + (toolBadge ? ' ' + toolBadge : '') + '</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
             '<div style="font-weight:600;font-size:13px;">' + escapeHtml(assignedEngineerText) + '</div>' +
             '<div class="req-status" style="color:' + statusColor + ';">' + statusText + '</div>' +
             '</div>' +
-            '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
+            '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + escapeHtml(req.id) + '\')"><i class="fas fa-trash"></i></button>' +
             '</div></div>';
     }
     list.innerHTML = html;
@@ -3855,6 +3879,148 @@ function showToast(message, type) {
     }, 3500);
 }
 
+var TOOL_STATUS_META = {
+    available: { label: 'Инструмент: есть', cls: 'available', icon: 'fa-toolbox' },
+    missing: { label: 'Инструмент: нет', cls: 'missing', icon: 'fa-toolbox' },
+    warehouse: { label: 'Инструмент: на складе', cls: 'warehouse', icon: 'fa-warehouse' }
+};
+
+function toolStatusBadgeHtml(value) {
+    var meta = TOOL_STATUS_META[value];
+    if (!meta) return '';
+    return '<span class="tool-badge ' + meta.cls + '"><i class="fas ' + meta.icon + '"></i> ' +
+        escapeHtml(meta.label) + '</span>';
+}
+
+function findTicketById(ticketId) {
+    for (var i = 0; i < state.tickets.length; i++) {
+        if (state.tickets[i].id === ticketId) return state.tickets[i];
+    }
+    return null;
+}
+
+function findActiveRequestById(ticketId) {
+    for (var i = 0; i < state.activeRequests.length; i++) {
+        if (state.activeRequests[i].id === ticketId) return state.activeRequests[i];
+    }
+    return null;
+}
+
+// Разбирает ответ сервера даже если это HTML/пустая строка (например, эндпоинта ещё нет).
+function apiPostJson(path, payload) {
+    return fetch(API_URL + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    }).then(function(res) {
+        return res.text().then(function(text) {
+            var body = {};
+            if (text) {
+                try { body = JSON.parse(text); }
+                catch (_) { body = { error: 'Сервер вернул неожиданный ответ' }; }
+            }
+            return { ok: res.ok, body: body || {} };
+        });
+    }).catch(function(error) {
+        throw new Error(error && error.message ? error.message : 'Ошибка соединения');
+    });
+}
+
+function finishRequestAction(message, type) {
+    showToast(message, type || 'success');
+    closeRequestModal();
+    loadRequestsOnly();
+    renderAll();
+}
+
+function startRequestWork(ticketId) {
+    var activeReq = findActiveRequestById(ticketId);
+    var ticket = findTicketById(ticketId);
+    var engineerId = (activeReq && activeReq.engineerId) || (ticket && ticket.engineer_id) || null;
+    if (!engineerId) { showToast('Инженер не назначен на заявку', 'error'); return; }
+    apiPostJson('/requests/' + encodeURIComponent(ticketId) + '/start', { engineer_id: engineerId })
+        .then(function(result) {
+            if (!result.ok || !result.body.success) {
+                throw new Error(result.body.error || 'Не удалось перевести заявку в работу');
+            }
+            finishRequestAction('Заявка переведена в работу', 'success');
+        })
+        .catch(function(error) { showToast(error.message, 'error'); });
+}
+
+function unassignRequest(ticketId) {
+    var activeReq = findActiveRequestById(ticketId);
+    var ticket = findTicketById(ticketId);
+    var status = (activeReq && activeReq.status) || (ticket && ticket.status) || '';
+    var reason = window.prompt('Причина снятия инженера с заявки:', '');
+    if (reason === null) return;
+    reason = String(reason).trim();
+    if (!reason) { showToast('Причина снятия обязательна', 'error'); return; }
+
+    // После начала работ / выезда подтверждение старшего обязательно
+    // (бэкенд требует confirmed_by для arriving, in_progress и working).
+    var needConfirm = (status === 'arriving' || status === 'in_progress' || status === 'working');
+    var confirmedBy = window.prompt(
+        'Подтверждение старшего (ФИО / должность)' + (needConfirm ? ' — обязательно:' : ' — необязательно:'),
+        needConfirm ? '' : getCurrentDispatcherName()
+    );
+    if (confirmedBy === null) return;
+    confirmedBy = String(confirmedBy).trim();
+    if (needConfirm && !confirmedBy) {
+        showToast('После начала работ подтверждение старшего обязательно', 'error');
+        return;
+    }
+    var aircraft = (ticket && ticket.aircraft) || ticketId;
+    if (!window.confirm('Снять инженера с заявки ' + aircraft + '?')) return;
+
+    apiPostJson('/requests/' + encodeURIComponent(ticketId) + '/unassign', {
+        reason: reason,
+        confirmed_by: confirmedBy
+    }).then(function(result) {
+        if (!result.ok || !result.body.success) {
+            throw new Error(result.body.error || 'Не удалось снять инженера с заявки');
+        }
+        finishRequestAction('Инженер снят с заявки', 'success');
+    }).catch(function(error) { showToast(error.message, 'error'); });
+}
+
+function setAwaitingParts(ticketId) {
+    var reason = window.prompt('Причина ожидания запчастей:', '');
+    if (reason === null) return;
+    reason = String(reason).trim();
+    if (!reason) { showToast('Причина ожидания запчастей обязательна', 'error'); return; }
+    var by = window.prompt('Кто фиксирует ожидание (ФИО / должность):', getCurrentDispatcherName());
+    if (by === null) return;
+    by = String(by).trim();
+    if (!by) { showToast('Укажите, кто фиксирует ожидание', 'error'); return; }
+
+    apiPostJson('/requests/' + encodeURIComponent(ticketId) + '/awaiting_parts', {
+        reason: reason,
+        by: by
+    }).then(function(result) {
+        if (!result.ok || !result.body.success) {
+            throw new Error(result.body.error || 'Не удалось перевести заявку в ожидание запчастей');
+        }
+        finishRequestAction('Заявка переведена в ожидание запчастей', 'warning');
+    }).catch(function(error) { showToast(error.message, 'error'); });
+}
+
+function markPartsReceived(ticketId) {
+    var by = window.prompt('Кто принял запчасти (ФИО / должность):', getCurrentDispatcherName());
+    if (by === null) return;
+    by = String(by).trim();
+    if (!by) { showToast('Укажите, кто принял запчасти', 'error'); return; }
+
+    apiPostJson('/requests/' + encodeURIComponent(ticketId) + '/parts_received', { by: by })
+        .then(function(result) {
+            if (!result.ok || !result.body.success) {
+                throw new Error(result.body.error || 'Не удалось отметить получение запчастей');
+            }
+            finishRequestAction('Запчасти получены — заявка возвращена диспетчеру', 'success');
+        })
+        .catch(function(error) { showToast(error.message, 'error'); });
+}
+
 function openRequestModal(ticketId) {
     var ticket = null;
     for (var i = 0; i < state.tickets.length; i++) if (state.tickets[i].id === ticketId) { ticket = state.tickets[i]; break; }
@@ -3879,12 +4045,38 @@ function openRequestModal(ticketId) {
         reportBlock = '<div class="report-block"><div class="report-label"><i class="fas fa-clipboard-check"></i> Отчёт инженера</div><div class="report-body">' + escapeHtml(reportText) + '</div></div>';
     }
 
-    var needsAssignment = (ticket.routing_stage === 'dispatcher') ||
-        (activeReq && !activeReq.engineerId);
+    var currentStatus = (activeReq && activeReq.status) || ticket.status || '';
+    var needsAssignment = currentStatus !== 'awaiting_parts' &&
+        ((ticket.routing_stage === 'dispatcher') || (activeReq && !activeReq.engineerId));
     var assignBlock = needsAssignment
         ? '<div class="form-group" style="grid-column:1/-1;"><label>Кандидаты на назначение</label>' +
           '<div id="candidatesTable" style="max-height:260px;overflow:auto;"><div class="empty-state"><p>Загрузка кандидатов…</p></div></div></div>'
         : '';
+
+    var requestStatus = currentStatus;
+    var engineerId = (activeReq && activeReq.engineerId) || ticket.engineer_id || null;
+    var toolStatus = (activeReq && activeReq.toolStatus) || ticket.tool_status || null;
+    var safeTicketId = escapeHtml(ticket.id);
+    var actionButtons = [];
+    // Ожидание запчастей освобождает инженера, поэтому «Запчасти получены»
+    // должно быть доступно и без назначенного инженера.
+    if (requestStatus === 'awaiting_parts') {
+        actionButtons.push('<button class="btn btn-primary" onclick="markPartsReceived(\'' + safeTicketId + '\')"><i class="fas fa-boxes-packing"></i> Запчасти получены</button>');
+    }
+    if (engineerId) {
+        if (requestStatus === 'assigned' || requestStatus === 'arriving') {
+            actionButtons.push('<button class="btn btn-success" onclick="startRequestWork(\'' + safeTicketId + '\')"><i class="fas fa-play"></i> В работу</button>');
+        }
+        if (requestStatus !== 'awaiting_parts') {
+            actionButtons.push('<button class="btn btn-warning" onclick="setAwaitingParts(\'' + safeTicketId + '\')"><i class="fas fa-box-open"></i> Ожидание запчастей</button>');
+        }
+        actionButtons.push('<button class="btn btn-danger" onclick="unassignRequest(\'' + safeTicketId + '\')"><i class="fas fa-user-slash"></i> Снять с заявки</button>');
+    }
+    var actionsBlock = actionButtons.length
+        ? '<div class="form-group"><label>Действия по заявке</label><div class="request-actions">' + actionButtons.join('') + '</div></div>'
+        : '';
+    var toolBadge = toolStatusBadgeHtml(toolStatus) ||
+        '<span style="font-size:12px;color:var(--aero-gray);">не указан</span>';
 
     document.getElementById('requestModalTitle').textContent = 'Заявка: ' + (ticket.aircraft || ticket.id);
     document.getElementById('requestModalContent').innerHTML =
@@ -3892,7 +4084,9 @@ function openRequestModal(ticketId) {
         '<div class="form-group"><label>Неисправность</label><input type="text" value="' + escapeHtml(ticket.fault_type || '') + '" disabled style="background:#f8fafc;"></div>' +
         '<div class="form-group"><label>Стоянка</label><input type="text" value="' + escapeHtml(ticket.parking_id || '') + '" disabled style="background:#f8fafc;"></div>' +
         '<div class="form-group"><label>Инженер</label><input type="text" value="' + escapeHtml(activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
+        '<div class="form-group"><label>Инструмент</label><div style="padding:4px 0;">' + toolBadge + '</div></div>' +
         '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + escapeHtml(routeBreakdown) + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
+        actionsBlock +
         assignBlock +
         reportBlock +
         '<div class="form-group"><label>Статус</label><select id="statusSelect">' +
@@ -3905,7 +4099,7 @@ function openRequestModal(ticketId) {
         '<option value="medium" ' + (ticket.criticality === 'medium' ? 'selected' : '') + '>Средняя</option>' +
         '<option value="high" ' + (ticket.criticality === 'high' ? 'selected' : '') + '>Высокая</option>' +
         '</select></div>' +
-        '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + ticket.id + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
+        '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + safeTicketId + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
     document.getElementById('requestModal').classList.add('show');
     if (needsAssignment) loadDispatcherCandidates(ticket.id);
 }
@@ -3925,20 +4119,31 @@ function loadDispatcherCandidates(ticketId) {
             var html = '<table class="candidates-table"><thead><tr>' +
                 '<th>Инженер</th><th>Допуск</th><th>Занятость</th><th>В пути</th>' +
                 '<th>Загрузка</th><th>Оценка</th><th>Основание</th><th></th></tr></thead><tbody>';
+            var firstEligibleShown = false;
             for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                var eligible = !!row.eligible;
-                html += '<tr style="' + (eligible ? '' : 'opacity:0.55;') + '">' +
-                    '<td><b>' + escapeHtml(row.device_id || row.engineer_id) + '</b><br>' +
-                    '<span style="font-size:11px;color:#8a9bb5;">' + escapeHtml(row.name || '') + '</span></td>' +
+                var row = rows[i] || {};
+                var eligible = (row.eligible === true || row.eligible === 1 ||
+                                row.eligible === '1' || row.eligible === 'true');
+                var engineerId = row.engineer_id || row.id || '';
+                var engineerName = row.name || row.engineer_name || '';
+                var deviceId = row.device_id || engineerId;
+                var isBest = eligible && !firstEligibleShown;
+                if (isBest) firstEligibleShown = true;
+                var rowClass = (eligible ? '' : 'ineligible') + (isBest ? ' candidate-best' : '');
+                html += '<tr class="' + rowClass + '"' + (eligible ? '' : ' style="opacity:0.55;"') + '>' +
+                    '<td><b>' + escapeHtml(deviceId) + '</b>' + (isBest ? '<span class="candidate-best-label">Рекомендован</span>' : '') + '<br>' +
+                    '<span style="font-size:11px;color:#8a9bb5;">' + escapeHtml(engineerName) + '</span></td>' +
                     '<td>' + escapeHtml(row.specialization || '—') + '</td>' +
                     '<td>' + (eligible ? 'свободен' : '—') + '</td>' +
-                    '<td>' + (eligible ? escapeHtml(row.travel_time) + ' мин' : '—') + '</td>' +
-                    '<td>' + (eligible ? escapeHtml(row.workload) : '—') + '</td>' +
-                    '<td>' + (eligible ? '<b>' + escapeHtml(row.score) + '</b>' : '—') + '</td>' +
+                    '<td>' + (eligible ? escapeHtml(row.travel_time != null ? row.travel_time : '—') + ' мин' : '—') + '</td>' +
+                    '<td>' + (eligible ? escapeHtml(row.workload != null ? row.workload : '—') : '—') + '</td>' +
+                    '<td>' + (eligible ? '<b>' + escapeHtml(row.score != null ? row.score : '—') + '</b>' : '—') + '</td>' +
                     '<td style="font-size:11px;max-width:260px;">' + escapeHtml(row.reason || '') + '</td>' +
-                    '<td>' + (eligible
-                        ? '<button class="btn-sm btn-primary" onclick="assignCandidate(\'' + ticketId + '\',\'' + escapeHtml(row.engineer_id) + '\',\'' + escapeHtml(row.name || row.device_id) + '\')">Назначить</button>'
+                    '<td>' + (eligible && engineerId
+                        ? '<button class="btn-sm btn-primary" data-ticket-id="' + escapeHtml(ticketId) +
+                          '" data-engineer-id="' + escapeHtml(engineerId) +
+                          '" data-engineer-name="' + escapeHtml(engineerName || deviceId) +
+                          '" onclick="assignCandidate(this.getAttribute(\'data-ticket-id\'), this.getAttribute(\'data-engineer-id\'), this.getAttribute(\'data-engineer-name\'))">Назначить</button>'
                         : '') + '</td></tr>';
             }
             html += '</tbody></table>';

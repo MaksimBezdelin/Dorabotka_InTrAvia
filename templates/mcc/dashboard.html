@@ -1860,5 +1860,19 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('[InTrAvia MCC] Init OK');
 });
 </script>
+
+<script>
+/* Серверная сессия — источник истины для роли. */
+(function () {
+    fetch('/api/auth/session').then(function (r) {
+        return r.json().catch(function () { return {}; });
+    }).then(function (body) {
+        if (!body || !body.user || body.user.role !== 'mcc') {
+            sessionStorage.removeItem('userSession');
+            window.location.href = '/login.html';
+        }
+    }).catch(function () {});
+})();
+</script>
 </body>
 </html>
