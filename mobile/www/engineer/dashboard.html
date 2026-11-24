@@ -495,6 +495,9 @@
         var lastMapFittedRequestId = null;
         // Телефонная геолокация отправляется отдельно от симуляционных coords.
         var currentPosition = null;
+        // Демо-движение по маршруту включается только явно: ?demo=1.
+        // В полевом режиме двигаться должна только реальная GPS-метка.
+        var DEMO_MOVEMENT = /[?&]demo=1(?:&|$)/.test(window.location.search);
         var geoMarker = null;
         var lastGeo = null;
         var GPS_SYNC_INTERVAL_MS = 500; // целевая частота отправки/синхронизации: 2 раза в секунду
@@ -1173,6 +1176,13 @@
                     .addTo(map).bindPopup('Ваше местоположение');
             } else {
                 geoMarker.setLatLng([lat, lng]);
+            }
+            // Живой GPS всегда главнее демо-анимации: останавливаем её и убираем
+            // зелёный маркер «Я», чтобы не было двух разных «положений».
+            if (moveInterval) stopMoving();
+            if (routeMarkers['start']) {
+                try { map.removeLayer(routeMarkers['start']); } catch (e) {}
+                delete routeMarkers['start'];
             }
             var markerEl = geoMarker.getElement && geoMarker.getElement();
             var arrow = markerEl && markerEl.querySelector('.gps-direction-arrow');
@@ -1856,19 +1866,35 @@
             routeMarkers['polyline'] = polyline;
             routeMarkers['polylineFullPath'] = latlngs.slice();
 
-            var startIcon = L.divIcon({
-                className: 'employee-marker',
-                html: '<div style="background:#2ecc71;width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;">Я</div>',
-                iconSize: [30, 30], iconAnchor: [15, 15]
-            });
-            var startLat = routeData.from.lat;
-            var startLng = routeData.from.lng;
-            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
-                startLat = engineerData.coords_lat;
-                startLng = engineerData.coords_lng;
+            // Первый отрезок от точки вне графа до ближайшего узла — это не дорога,
+            // а подход к графу. Показываем его отдельным пунктиром.
+            if (routeData.path && routeData.path.length > 2 && latlngs === routeData.path) {
+                var offGraphM = haversineM(routeData.path[0][0], routeData.path[0][1],
+                                           routeData.path[1][0], routeData.path[1][1]);
+                if (offGraphM > 50) {
+                    L.polyline([routeData.path[0], routeData.path[1]], {
+                        color: '#94a3b8', weight: 4, dashArray: '2, 7', opacity: 0.9
+                    }).addTo(map).bindTooltip('Подход к графу дорог', { sticky: true });
+                }
             }
-            routeMarkers['start'] = L.marker([startLat, startLng], { icon: startIcon })
-                .addTo(map).bindPopup('Ваше текущее положение');
+
+            // Зелёный маркер «Я» — только демо-анимация. При живом GPS его нет,
+            // положение показывает geoMarker с попапом «Ваше местоположение».
+            if (DEMO_MOVEMENT && !currentPosition) {
+                var startIcon = L.divIcon({
+                    className: 'employee-marker',
+                    html: '<div style="background:#2ecc71;width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;">Я</div>',
+                    iconSize: [30, 30], iconAnchor: [15, 15]
+                });
+                var startLat = routeData.from.lat;
+                var startLng = routeData.from.lng;
+                if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
+                    startLat = engineerData.coords_lat;
+                    startLng = engineerData.coords_lng;
+                }
+                routeMarkers['start'] = L.marker([startLat, startLng], { icon: startIcon })
+                    .addTo(map).bindPopup('Демо-движение по маршруту');
+            }
 
             if (routeData.usingCar && routeData.bestCarLat != null && routeData.bestCarLng != null) {
                 var carIcon = L.divIcon({
@@ -2571,6 +2597,7 @@
         }
 
         function startMoving() {
+            if (!DEMO_MOVEMENT || currentPosition) { return; }
             if (!currentRoute || !currentRoute.path || currentRoute.path.length < 2) {
                 console.warn('[MOVE] нет path для движения');
                 return;
@@ -2632,6 +2659,7 @@
         }
 
         function tickMove() {
+            if (currentPosition) { stopMoving(); return; }
             if (!movePath || !moveTotalDist) { stopMoving(); return; }
             var elapsed = Date.now() - moveStartedAt;
             var progress = elapsed / moveTotalMs;

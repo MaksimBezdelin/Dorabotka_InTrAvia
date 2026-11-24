@@ -3524,6 +3524,14 @@ def start_request(rid):
                         'error': 'Заявка назначена другому инженеру'}), 403
 
     if row['status'] == 'in_progress':
+        # Если работа уже начата, но task_step не был переведён из pending
+        # (старый клиент/прямой вызов /start), исправляем это: иначе
+        # автоприбытие по геозоне не сработает.
+        if row['engineer_id']:
+            cur.execute("""UPDATE engineers SET task_step=CASE
+                           WHEN COALESCE(task_step,'') IN ('','pending','idle') THEN 'accepted'
+                           ELSE task_step END WHERE id=?""", (row['engineer_id'],))
+            conn.commit()
         conn.close()
         return jsonify({'success': True, 'status': 'in_progress',
                         'already_started': True})
@@ -3536,6 +3544,12 @@ def start_request(rid):
     cur.execute("""UPDATE requests
                    SET status='in_progress', routing_stage='technician'
                    WHERE id=?""", (rid,))
+    # Начало работ подразумевает, что инженер принял назначение. Иначе
+    # task_step остаётся pending и автоприбытие по геозоне не срабатывает.
+    if row['engineer_id']:
+        cur.execute("""UPDATE engineers SET task_step=CASE
+                       WHEN COALESCE(task_step,'') IN ('','pending','idle') THEN 'accepted'
+                       ELSE task_step END WHERE id=?""", (row['engineer_id'],))
     _log_routing_event(conn, rid, 'in_progress', actor,
                        'Инженер приступил к работе')
     conn.commit()
