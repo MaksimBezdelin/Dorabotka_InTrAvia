@@ -950,6 +950,7 @@
         </div>
     </div>
 
+    <script src="../static/js/server-config.js"></script>
     <script>
         /* ============================================================
            InTrAvia Dispatch — Admin Dashboard Script
@@ -959,7 +960,7 @@
            Звание пилота хранится и выводится на русском.
            ============================================================ */
 
-        var API_URL = '/api';
+        var API_URL = (window.IntrAvia && IntrAvia.serverUrl()) ? (IntrAvia.serverUrl() + '/api') : '/api';
 
         var STATUS_LABELS = {
             'free': 'Свободен',
@@ -1011,16 +1012,16 @@
            ============================================================ */
         function init() {
             var session = sessionStorage.getItem('userSession');
-            if (!session) { window.location.href = '/login.html'; return; }
+            if (!session) { window.location.href = '../login.html'; return; }
 
             var user;
             try {
                 user = JSON.parse(session);
-                if (user.role !== 'admin') { window.location.href = '/login.html'; return; }
+                if (user.role !== 'admin') { window.location.href = '../login.html'; return; }
                 document.getElementById('userName').textContent = user.name || 'Администратор';
                 document.getElementById('userAvatar').textContent = user.avatar || '👨‍💼';
                 document.getElementById('userRole').textContent = 'Администратор системы';
-            } catch (_) { window.location.href = '/login.html'; return; }
+            } catch (_) { window.location.href = '../login.html'; return; }
 
             var now = new Date();
             var months = ['января','февраля','марта','апреля','мая','июня',
@@ -1920,7 +1921,7 @@
         function logout() {
             if (loadInterval) clearInterval(loadInterval);
             sessionStorage.removeItem('userSession');
-            window.location.href = '/login.html';
+            window.location.href = '../login.html';
         }
 
         document.addEventListener('DOMContentLoaded', init);

@@ -64,6 +64,28 @@
 
         .department-section { display: none; flex-direction: column; gap: 16px; animation: fadeIn 0.3s ease; }
         .department-section.active { display: flex; }
+
+        /* CURRENT AIRPORT */
+        .airport-current-box { display: flex; align-items: center; gap: 16px; padding: 18px 20px; background: var(--aero-blue-pale); border: 1px solid #cfe0f7; border-radius: 10px; }
+        .airport-current-icon { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, var(--aero-blue) 0%, var(--aero-blue-light) 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0,51,102,0.22); }
+        .airport-current-title { font-size: 11px; font-weight: 600; color: var(--aero-text-light); text-transform: uppercase; letter-spacing: 0.4px; }
+        .airport-current-name { font-size: 21px; font-weight: 700; color: var(--aero-text); margin-top: 2px; line-height: 1.2; }
+        .airport-current-meta { font-size: 12px; color: var(--aero-gray); margin-top: 3px; }
+        .airport-controls { display: flex; align-items: flex-end; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
+        .airport-controls .form-group { flex: 1; min-width: 240px; margin-bottom: 0; }
+        .airport-controls .form-group label { display: block; font-size: 11px; font-weight: 600; color: var(--aero-text-light); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .airport-controls .form-group select { width: 100%; padding: 10px 14px; border: 2px solid var(--aero-gray-light); border-radius: 10px; font-size: 14px; font-family: inherit; background: #fafbfc; color: var(--aero-text); font-weight: 500; transition: all var(--transition); cursor: pointer; }
+        .airport-controls .form-group select:focus { outline: none; border-color: var(--aero-blue); background: #fff; box-shadow: 0 0 0 4px rgba(0,51,102,0.08); }
+        #confirmAirportBtn { padding: 10px 24px; font-size: 13px; border-radius: 10px; height: 42px; }
+        #confirmAirportBtn:disabled { opacity: 0.65; cursor: wait; }
+        .airport-status { margin-top: 14px; font-size: 12px; color: var(--aero-text-light); min-height: 18px; }
+        .airport-status.success { color: var(--aero-green); font-weight: 600; }
+        .airport-status.error { color: var(--aero-red); font-weight: 600; }
+        @media (max-width: 768px) {
+            .airport-controls { flex-direction: column; align-items: stretch; }
+            .airport-controls .form-group { min-width: 0; }
+            #confirmAirportBtn { width: 100%; justify-content: center; }
+        }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; flex-shrink: 0; }
@@ -178,6 +200,9 @@
         <ul class="sidebar-nav">
             <li class="active" id="nav-overview" onclick="showSection('overview', this)">
                 <a href="#"><i class="fas fa-chart-pie"></i><span>Обзор</span></a>
+            </li>
+            <li id="nav-airport" onclick="showSection('airport', this)">
+                <a href="#"><i class="fas fa-plane-departure"></i><span>Текущий аэропорт</span></a>
             </li>
             <li id="nav-admins" onclick="showSection('admins', this)">
                 <a href="#"><i class="fas fa-user-shield"></i><span>Администраторы</span></a>
@@ -426,6 +451,38 @@
             </div>
         </div>
 
+        <div class="department-section" id="section-airport">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Текущий аэропорт</h3>
+                    <button class="btn-sm btn-secondary" type="button" onclick="loadCurrentAirport(true)">
+                        <i class="fas fa-sync-alt"></i> Обновить
+                    </button>
+                </div>
+                <div class="airport-current-box">
+                    <div class="airport-current-icon"><i class="fas fa-plane-departure"></i></div>
+                    <div>
+                        <div class="airport-current-title">Сейчас в системе выбран</div>
+                        <div class="airport-current-name" id="currentAirportName">Загрузка…</div>
+                        <div class="airport-current-meta" id="currentAirportMeta"></div>
+                    </div>
+                </div>
+                <div class="airport-controls">
+                    <div class="form-group">
+                        <label for="airportSelect">Выберите аэропорт</label>
+                        <select id="airportSelect" class="form-control">
+                            <option value="svo">Шереметьево (SVO)</option>
+                            <option value="vdnh">ВДНХ</option>
+                        </select>
+                    </div>
+                    <button class="btn-sm btn-primary" type="button" id="confirmAirportBtn" onclick="confirmCurrentAirport()">
+                        <i class="fas fa-check"></i> Подтвердить
+                    </button>
+                </div>
+                <div class="airport-status" id="airportStatus">Выберите аэропорт и нажмите «Подтвердить». Карты в системе обновятся при следующем открытии или обновлении страниц.</div>
+            </div>
+        </div>
+
     </div>
 
     <div class="modal-overlay" id="editModal">
@@ -462,6 +519,112 @@
                 element.classList.add('active');
                 document.getElementById('pageTitle').textContent = element.innerText.trim();
             }
+            if (sectionId === 'airport') loadCurrentAirport();
+        }
+
+        // ── Текущий аэропорт ──
+        var CURRENT_AIRPORT = null;
+        var AIRPORT_NAMES = { svo: 'Шереметьево (SVO)', vdnh: 'ВДНХ' };
+
+        function formatAirportDate(iso) {
+            if (!iso) return '';
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            try { return d.toLocaleString('ru-RU'); } catch (_) { return d.toISOString(); }
+        }
+
+        function renderCurrentAirport(data) {
+            var nameEl = document.getElementById('currentAirportName');
+            var metaEl = document.getElementById('currentAirportMeta');
+            var sel = document.getElementById('airportSelect');
+            if (nameEl) nameEl.textContent = data.name || AIRPORT_NAMES[data.airport] || data.airport || '—';
+            if (metaEl) {
+                var parts = [];
+                if (data.confirmed_at) parts.push('Подтверждён: ' + formatAirportDate(data.confirmed_at));
+                if (data.confirmed_by) parts.push('Кем: ' + data.confirmed_by);
+                metaEl.textContent = parts.length ? parts.join(' · ') : 'Подтверждение ещё не выполнялось';
+            }
+            if (sel && data.airport) sel.value = data.airport;
+        }
+
+        function loadCurrentAirport(manual) {
+            var statusEl = document.getElementById('airportStatus');
+            if (manual && statusEl) {
+                statusEl.className = 'airport-status';
+                statusEl.textContent = 'Обновление…';
+            }
+            fetch(API_URL + '/system/current-airport')
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(data) {
+                    CURRENT_AIRPORT = data.airport;
+                    renderCurrentAirport(data);
+                    if (statusEl) {
+                        statusEl.className = 'airport-status';
+                        statusEl.textContent = 'Выберите аэропорт и нажмите «Подтвердить». Карты в системе обновятся при следующем открытии или обновлении страниц.';
+                    }
+                })
+                .catch(function(e) {
+                    var nameEl = document.getElementById('currentAirportName');
+                    if (nameEl) nameEl.textContent = 'Нет данных';
+                    if (statusEl) {
+                        statusEl.className = 'airport-status error';
+                        statusEl.textContent = 'Не удалось загрузить текущий аэропорт: ' + e.message;
+                    }
+                });
+        }
+
+        function confirmCurrentAirport() {
+            var sel = document.getElementById('airportSelect');
+            var btn = document.getElementById('confirmAirportBtn');
+            var statusEl = document.getElementById('airportStatus');
+            if (!sel) return;
+            var code = sel.value;
+            var user = null;
+            try { user = JSON.parse(sessionStorage.getItem('userSession') || 'null'); } catch (_) {}
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение…';
+            }
+            if (statusEl) {
+                statusEl.className = 'airport-status';
+                statusEl.textContent = 'Сохранение…';
+            }
+            fetch(API_URL + '/system/current-airport', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    airport: code,
+                    confirmed_by: user && user.name ? user.name : 'Администратор'
+                })
+            })
+                .then(function(r) {
+                    return r.json().then(function(data) {
+                        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+                        return data;
+                    });
+                })
+                .then(function(data) {
+                    CURRENT_AIRPORT = data.airport;
+                    renderCurrentAirport(data);
+                    if (statusEl) {
+                        statusEl.className = 'airport-status success';
+                        statusEl.textContent = 'Подтверждено: ' + (data.name || AIRPORT_NAMES[data.airport]) + '. Карты в системе обновятся при следующем открытии или обновлении страниц.';
+                    }
+                    showToast('Аэропорт подтверждён: ' + (data.name || AIRPORT_NAMES[data.airport]), 'success');
+                })
+                .catch(function(e) {
+                    if (statusEl) {
+                        statusEl.className = 'airport-status error';
+                        statusEl.textContent = 'Ошибка сохранения: ' + e.message;
+                    }
+                    showToast('Не удалось подтвердить аэропорт', 'error');
+                })
+                .finally(function() {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-check"></i> Подтвердить';
+                    }
+                });
         }
 
         function init() {

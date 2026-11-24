@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Геолокация инженера — InTrAvia</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; width: 100%; height: 100%; font-family: Arial, sans-serif; color: #172033; }
+        body { display: flex; flex-direction: column; background: #eef2f7; }
+        header { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 22px; background: #08264b; color: white; box-shadow: 0 2px 12px rgba(0,0,0,.18); z-index: 500; }
+        .brand { font-size: 18px; font-weight: 800; letter-spacing: .2px; }
+        .brand small { display: block; margin-top: 4px; color: #c5d5ea; font-size: 11px; font-weight: 500; }
+        .info { display: flex; align-items: center; gap: 18px; font-size: 13px; }
+        #status { color: #dbeafe; }
+        #updated { color: #aebed2; }
+        button { border: 1px solid rgba(255,255,255,.35); border-radius: 8px; padding: 9px 13px; background: rgba(255,255,255,.08); color: white; cursor: pointer; }
+        button:hover { background: rgba(255,255,255,.17); }
+        #map { flex: 1; min-height: 0; width: 100%; background: #dce5ed; visibility: hidden; }
+        .engineer-marker { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; } .engineer-marker .direction-shell { width: 46px; height: 46px; border-radius: 50%; background: rgba(40,130,255,.14); border: 1px solid rgba(40,130,255,.22); display: flex; align-items: center; justify-content: center; } .engineer-marker .direction-arrow { width: 34px; height: 40px; transform-origin: 50% 50%; transition: transform .22s linear; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); } .engineer-marker svg { width: 100%; height: 100%; display: block; } .engineer-marker path { fill: #1677f8; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
+        .leaflet-popup-content { font-size: 13px; }
+        @media (max-width: 700px) { header { align-items: flex-start; flex-wrap: wrap; } .info { flex-wrap: wrap; gap: 8px 14px; } }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">InTrAvia <small>Мониторинг геолокации инженера · компьютерный режим</small></div>
+        <div class="info">
+            <span id="engineerName">Инженер</span>
+            <span id="status">Ожидание координат с телефона…</span>
+            <span id="updated">Нет данных</span>
+            <button type="button" onclick="logout()">Выйти</button>
+        </div>
+    </header>
+    <div id="map" aria-label="Карта местоположения инженера"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+    (function () {
+        var session = sessionStorage.getItem('userSession');
+        var user;
+        try { user = session ? JSON.parse(session) : null; } catch (_) { user = null; }
+        if (!user || user.role !== 'engineer' || !user.id) {
+            window.location.replace('/login.html');
+            return;
+        }
+
+        var engineerId = String(user.id);
+        var serverInitialAirport = {{ initial_airport|tojson }};
+        var initialAirport = serverInitialAirport === 'vdnh' ? 'vdnh' : 'svo';
+        var initialCenter = initialAirport === 'vdnh' ? [55.8330, 37.6287] : [55.981349, 37.388359];
+        var map = L.map('map', { zoomControl: true }).setView(initialCenter, 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        var selectedAirport = null;
+        var selectedAirportLayer = null;
+        function loadSelectedAirport() {
+            return fetch('/api/system/current-airport', { cache: 'no-store' }).then(function(r) {
+                if (!r.ok) throw new Error('airport settings unavailable');
+                return r.json();
+            }).then(function(cfg) {
+                var nextAirport = cfg && cfg.airport === 'vdnh' ? 'vdnh' : 'svo';
+                if (nextAirport === selectedAirport) return;
+                selectedAirport = nextAirport;
+                try { localStorage.setItem('intravia_current_airport', selectedAirport); } catch (_) {}
+                if (selectedAirportLayer && map.hasLayer(selectedAirportLayer)) map.removeLayer(selectedAirportLayer);
+                selectedAirportLayer = null;
+                if (nextAirport === 'svo') {
+                    map.setView([55.981349, 37.388359], 14, { animate: false });
+                    return;
+                }
+                map.setView([55.8330, 37.6287], 14, { animate: false });
+                return Promise.all([
+                    fetch('/static/vdnh/service_zones.geojson').then(function(r) { if (!r.ok) throw new Error('service_zones'); return r.json(); }),
+                    fetch('/static/vdnh/roads.geojson').then(function(r) { if (!r.ok) throw new Error('roads'); return r.json(); }),
+                    fetch('/static/vdnh/objects.geojson').then(function(r) { if (!r.ok) throw new Error('objects'); return r.json(); }),
+                    fetch('/static/vdnh/airport_boundaries.geojson').then(function(r) { if (!r.ok) throw new Error('airport_boundaries'); return r.json(); })
+                ]).then(function(data) {
+                    selectedAirportLayer = L.layerGroup().addTo(map);
+                    L.geoJSON(data[0], { style: function() { return { color: '#0891b2', weight: 1, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; } }).addTo(selectedAirportLayer);
+                    L.geoJSON(data[1], { style: function(f) { var t=f.properties&&f.properties.type; return t==='runway'?{color:'#334155',weight:7,opacity:.85}:t==='taxi'?{color:'#f59e0b',weight:3.5,opacity:.9}:t==='pedestrian'?{color:'#16a34a',weight:1.5,dashArray:'4 4'}:{color:'#64748b',weight:2,opacity:.7}; } }).addTo(selectedAirportLayer);
+                    L.geoJSON(data[2], { style: function(f) { var n=String(f.properties&&f.properties.name||'').toLowerCase(); return n.indexOf('терминал')>=0?{color:'#1d4ed8',weight:2,fillColor:'#60a5fa',fillOpacity:.35}:n.indexOf('стоянка')>=0?{color:'#b45309',weight:1.5,fillColor:'#f59e0b',fillOpacity:.3}:{color:'#0f766e',weight:1.5,fillColor:'#14b8a6',fillOpacity:.32}; }, onEachFeature: function(f, lyr) { if (f.properties&&f.properties.name) lyr.bindTooltip(f.properties.name); } }).addTo(selectedAirportLayer);
+                    var boundary = L.geoJSON(data[3], { style: function() { return { color: '#be123c', weight: 2.5, fillOpacity: 0.03, dashArray: '8 5' }; } }).addTo(selectedAirportLayer);
+                    var bounds = boundary.getBounds();
+                    if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], animate: false });
+                });
+            }).catch(function(err) {
+                console.warn('[ENGINEER GPS MAP] Не удалось загрузить карту выбранного аэропорта:', err);
+                if (selectedAirport === null) selectedAirport = initialAirport;
+                var status = document.getElementById('status');
+                if (status) status.textContent = 'Показан последний выбранный аэропорт';
+            }).finally(function() {
+                // Не показываем стартовую карту SVO до того, как сервер подтвердит выбор аэропорта.
+                map.getContainer().style.visibility = 'visible';
+            });
+        }
+        loadSelectedAirport();
+        setInterval(loadSelectedAirport, 7000);
+
+        var marker = null;
+        var centered = false;
+        var inFlight = false;
+        document.getElementById('engineerName').textContent = user.name || 'Инженер';
+
+        function setStatus(message, isError) {
+            var el = document.getElementById('status');
+            el.textContent = message;
+            el.style.color = isError ? '#fecaca' : '#dbeafe';
+        }
+
+        function refreshLocation() {
+            if (inFlight) return;
+            inFlight = true;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/location', { cache: 'no-store' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        if (response.status === 404) throw new Error('GPS endpoint не найден: GET /api/engineers/' + engineerId + '/location. Обновите app.py на сервере и перезапустите Flask.');
+                        throw new Error('Сервер вернул HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (data) {
+                    if (!data || !data.success) throw new Error((data && data.error) || 'Не удалось получить координаты');
+                    if (!data.available || !data.location) {
+                        setStatus('Ожидание координат с телефона…', false);
+                        document.getElementById('updated').textContent = 'Нет данных GPS';
+                        return;
+                    }
+                    var lat = Number(data.location.lat);
+                    var lng = Number(data.location.lng);
+                    var heading = data.location.heading == null ? null : Number(data.location.heading);
+                    if (!isFinite(lat) || !isFinite(lng)) throw new Error('Сервер передал некорректные координаты');
+                    var point = [lat, lng];
+                    var popup = document.createElement('div');
+                    popup.textContent = (data.name || user.name || 'Инженер') + ' — ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + (heading != null && isFinite(heading) ? ' · курс ' + Math.round(heading) + '°' : '');
+                    if (!marker) {
+                        var icon = L.divIcon({ className: '', html: '<div class="engineer-marker"><div class="direction-shell"><div class="direction-arrow"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div></div></div>', iconSize: [48, 48], iconAnchor: [24, 24] });
+                        marker = L.marker(point, { icon: icon, zIndexOffset: 1000 }).addTo(map);
+                        marker.bindPopup(popup);
+                    } else {
+                        marker.setLatLng(point);
+                        marker.setPopupContent(popup);
+                    }
+                    var markerEl = marker.getElement && marker.getElement();
+                    var arrow = markerEl && markerEl.querySelector('.direction-arrow');
+                    if (arrow && heading != null && isFinite(heading)) arrow.style.transform = 'rotate(' + (heading % 360) + 'deg)';
+                    if (!centered) {
+                        map.setView(point, 17);
+                        centered = true;
+                    }
+                    setStatus('Местоположение получено с телефона', false);
+                    document.getElementById('updated').textContent = 'Обновлено: ' + (data.location.updated_at || 'только что');
+                })
+                .catch(function (error) {
+                    console.warn('[ENGINEER GPS MAP]', error);
+                    setStatus('Нет связи с сервером', true);
+                })
+                .finally(function () { inFlight = false; });
+        }
+
+        window.logout = function () {
+            sessionStorage.removeItem('userSession');
+            window.location.href = '/login.html';
+        };
+
+        refreshLocation();
+        setInterval(refreshLocation, 500);
+    })();
+    </script>
+</body>
+</html>

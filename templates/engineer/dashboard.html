@@ -302,6 +302,14 @@
         var engineerId = null;
         var map = null;
         var mapInitialized = false;
+        var ownGpsMarker = null;
+        var ownGpsPollTimer = null;
+        var serverInitialAirport = {{ initial_airport|tojson }};
+        var currentAirport = serverInitialAirport === 'vdnh' ? 'vdnh' : 'svo';
+        var engineerAirportLayer = null;
+        var engineerAirportInitialized = false;
+        var airportRefreshInFlight = false;
+        var airportRefreshTimer = null;
         var currentRoute = null;
         var routeMarkers = {};
         var taskData = null;
@@ -312,9 +320,11 @@
         var diagnoseTimerInterval = null;
         var blockReloadUntil = 0;
         var lastRouteSignature = '';
+        var lastMapFittedRequestId = null;
         var PARKING_COORDS = {};
         // Полноценная симуляция самолётов инженера по связанной сети руления.
         var engineerAircraftMarkers={}, engineerAircraftSimulations={}, engineerTaxiGraph=null;
+        var engineerAmbientAircraft = [];
         var engineerAmbientTaxiAreaNodes=null, engineerAircraftTimer=null, engineerAmbientTarget=5;
         function engineerPlaneIcon(){return L.divIcon({className:'moving-aircraft-marker',html:'<div style="font-size:25px;line-height:28px;filter:drop-shadow(0 1px 2px #111);">✈️</div>',iconSize:[30,30],iconAnchor:[15,15]});}
         function engineerTaxiDistance(a,b){var R=6371000,r=Math.PI/180,dl=(b[0]-a[0])*r,dg=(b[1]-a[1])*r,x=Math.sin(dl/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dg/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
@@ -326,9 +336,9 @@
         function createEngineerRandomRoute(from,to){var area=engineerAreaNodes();if(!area||area.length<2)return null;var start=nearestEngineerTaxiNode(from);if(!start||area.indexOf(start)<0){start=area[Math.floor(Math.random()*area.length)];from=engineerTaxiGraph.nodes[start].point;}var choices=area.filter(function(k){return k!==start&&engineerTaxiDistance(engineerTaxiGraph.nodes[start].point,engineerTaxiGraph.nodes[k].point)>220;});if(!choices.length)return null;if(!to)to=engineerTaxiGraph.nodes[choices[Math.floor(Math.random()*choices.length)]].point;return createEngineerTaxiRoute(from,to);}
         function animateEngineerAircraft(sim,done){if(sim.frame)cancelAnimationFrame(sim.frame);var r=sim.route||[],cum=[0],total=0;for(var i=1;i<r.length;i++){total+=engineerTaxiDistance(r[i-1],r[i]);cum.push(total);}if(r.length<2||total<1){if(done)done();return;}var duration=Math.max(6500,Math.min(26000,total/(7+Math.random()*2)*1000)),started=performance.now();sim.moving=true;function frame(now){if(!sim.marker||!map||!map.hasLayer(sim.marker))return;var progress=Math.min(1,(now-started)/duration),d=total*progress,j=1;while(j<cum.length-1&&cum[j]<d)j++;var x=r[j-1],y=r[j],seg=Math.max(.001,cum[j]-cum[j-1]),part=Math.max(0,Math.min(1,(d-cum[j-1])/seg));sim.marker.setLatLng([x[0]+(y[0]-x[0])*part,x[1]+(y[1]-x[1])*part]);if(progress<1)sim.frame=requestAnimationFrame(frame);else{sim.marker.setLatLng(r[r.length-1]);sim.moving=false;if(done)done();}}sim.frame=requestAnimationFrame(frame);}
         function removeEngineerAircraft(sim){if(!sim)return;if(sim.frame)cancelAnimationFrame(sim.frame);if(sim.timer)clearTimeout(sim.timer);if(sim.marker&&map&&map.hasLayer(sim.marker))map.removeLayer(sim.marker);if(sim.id!=null){delete engineerAircraftSimulations[String(sim.id)];delete engineerAircraftMarkers[String(sim.id)];}}
-        function refreshEngineerRequestAircraft(){if(!mapInitialized||!map||!engineerTaxiGraph)return;fetch('/api/requests').then(function(r){return r.json();}).then(function(requests){if(!Array.isArray(requests))return;var live={};requests.forEach(function(req){if(!req||!req.parking_id||['completed','cancelled','flight_cancelled','deleted','draft'].indexOf(req.status)>=0||req.flight_cancelled)return;var p=PARKING_COORDS[String(req.parking_id)];if(!p)return;var id=String(req.id),signed=!!(req.crs_signed_at||req.crs_signed),sim=engineerAircraftSimulations[id];live[id]=true;var label=(req.aircraft||'Самолёт')+' · стоянка '+req.parking_id+(signed?' · подпись получена':' · ожидает подпись');if(!sim){var marker=L.marker([+p.lat,+p.lng],{icon:engineerPlaneIcon(),zIndexOffset:1700,interactive:true}).addTo(map).bindTooltip(label,{direction:'top'});sim=engineerAircraftSimulations[id]={id:id,marker:marker,aircraft:req.aircraft||'Самолёт',parkingId:String(req.parking_id),waitingForSignature:true,requestAircraft:true};engineerAircraftMarkers[id]=marker;}else sim.marker.setTooltipContent(label);if(signed&&sim.waitingForSignature&&!sim.departureStarted){sim.waitingForSignature=false;sim.departureStarted=true;var from=[+p.lat,+p.lng],area=engineerAreaNodes(),exits=area.filter(function(k){return engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,from)>350;}),to=exits.length?engineerTaxiGraph.nodes[exits[Math.floor(Math.random()*exits.length)]].point:null;sim.route=to?createEngineerTaxiRoute(from,to):null;if(sim.route&&sim.route.length>1){sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · выезд после подписи');animateEngineerAircraft(sim,function(){removeEngineerAircraft(sim);});}else{sim.departureStarted=false;sim.waitingForSignature=true;sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · подпись получена, ожидание маршрута выезда');}}});Object.keys(engineerAircraftSimulations).forEach(function(id){var sim=engineerAircraftSimulations[id];if(sim.requestAircraft&&!live[id])removeEngineerAircraft(sim);});}).catch(function(e){console.warn('[AIRCRAFT] Не удалось обновить самолёты заявок:',e);});}
-        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
-        function startEngineerAmbientAircraft(){fetch('/static/aircraft_paths.geojson').then(function(r){if(!r.ok)throw new Error('aircraft_paths.geojson');return r.json();}).then(function(data){buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
+        function refreshEngineerRequestAircraft(){if(currentAirport!=='svo'||!mapInitialized||!map||!engineerTaxiGraph)return;fetch('/api/requests').then(function(r){return r.json();}).then(function(requests){if(!Array.isArray(requests))return;var live={};requests.forEach(function(req){if(!req||!req.parking_id||['completed','cancelled','flight_cancelled','deleted','draft'].indexOf(req.status)>=0||req.flight_cancelled)return;var p=PARKING_COORDS[String(req.parking_id)];if(!p)return;var id=String(req.id),signed=!!(req.crs_signed_at||req.crs_signed),sim=engineerAircraftSimulations[id];live[id]=true;var label=(req.aircraft||'Самолёт')+' · стоянка '+req.parking_id+(signed?' · подпись получена':' · ожидает подпись');if(!sim){var marker=L.marker([+p.lat,+p.lng],{icon:engineerPlaneIcon(),zIndexOffset:1700,interactive:true}).addTo(map).bindTooltip(label,{direction:'top'});sim=engineerAircraftSimulations[id]={id:id,marker:marker,aircraft:req.aircraft||'Самолёт',parkingId:String(req.parking_id),waitingForSignature:true,requestAircraft:true};engineerAircraftMarkers[id]=marker;}else sim.marker.setTooltipContent(label);if(signed&&sim.waitingForSignature&&!sim.departureStarted){sim.waitingForSignature=false;sim.departureStarted=true;var from=[+p.lat,+p.lng],area=engineerAreaNodes(),exits=area.filter(function(k){return engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,from)>350;}),to=exits.length?engineerTaxiGraph.nodes[exits[Math.floor(Math.random()*exits.length)]].point:null;sim.route=to?createEngineerTaxiRoute(from,to):null;if(sim.route&&sim.route.length>1){sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · выезд после подписи');animateEngineerAircraft(sim,function(){removeEngineerAircraft(sim);});}else{sim.departureStarted=false;sim.waitingForSignature=true;sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · подпись получена, ожидание маршрута выезда');}}});Object.keys(engineerAircraftSimulations).forEach(function(id){var sim=engineerAircraftSimulations[id];if(sim.requestAircraft&&!live[id])removeEngineerAircraft(sim);});}).catch(function(e){console.warn('[AIRCRAFT] Не удалось обновить самолёты заявок:',e);});}
+        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(currentAirport!=='svo'||!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
+        function startEngineerAmbientAircraft(){if(currentAirport!=='svo')return;fetch('/static/aircraft_paths.geojson').then(function(r){if(!r.ok)throw new Error('aircraft_paths.geojson');return r.json();}).then(function(data){if(currentAirport!=='svo')return;buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
 
         // ─── Движение инженера по маршруту (по времени) ───
         var moveInterval = null;
@@ -381,13 +391,159 @@
 
         function initMap() {
             if (mapInitialized) return;
+            var initialCenter = currentAirport === 'vdnh' ? [55.8330, 37.6287] : [55.981349, 37.388359];
+            var initialZoom = currentAirport === 'vdnh' ? 14 : 13;
             map = L.map('map', {
-                center: [55.981349, 37.388359], zoom: 13,
+                center: initialCenter, zoom: initialZoom,
                 zoomControl: true, attributionControl: false
             });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
             mapInitialized = true;
         }
+
+        function updateOwnGpsMarker(lat, lng, heading, updatedAt) {
+            if (!map || !isFinite(Number(lat)) || !isFinite(Number(lng))) return;
+            var point = [Number(lat), Number(lng)];
+            var headingValue = heading == null || !isFinite(Number(heading)) ? 0 : (Number(heading) + 360) % 360;
+            if (!ownGpsMarker) {
+                var icon = L.divIcon({
+                    className: '',
+                    html: '<div class="gps-cursor-shell" style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;position:relative"><div style="position:absolute;inset:2px;border-radius:50%;background:rgba(40,130,255,.14);border:1px solid rgba(40,130,255,.20)"></div><div class="gps-direction-arrow" style="position:relative;width:36px;height:42px;transform-origin:50% 50%;transition:transform .22s linear;filter:drop-shadow(0 2px 3px rgba(0,0,0,.32));transform:rotate(' + headingValue + 'deg)"><svg viewBox="0 0 40 46" style="width:100%;height:100%"><path d="M20 2 L37 42 L20 32 L3 42 Z" style="fill:#1677f8;stroke:#fff;stroke-width:2.5;stroke-linejoin:round"></path></svg></div><div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #075fd6;left:20px;top:20px"></div></div>',
+                    iconSize: [48,48], iconAnchor: [24,24]
+                });
+                ownGpsMarker = L.marker(point, { icon: icon, zIndexOffset: 2500, interactive: true }).addTo(map);
+                ownGpsMarker.bindTooltip('', { direction: 'top' });
+            } else {
+                ownGpsMarker.setLatLng(point);
+                var markerEl = ownGpsMarker.getElement && ownGpsMarker.getElement();
+                var arrowEl = markerEl && markerEl.querySelector('.gps-direction-arrow');
+                if (arrowEl) arrowEl.style.transform = 'rotate(' + headingValue + 'deg)';
+            }
+            ownGpsMarker.setTooltipContent((engineerData && engineerData.name || 'Инженер') + ' · GPS ' + (updatedAt || ''));
+        }
+
+        function refreshOwnGpsMarker() {
+            if (!engineerId) return;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/location', { cache: 'no-store' })
+                .then(function(r) { if (!r.ok) throw new Error('GPS HTTP ' + r.status); return r.json(); })
+                .then(function(data) {
+                    if (data && data.success && data.available && data.location) {
+                        updateOwnGpsMarker(data.location.lat, data.location.lng, data.location.heading, data.location.updated_at);
+                    }
+                })
+                .catch(function(err) { console.warn('[ENGINEER DESKTOP GPS]', err); });
+        }
+
+        function engineerVdnhObjectStyle(name) {
+            var n = String(name || '').toLowerCase();
+            if (n.indexOf('взлётно-посадочная') >= 0 || n.indexOf('взлетно-посадочная') >= 0) return { color: '#334155', weight: 2, opacity: 0.9, fillColor: '#475569', fillOpacity: 0.5 };
+            if (n.indexOf('терминал') >= 0) return { color: '#1d4ed8', weight: 2, opacity: 0.9, fillColor: '#60a5fa', fillOpacity: 0.35 };
+            if (n.indexOf('стоянка') >= 0) return { color: '#b45309', weight: 1.5, opacity: 0.9, fillColor: '#f59e0b', fillOpacity: 0.3 };
+            if (n.indexOf('склад') >= 0) return { color: '#475569', weight: 1.5, opacity: 0.9, fillColor: '#94a3b8', fillOpacity: 0.35 };
+            return { color: '#0f766e', weight: 1.5, opacity: 0.9, fillColor: '#14b8a6', fillOpacity: 0.32 };
+        }
+
+        function loadEngineerVdnhMap() {
+            if (engineerAirportLayer && map && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
+            engineerAirportLayer = L.layerGroup().addTo(map);
+            function getJson(path) {
+                return fetch(path, { cache: 'no-store' }).then(function(r) {
+                    if (!r.ok) throw new Error(path + ' · HTTP ' + r.status);
+                    return r.json();
+                }).catch(function(err) { console.warn('[ENGINEER MAP] Не удалось загрузить ' + path, err); return null; });
+            }
+            return Promise.all([
+                getJson('/static/vdnh/service_zones.geojson'),
+                getJson('/static/vdnh/roads.geojson'),
+                getJson('/static/vdnh/objects.geojson'),
+                getJson('/static/vdnh/airport_boundaries.geojson')
+            ]).then(function(data) {
+                var zones = data[0], roads = data[1], objects = data[2], boundaries = data[3];
+                if (zones) {
+                    L.geoJSON(zones, {
+                        style: function() { return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
+                        onEachFeature: function(f, lyr) {
+                            var id = f.properties && f.properties.id;
+                            if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                        }
+                    }).addTo(engineerAirportLayer);
+                }
+                if (roads) {
+                    var labels = { runway: 'ВПП', taxi: 'Руление', service: 'Спецтранспорт', pedestrian: 'Пешеходная дорожка' };
+                    L.geoJSON(roads, {
+                        style: function(f) {
+                            var type = f.properties && f.properties.type;
+                            if (type === 'runway') return { color: '#334155', weight: 7, opacity: 0.85 };
+                            if (type === 'taxi') return { color: '#f59e0b', weight: 3.5, opacity: 0.9 };
+                            if (type === 'pedestrian') return { color: '#16a34a', weight: 1.5, opacity: 0.75, dashArray: '4 4' };
+                            return { color: '#64748b', weight: 2, opacity: 0.7 };
+                        },
+                        onEachFeature: function(f, lyr) {
+                            var type = f.properties && f.properties.type;
+                            if (labels[type]) lyr.bindTooltip(labels[type], { sticky: true });
+                        }
+                    }).addTo(engineerAirportLayer);
+                }
+                if (objects) {
+                    L.geoJSON(objects, {
+                        style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
+                        onEachFeature: function(f, lyr) {
+                            if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                        }
+                    }).addTo(engineerAirportLayer);
+                }
+                if (boundaries) {
+                    var boundary = L.geoJSON(boundaries, {
+                        style: function() { return { color: '#be123c', weight: 2.5, opacity: 0.9, fillColor: '#be123c', fillOpacity: 0.03, dashArray: '8 5' }; }
+                    }).addTo(engineerAirportLayer);
+                    var bounds = boundary.getBounds();
+                    if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], animate: false });
+                } else {
+                    map.setView([55.8330, 37.6287], 14, { animate: false });
+                }
+            });
+        }
+
+        function stopEngineerAirportAircraft() {
+            if (engineerAircraftTimer) clearInterval(engineerAircraftTimer);
+            engineerAircraftTimer = null;
+            engineerAmbientAircraft.slice().forEach(function(sim) { removeEngineerAircraft(sim); });
+            engineerAmbientAircraft = [];
+            Object.keys(engineerAircraftSimulations).forEach(function(id) { removeEngineerAircraft(engineerAircraftSimulations[id]); });
+            engineerTaxiGraph = null;
+            engineerAmbientTaxiAreaNodes = null;
+        }
+
+        function applyEngineerAirport(code) {
+            var nextAirport = code === 'vdnh' ? 'vdnh' : 'svo';
+            if (!mapInitialized) { currentAirport = nextAirport; return Promise.resolve(); }
+            if (nextAirport === currentAirport && engineerAirportInitialized) return Promise.resolve();
+            currentAirport = nextAirport;
+            engineerAirportInitialized = true;
+            if (nextAirport === 'vdnh') {
+                stopEngineerAirportAircraft();
+                map.setView([55.8330, 37.6287], 14, { animate: false });
+                return loadEngineerVdnhMap();
+            }
+            if (engineerAirportLayer && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
+            engineerAirportLayer = null;
+            map.setView([55.981349, 37.388359], 13, { animate: false });
+            return loadParkingCoords().then(function() {
+                startEngineerAmbientAircraft();
+                refreshEngineerRequestAircraft();
+            });
+        }
+
+        function refreshEngineerAirport() {
+            if (airportRefreshInFlight) return;
+            airportRefreshInFlight = true;
+            fetch('/api/system/current-airport', { cache: 'no-store' })
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(cfg) { return applyEngineerAirport(cfg && cfg.airport); })
+                .catch(function(err) { console.warn('[ENGINEER MAP] Не удалось проверить выбранный аэропорт:', err); })
+                .finally(function() { airportRefreshInFlight = false; });
+        }
+
 
         function showNotification(title, text) {
             var container = document.getElementById('notificationContainer');
@@ -514,25 +670,24 @@
         }
 
         function routeSignature(r) {
-            if (!r || !r.from || !r.to) return '';
+            if (!r || !r.to) return '';
             var pathSig = '';
             if (r.path && r.path.length) {
-                var p0 = r.path[0];
                 var pN = r.path[r.path.length - 1];
-                pathSig = r.path.length + ':' + p0[0] + ',' + p0[1] + ':' + pN[0] + ',' + pN[1];
+                // Не включаем стартовую точку: она обновляется вместе с GPS инженера.
+                pathSig = r.path.length + ':' + pN[0] + ',' + pN[1];
             }
             return [
-                r.from.lat, r.from.lng,
                 r.to.lat, r.to.lng,
                 r.time, r.usingCar ? 1 : 0,
                 r.walkToCar, r.bestCarTime,
                 r.bestCarLat, r.bestCarLng,
                 r.bestCar ? r.bestCar.deviceId : '',
-                pathSig
+                r.parkingId || '', pathSig
             ].join('|');
         }
 
-        function drawRouteOnMap(routeData) {
+        function drawRouteOnMap(routeData, fitMap) {
             if (!mapInitialized) initMap();
 
             if (moveInterval) {
@@ -545,7 +700,6 @@
             routeMarkers = {};
 
             if (!routeData || !routeData.from || !routeData.to) {
-                map.setView([55.981349, 37.388359], 13);
                 document.getElementById('routeInfo').innerHTML =
                     '<span style="color:var(--aero-gray);">Нет активного маршрута</span>';
                 return;
@@ -607,8 +761,12 @@
             routeMarkers['end'] = L.marker([routeData.to.lat, routeData.to.lng], { icon: endIcon })
                 .addTo(map).bindPopup('Стоянка ' + (routeData.parkingId || ''));
 
-            var bounds = L.latLngBounds(latlngs);
-            map.fitBounds(bounds, { padding: [60, 60] });
+            // Масштаб и центр меняем только при появлении новой задачи.
+            // Обновления GPS и повторные ответы API не двигают карту под рукой пользователя.
+            if (fitMap === true) {
+                var bounds = L.latLngBounds(latlngs);
+                map.fitBounds(bounds, { padding: [60, 60], animate: false });
+            }
 
             var routeInfo = document.getElementById('routeInfo');
             if (routeData.usingCar && routeData.bestCar) {
@@ -791,8 +949,10 @@
                         updateTaskWithRoute(request);
                         return;
                     }
-                    if (lastRequestId !== request.id) {
+                    var isNewRequest = lastRequestId !== request.id;
+                    if (isNewRequest) {
                         lastRequestId = request.id;
+                        lastRouteSignature = '';
                         if (taskStep === 'idle' || taskStep === 'completed') taskStep = 'pending';
                     }
 
@@ -825,7 +985,9 @@
                         if (newSig !== lastRouteSignature) {
                             lastRouteSignature = newSig;
                             currentRoute = routeData;
-                            drawRouteOnMap(routeData);
+                            var fitNewRoute = String(lastMapFittedRequestId) !== String(request.id);
+                            drawRouteOnMap(routeData, fitNewRoute);
+                            if (fitNewRoute) lastMapFittedRequestId = request.id;
                         } else {
                             currentRoute = routeData;
                         }
@@ -1845,17 +2007,38 @@
         window.showToast = showToast;
 
         document.addEventListener('DOMContentLoaded', function() {
-            initMap();
-            setTimeout(function() { if (map) map.invalidateSize(); }, 200);
-            loadParkingCoords().finally(function() {
-                loadTasks();
-                setInterval(loadTasks, 5000);
-                loadParkingCoords().then(function() {
-                    startEngineerAmbientAircraft();
-                    refreshEngineerRequestAircraft();
+            fetch('/api/system/current-airport', { cache: 'no-store' })
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(cfg) {
+                    currentAirport = cfg && cfg.airport === 'vdnh' ? 'vdnh' : 'svo';
+                    try { localStorage.setItem('intravia_current_airport', currentAirport); } catch (_) {}
+                })
+                .catch(function(err) {
+                    // Не подменяем выбор, внедрённый сервером, временным локальным значением.
+                    console.warn('[ENGINEER MAP] Не удалось перечитать аэропорт; оставляем серверный выбор:', err);
+                })
+                .then(function() {
+                    initMap();
+                    engineerAirportInitialized = true;
+                    var mapReady = currentAirport === 'vdnh' ? loadEngineerVdnhMap() : Promise.resolve();
+                    return mapReady.then(function() {
+                        return loadParkingCoords();
+                    });
+                })
+                .finally(function() {
+                    setTimeout(function() { if (map) map.invalidateSize(); }, 200);
+                    if (currentAirport === 'svo') {
+                        startEngineerAmbientAircraft();
+                        refreshEngineerRequestAircraft();
+                    }
+                    refreshOwnGpsMarker();
+                    if (ownGpsPollTimer) clearInterval(ownGpsPollTimer);
+                    ownGpsPollTimer = setInterval(refreshOwnGpsMarker, 500);
+                    loadTasks();
+                    setInterval(loadTasks, 5000);
                     setInterval(refreshEngineerRequestAircraft, 5000);
+                    airportRefreshTimer = setInterval(refreshEngineerAirport, 7000);
                 });
-            });
         });
     })();
 </script>

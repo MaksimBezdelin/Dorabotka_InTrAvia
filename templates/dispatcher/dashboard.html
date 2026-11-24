@@ -227,6 +227,11 @@
         .employee-marker.status-busy { border-color: #e74c3c; }
         .employee-marker.status-free .marker-icon { color: #2ecc71; }
         .employee-marker.status-busy .marker-icon { color: #e74c3c; }
+        .dispatcher-gps-marker { width: 48px; height: 56px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow: visible; }
+        .dispatcher-gps-marker .gps-direction-arrow { width: 34px; height: 40px; transform-origin: 50% 50%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.32)); }
+        .dispatcher-gps-marker .gps-direction-arrow svg { display: block; width: 100%; height: 100%; }
+        .dispatcher-gps-marker .gps-direction-arrow path { fill: #1677f8; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
+        .dispatcher-gps-marker .gps-marker-id { margin-top: -1px; font-size: 8px; line-height: 10px; padding: 1px 4px; border-radius: 5px; color: #fff; background: #0f4c9a; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 
         .car-marker {
             border-radius: 4px; text-align: center; font-weight: 700;
@@ -1482,6 +1487,12 @@ var state = {
     roadsLayer: null, aircraftLayer: null, parkingLayer: null, taxiGraph: null, aircraftSimulations: {}, aircraftTaxiLayer: null, aircraftSafetyTimer: null,
     ambientAircraftTarget: 3 + Math.floor(Math.random() * 5), ambientAircraftTargetTimer: null,
     currentTab: 'dispatch',
+    currentAirport: (function() {
+        var injectedAirport = {{ initial_airport|tojson }};
+        var selected = injectedAirport === 'vdnh' ? 'vdnh' : 'svo';
+        try { localStorage.setItem('intravia_current_airport', selected); } catch (_) {}
+        return selected;
+    })(),
     isDragging: false
 };
 var STORAGE_KEY = 'dispatcherState_v19';
@@ -1699,9 +1710,14 @@ function Employee(data) {
     this.name = data.name || 'Техник';
     this.deviceId = data.device_id || ('EN-' + String(data.number || 0).padStart(3, '0'));
     this.skill = data.specialization || 'general';
-    // Координаты маркера инженера берём из БД без truthy-fallback.
-    this.lat = (data.coords_lat !== undefined && data.coords_lat !== null) ? Number(data.coords_lat) : 55.975;
-    this.lng = (data.coords_lng !== undefined && data.coords_lng !== null) ? Number(data.coords_lng) : 37.410;
+    // Реальный GPS телефона приоритетен для отображения значка инженера.
+    this.gpsLat = data.gps_lat == null ? null : Number(data.gps_lat);
+    this.gpsLng = data.gps_lng == null ? null : Number(data.gps_lng);
+    this.gpsHeading = data.gps_heading == null ? null : Number(data.gps_heading);
+    this.gpsUpdatedAt = data.gps_updated_at || null;
+    this.hasGps = this.gpsLat != null && this.gpsLng != null && isFinite(this.gpsLat) && isFinite(this.gpsLng);
+    this.lat = this.hasGps ? this.gpsLat : ((data.coords_lat !== undefined && data.coords_lat !== null) ? Number(data.coords_lat) : 55.975);
+    this.lng = this.hasGps ? this.gpsLng : ((data.coords_lng !== undefined && data.coords_lng !== null) ? Number(data.coords_lng) : 37.410);
     this.status = data.status || 'free';
     this.busy = this.status !== 'free' && this.status !== 'offline';
     this.task = data.task || '';
@@ -1956,25 +1972,34 @@ function init() {
     updateCancelledBadge();
     updateDelaysBadge();
 
-    initTransport();
-    initMap();
-    updateParkingList();
-    loadDataOnce();
-    relayDispatcherReportsToCpu();
-    if (workflowQueueInterval) clearInterval(workflowQueueInterval);
-    workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
+    // Сначала получаем выбранный аэропорт. Карта даже не создаётся до ответа API,
+    // поэтому при перезагрузке ВДНХ не появляется кратковременно Шереметьево.
+    fetch(API_URL + '/system/current-airport', { cache: 'no-store' })
+        .then(function(res) { if (!res.ok) throw new Error('airport settings HTTP ' + res.status); return res.json(); })
+        .then(function(cfg) {
+            state.currentAirport = cfg && cfg.airport === 'vdnh' ? 'vdnh' : 'svo';
+            try { localStorage.setItem('intravia_current_airport', state.currentAirport); } catch (_) {}
+        })
+        .catch(function(err) { console.warn('[MAP] Не удалось повторно получить аэропорт; используем выбор, внедрённый сервером:', err); })
+        .then(function() {
+            initTransport();
+            initMap();
+            updateParkingList();
+            loadDataOnce();
+            relayDispatcherReportsToCpu();
+            if (workflowQueueInterval) clearInterval(workflowQueueInterval);
+            workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
 
-    if (state.loadInterval) clearInterval(state.loadInterval);
-    state.loadInterval = setInterval(function() {
-        if (!state.isUpdating && !state.isDragging) {
-            loadRequestsOnly();
-        }
-    }, 1000);
+            if (state.loadInterval) clearInterval(state.loadInterval);
+            state.loadInterval = setInterval(function() {
+                if (!state.isUpdating && !state.isDragging) loadRequestsOnly();
+            }, 1000);
 
-    if (state.coordsInterval) clearInterval(state.coordsInterval);
-    state.coordsInterval = setInterval(function() {
-        if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
-    }, 500);
+            if (state.coordsInterval) clearInterval(state.coordsInterval);
+            state.coordsInterval = setInterval(function() {
+                if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
+            }, 500);
+        });
 }
 
 function loadDataOnce() {
@@ -2368,11 +2393,18 @@ function refreshCoordsOnly() {
                     if (emp.realId !== e.id) continue;
 
                     // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
+                    emp.gpsLat = e.gps_lat == null ? null : Number(e.gps_lat);
+                    emp.gpsLng = e.gps_lng == null ? null : Number(e.gps_lng);
+                    var previousGpsHeading = emp.gpsHeading;
+                    var previousHasGps = emp.hasGps;
+                    emp.gpsHeading = e.gps_heading == null ? null : Number(e.gps_heading);
+                    emp.gpsUpdatedAt = e.gps_updated_at || null;
+                    emp.hasGps = emp.gpsLat != null && emp.gpsLng != null && isFinite(emp.gpsLat) && isFinite(emp.gpsLng);
+                    if (previousGpsHeading !== emp.gpsHeading || previousHasGps !== emp.hasGps) changed = true;
                     if (!emp._syncPending) {
-                        var newLat = (e.coords_lat !== undefined && e.coords_lat !== null) ? e.coords_lat : emp.lat;
-                        var newLng = (e.coords_lng !== undefined && e.coords_lng !== null) ? e.coords_lng : emp.lng;
-                        if (Math.abs(emp.lat - newLat) > 0.00001 ||
-                            Math.abs(emp.lng - newLng) > 0.00001) {
+                        var newLat = emp.hasGps ? emp.gpsLat : ((e.coords_lat !== undefined && e.coords_lat !== null) ? Number(e.coords_lat) : emp.lat);
+                        var newLng = emp.hasGps ? emp.gpsLng : ((e.coords_lng !== undefined && e.coords_lng !== null) ? Number(e.coords_lng) : emp.lng);
+                        if (Math.abs(emp.lat - newLat) > 0.000001 || Math.abs(emp.lng - newLng) > 0.000001) {
                             emp.lat = newLat;
                             emp.lng = newLng;
                             changed = true;
@@ -2401,6 +2433,19 @@ function refreshCoordsOnly() {
                     var mk = state.mapMarkers['emp_' + empK.realId];
                     if (mk && empK.lat != null && empK.lng != null) {
                         mk.setLatLng([empK.lat, empK.lng]);
+                        if (empK.hasGps && !mk._usesGpsIcon) {
+                            mk.setIcon(createEmployeeMapIcon(empK));
+                            mk._usesGpsIcon = true;
+                            if (mk.dragging && mk.dragging.disable) mk.dragging.disable();
+                        } else if (!empK.hasGps && mk._usesGpsIcon) {
+                            mk.setIcon(createEmployeeMapIcon(empK));
+                            mk._usesGpsIcon = false;
+                            if (mk.dragging && mk.dragging.enable) mk.dragging.enable();
+                        } else if (empK.hasGps) {
+                            var markerEl = mk.getElement && mk.getElement();
+                            var arrowEl = markerEl && markerEl.querySelector('.gps-direction-arrow');
+                            if (arrowEl) arrowEl.style.transform = 'rotate(' + (empK.gpsHeading == null ? 0 : empK.gpsHeading) + 'deg)';
+                        }
                     }
                 }
                 // Пересчитываем оставшееся время в карточках
@@ -2894,9 +2939,11 @@ function spawnAmbientAircraft() {
 }
 
 function initMap() {
+    var initialCenter = state.currentAirport === 'vdnh' ? [55.8330, 37.6287] : [55.981349, 37.388359];
+    var initialZoom = state.currentAirport === 'vdnh' ? 14 : 14;
     map = L.map('map', {
-        center: [55.981349, 37.388359],
-        zoom: 14,
+        center: initialCenter,
+        zoom: initialZoom,
         zoomControl: true,
         attributionControl: false,
         preferCanvas: true
@@ -2912,41 +2959,43 @@ function initMap() {
     state.parkingLayer = L.layerGroup().addTo(map);
 
     // ── Roads (невидимый, для маршрутов) ──
-    fetch('/static/roads.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('roads.geojson'); return res.json(); })
-        .then(function(data) {
-            state.roadsLayer = L.geoJSON(data);
-            console.log('[MAP] roads.geojson загружен (скрыт для расчётов)');
-        })
-        .catch(function(e) { console.warn('[MAP] roads.geojson:', e.message); });
+    if (state.currentAirport === 'svo') {
+        fetch('/static/roads.geojson')
+            .then(function(res) { if (!res.ok) throw new Error('roads.geojson'); return res.json(); })
+            .then(function(data) {
+                state.roadsLayer = L.geoJSON(data);
+                console.log('[MAP] roads.geojson загружен (скрыт для расчётов)');
+            })
+            .catch(function(e) { console.warn('[MAP] roads.geojson:', e.message); });
 
-    // ── Объекты (все Polygon/MultiPolygon из svo_all.geojson) ──
-    fetch(API_URL + '/map-objects')
-        .then(function(r) { return r.json(); })
-        .then(function(objects) {
-            if (!Array.isArray(objects) || objects.length === 0) {
-                console.warn('[MAP] /api/map-objects вернул пусто');
-                return;
-            }
-            for (var i = 0; i < objects.length; i++) {
-                var o = objects[i];
-                if (!o.latlngs || o.latlngs.length < 3) continue;
-                var poly = L.polygon(o.latlngs, {
-                    color: o.color || '#1e40af',
-                    weight: o.weight != null ? o.weight : 1.5,
-                    opacity: o.opacity != null ? o.opacity : 0.9,
-                    fillColor: o.color || '#1e40af',
-                    fillOpacity: o.fillOpacity != null ? o.fillOpacity : 0.35,
-                    interactive: true
-                });
-                poly.bindTooltip(o.name || 'Объект', { sticky: true });
-                poly.addTo(state.objectsLayer);
-            }
-            console.log('[MAP] Объектов отрисовано:', objects.length);
-        })
-        .catch(function(err) { console.error('[MAP] objects load', err); });
+        // SVO объекты загружаются только когда действительно выбран Шереметьево.
+        fetch(API_URL + '/map-objects')
+            .then(function(r) { return r.json(); })
+            .then(function(objects) {
+                if (!Array.isArray(objects) || objects.length === 0) {
+                    console.warn('[MAP] /api/map-objects вернул пусто');
+                    return;
+                }
+                for (var i = 0; i < objects.length; i++) {
+                    var o = objects[i];
+                    if (!o.latlngs || o.latlngs.length < 3) continue;
+                    var poly = L.polygon(o.latlngs, {
+                        color: o.color || '#1e40af',
+                        weight: o.weight != null ? o.weight : 1.5,
+                        opacity: o.opacity != null ? o.opacity : 0.9,
+                        fillColor: o.color || '#1e40af',
+                        fillOpacity: o.fillOpacity != null ? o.fillOpacity : 0.35,
+                        interactive: true
+                    });
+                    poly.bindTooltip(o.name || 'Объект', { sticky: true });
+                    poly.addTo(state.objectsLayer);
+                }
+                console.log('[MAP] Объектов отрисовано:', objects.length);
+            })
+            .catch(function(err) { console.error('[MAP] objects load', err); });
+    }
 
-    fetch(API_URL + '/parking')
+    if (state.currentAirport === 'svo') fetch(API_URL + '/parking')
         .then(function(r) { return r.json(); })
         .then(function(list) {
             if (!Array.isArray(list) || list.length === 0) {
@@ -3019,20 +3068,127 @@ function initMap() {
         .catch(function(err) { console.error('[MAP] parking load', err); });
 
     // ── Paths ВС (если файл есть) — для отображения контуров ВС ──
-    fetch('/static/aircraft_paths.geojson')
-        .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson'); return res.json(); })
-        .then(function(data) {
-            // GeoJSON используется только как невидимая навигационная сеть.
-            // На карте показываем исключительно движущиеся метки самолётов.
-            state.aircraftLayer = null;
-            buildAircraftTaxiGraph(data);
-            scheduleAmbientAircraft(700);
-            scheduleAmbientAircraftTargetChange();
-            console.log('[MAP] Скрытая сеть руления загружена; фоновая симуляция 3–7 самолётов в терминалах B/C');
-        })
-        .catch(function(e) { console.warn('[MAP] aircraft_paths.geojson:', e.message); });
+    if (state.currentAirport === 'svo') {
+        fetch('/static/aircraft_paths.geojson')
+            .then(function(res) { if (!res.ok) throw new Error('aircraft_paths.geojson'); return res.json(); })
+            .then(function(data) {
+                state.aircraftLayer = null;
+                buildAircraftTaxiGraph(data);
+                scheduleAmbientAircraft(700);
+                scheduleAmbientAircraftTargetChange();
+                console.log('[MAP] Скрытая сеть руления загружена; фоновая симуляция SVO');
+            })
+            .catch(function(e) { console.warn('[MAP] aircraft_paths.geojson:', e.message); });
+    } else {
+        loadVdnhAirportMap();
+    }
 
     if (state.dataLoaded) renderMapMarkers();
+}
+
+// ── Карта ВДНХ (static/vdnh) ──
+function vdnhObjectStyle(name) {
+    var n = String(name || '').toLowerCase();
+    if (n.indexOf('взлётно-посадочная') >= 0 || n.indexOf('взлетно-посадочная') >= 0) {
+        return { color: '#334155', weight: 2, opacity: 0.9, fillColor: '#475569', fillOpacity: 0.5 };
+    }
+    if (n.indexOf('терминал') >= 0) {
+        return { color: '#1d4ed8', weight: 1.5, opacity: 0.9, fillColor: '#3b82f6', fillOpacity: 0.35 };
+    }
+    if (n.indexOf('ангар') >= 0) {
+        return { color: '#6d28d9', weight: 1.5, opacity: 0.9, fillColor: '#8b5cf6', fillOpacity: 0.32 };
+    }
+    if (n.indexOf('стоянка') >= 0) {
+        return { color: '#b45309', weight: 1.5, opacity: 0.9, fillColor: '#f59e0b', fillOpacity: 0.3 };
+    }
+    if (n.indexOf('склад') >= 0) {
+        return { color: '#475569', weight: 1.5, opacity: 0.9, fillColor: '#94a3b8', fillOpacity: 0.35 };
+    }
+    return { color: '#0f766e', weight: 1.5, opacity: 0.9, fillColor: '#14b8a6', fillOpacity: 0.3 };
+}
+
+function loadVdnhAirportMap() {
+    var layer = state.vdnhLayer = L.layerGroup().addTo(map);
+
+    function getJson(path) {
+        return fetch(path).then(function(r) {
+            if (!r.ok) throw new Error(path);
+            return r.json();
+        });
+    }
+
+    Promise.all([
+        getJson('/static/vdnh/service_zones.geojson').catch(function(e) { console.warn('[MAP] VDNKh service_zones:', e.message); return null; }),
+        getJson('/static/vdnh/roads.geojson').catch(function(e) { console.warn('[MAP] VDNKh roads:', e.message); return null; }),
+        getJson('/static/vdnh/objects.geojson').catch(function(e) { console.warn('[MAP] VDNKh objects:', e.message); return null; }),
+        getJson('/static/vdnh/airport_boundaries.geojson').catch(function(e) { console.warn('[MAP] VDNKh boundaries:', e.message); return null; })
+    ]).then(function(result) {
+        var zones = result[0], roads = result[1], objects = result[2], boundaries = result[3];
+
+        if (zones) {
+            L.geoJSON(zones, {
+                style: function() {
+                    return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' };
+                },
+                onEachFeature: function(f, lyr) {
+                    var id = f.properties && f.properties.id;
+                    if (id != null) lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
+                }
+            }).addTo(layer);
+        }
+
+        if (roads) {
+            var roadLabels = { runway: 'ВПП', taxi: 'Руление', service: 'Спецтранспорт', pedestrian: 'Пешеходная дорожка' };
+            L.geoJSON(roads, {
+                style: function(f) {
+                    var type = f.properties && f.properties.type;
+                    if (type === 'runway') return { color: '#334155', weight: 7, opacity: 0.85 };
+                    if (type === 'taxi') return { color: '#f59e0b', weight: 3.5, opacity: 0.9 };
+                    if (type === 'pedestrian') return { color: '#16a34a', weight: 1.5, opacity: 0.75, dashArray: '4 4' };
+                    return { color: '#64748b', weight: 2, opacity: 0.7 };
+                },
+                onEachFeature: function(f, lyr) {
+                    var type = f.properties && f.properties.type;
+                    if (roadLabels[type]) lyr.bindTooltip(roadLabels[type], { sticky: true });
+                }
+            }).addTo(layer);
+        }
+
+        if (objects) {
+            L.geoJSON(objects, {
+                style: function(f) { return vdnhObjectStyle(f.properties && f.properties.name); },
+                onEachFeature: function(f, lyr) {
+                    if (f.properties && f.properties.name) lyr.bindTooltip(f.properties.name, { sticky: true });
+                }
+            }).addTo(layer);
+        }
+
+        if (boundaries) {
+            var boundary = L.geoJSON(boundaries, {
+                style: function() {
+                    return { color: '#be123c', weight: 2.5, opacity: 0.9, fillColor: '#be123c', fillOpacity: 0.03, dashArray: '8 5' };
+                }
+            }).addTo(layer);
+            var bounds = boundary.getBounds();
+            if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24] });
+        }
+
+        var hint = document.querySelector('.map-hint');
+        if (hint) hint.textContent = 'ВДНХ · схема аэропорта · OSM';
+
+        console.log('[MAP] Карта ВДНХ загружена (static/vdnh)');
+    });
+}
+
+function createEmployeeMapIcon(employee) {
+    var statusClass = employee.isFree() ? 'free' : 'busy';
+    if (employee.hasGps) {
+        var heading = employee.gpsHeading != null && isFinite(employee.gpsHeading) ? employee.gpsHeading : 0;
+        var html = '<div class="dispatcher-gps-marker"><div class="gps-direction-arrow" style="transform:rotate(' + heading + 'deg)"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div><span class="gps-marker-id">' + String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '') + '</span></div>';
+        return L.divIcon({ className: 'dispatcher-gps-marker-wrap status-' + statusClass, html: html, iconSize: [48, 56], iconAnchor: [24, 25] });
+    }
+    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + employee.deviceId + '</span>';
+    return L.divIcon({ className: 'employee-marker status-' + statusClass, html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18] });
 }
 
 function renderMapMarkers() {
@@ -3052,24 +3208,20 @@ function renderMapMarkers() {
         var emp = state.employees[iE];
         var lat = emp.lat, lng = emp.lng;
         var coordKey = lat.toFixed(5) + ',' + lng.toFixed(5);
-        if (coordIndex[coordKey] === undefined) coordIndex[coordKey] = 0;
-        else {
-            coordIndex[coordKey]++;
-            var idx = coordIndex[coordKey];
-            var angle = idx * (Math.PI / 3);
-            var radius = 0.00012 * idx;
-            lat += Math.sin(angle) * radius;
-            lng += Math.cos(angle) * radius;
+        if (!emp.hasGps) {
+            if (coordIndex[coordKey] === undefined) coordIndex[coordKey] = 0;
+            else {
+                coordIndex[coordKey]++;
+                var idx = coordIndex[coordKey];
+                var angle = idx * (Math.PI / 3);
+                var radius = 0.00012 * idx;
+                lat += Math.sin(angle) * radius;
+                lng += Math.cos(angle) * radius;
+            }
         }
-
-        var statusClass = emp.isFree() ? 'free' : 'busy';
-        var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + emp.deviceId + '</span>';
-        var icon = L.divIcon({
-            className: 'employee-marker status-' + statusClass,
-            html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18]
-        });
+        var icon = createEmployeeMapIcon(emp);
         (function(employee) {
-            var marker = L.marker([lat, lng], {icon: icon, draggable: true, autoPan: true})
+            var marker = L.marker([lat, lng], {icon: icon, draggable: !employee.hasGps, autoPan: true})
             .on('dragstart', function() { state.isDragging = true; })
             .on('dragend', function(e) {
                 state.isDragging = false;
@@ -3082,6 +3234,7 @@ function renderMapMarkers() {
                 showToast(employee.name + ' перемещён и сохранён', 'success');
             })
             .addTo(map).bindPopup(createEmployeePopup(employee));
+            marker._usesGpsIcon = !!employee.hasGps;
             state.mapMarkers['emp_' + employee.realId] = marker;
         })(emp);
     }

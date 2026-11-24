@@ -65,7 +65,7 @@ function redirectToDashboard(role) {
     const dashboards = {
         'admin': '/admin/dashboard.html',
         'dispatcher': '/dispatcher/dashboard.html',
-        'engineer': '/engineer/dashboard.html'
+        'engineer': '/engineer/map.html'
     };
     window.location.href = dashboards[role] || '/login.html';
 }

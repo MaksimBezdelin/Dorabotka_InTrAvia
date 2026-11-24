@@ -1096,6 +1096,7 @@
         </div>
     </div>
 
+    <script src="../static/js/server-config.js"></script>
     <script>
         /* ============================================================
            InTrAvia Dispatch — Кабинет пилота
@@ -1112,7 +1113,7 @@
            ============================================================ */
 
         // [AI] Константы и состояние — типовой каркас
-        var API_URL = '/api';
+        var API_URL = (window.IntrAvia && IntrAvia.serverUrl()) ? (IntrAvia.serverUrl() + '/api') : '/api';
 
         var mediaRecorder = null;
         var audioChunks = [];
@@ -1143,16 +1144,16 @@
         // ============================================================
         (function() {
             var session = sessionStorage.getItem('userSession');
-            if (!session) { window.location.href = '/login.html'; return; }
+            if (!session) { window.location.href = '../login.html'; return; }
 
             var user;
             try {
                 user = JSON.parse(session);
                 if (user.role !== 'pilot') {
-                    window.location.href = '/login.html';
+                    window.location.href = '../login.html';
                     return;
                 }
-            } catch (_) { window.location.href = '/login.html'; return; }
+            } catch (_) { window.location.href = '../login.html'; return; }
 
             document.getElementById('userName').textContent = user.name || 'Пилот';
             document.getElementById('userAvatar').textContent = user.avatar || '👨‍✈️';
@@ -1921,7 +1922,7 @@
             if (audioContext) { try { audioContext.close(); } catch(_) {} }
             if (audioUrl) URL.revokeObjectURL(audioUrl);
             sessionStorage.removeItem('userSession');
-            window.location.href = '/login.html';
+            window.location.href = '../login.html';
         }
 
         // [AI] Инициализация

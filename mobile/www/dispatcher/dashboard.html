@@ -1636,6 +1636,7 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="../static/js/server-config.js"></script>
     <script>
         /* ============================================================
            InTrAvia Dispatch — Кабинет диспетчера
@@ -1656,7 +1657,7 @@
            ============================================================ */
 
         // [AI] Константы и API
-        var API_URL = '/api';
+        var API_URL = (window.IntrAvia && IntrAvia.serverUrl()) ? (IntrAvia.serverUrl() + '/api') : '/api';
 
         // [AI] CONFIG — сгенерировано нейросетью
         var CONFIG = {
@@ -2214,14 +2215,14 @@
         // ============================================================
         function init() {
             var session = sessionStorage.getItem('userSession');
-            if (!session) { window.location.href = '/login.html'; return; }
+            if (!session) { window.location.href = '../login.html'; return; }
             var user;
             try {
                 user = JSON.parse(session);
-                if (user.role !== 'dispatcher') { window.location.href = '/login.html'; return; }
+                if (user.role !== 'dispatcher') { window.location.href = '../login.html'; return; }
                 document.getElementById('userName').textContent = user.name || 'Диспетчер';
                 document.getElementById('userAvatar').textContent = user.avatar || '👨‍✈️';
-            } catch (_) { window.location.href = '/login.html'; return; }
+            } catch (_) { window.location.href = '../login.html'; return; }
 
             var now = new Date();
             var months = ['января','февраля','марта','апреля','мая','июня',
@@ -5111,7 +5112,7 @@
             if (state.coordsInterval) clearInterval(state.coordsInterval);
             saveStateToLocalStorage();
             sessionStorage.removeItem('userSession');
-            window.location.href = '/login.html';
+            window.location.href = '../login.html';
         }
 
         document.addEventListener('DOMContentLoaded', init);

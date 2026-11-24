@@ -13,7 +13,8 @@ import networkx as nx
 from datetime import datetime, timezone, timedelta
 from flask_cors import CORS
 from flask import (Flask, request, jsonify, session,
-                   render_template, redirect, url_for, Response, abort)
+                   render_template, redirect, url_for, Response, abort,
+                   send_from_directory)
 
 try:
     from openai import OpenAI
@@ -28,6 +29,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'database.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
+MOBILE_DIR = os.path.join(BASE_DIR, 'mobile', 'www')
 REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
@@ -44,12 +46,57 @@ app.secret_key = 'intravia-secret-key-change-in-production'
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# ------------------------------------------------------------
+# Текущий аэропорт — системная настройка, общая для всех ролей
+# ------------------------------------------------------------
+AIRPORTS = {
+    'svo': 'Шереметьево (SVO)',
+    'vdnh': 'ВДНХ',
+}
+DEFAULT_AIRPORT = 'svo'
+SYSTEM_SETTINGS_PATH = os.path.join(BASE_DIR, 'data', 'system_settings.json')
+
+
+def load_system_settings():
+    try:
+        with open(SYSTEM_SETTINGS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_system_settings(settings):
+    os.makedirs(os.path.dirname(SYSTEM_SETTINGS_PATH), exist_ok=True)
+    tmp_path = SYSTEM_SETTINGS_PATH + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, SYSTEM_SETTINGS_PATH)
+
+
+def current_airport_payload():
+    settings = load_system_settings()
+    code = settings.get('airport')
+    if code not in AIRPORTS:
+        code = DEFAULT_AIRPORT
+    return {
+        'airport': code,
+        'name': AIRPORTS[code],
+        'confirmed_at': settings.get('confirmed_at'),
+        'confirmed_by': settings.get('confirmed_by'),
+    }
+
 
 @app.errorhandler(404)
 def _json_404(e):
     if request.path.startswith('/api/'):
-        return jsonify({'success': False, 'error': 'Endpoint not found',
-                        'path': request.path}), 404
+        return jsonify({
+            'success': False,
+            'error': 'Endpoint not found',
+            'path': request.path,
+            'method': request.method,
+            'hint': 'Проверьте, что на сервере установлен актуальный app.py и Flask перезапущен.'
+        }), 404
     return e
 
 
@@ -1238,17 +1285,50 @@ def admin_dashboard():
 
 @app.route('/dispatcher/dashboard.html')
 def dispatcher_dashboard():
-    return render_template('dispatcher/dashboard.html')
+    return render_template('dispatcher/dashboard.html', initial_airport=current_airport_payload()['airport'])
 
 
 @app.route('/engineer/dashboard.html')
 def engineer_dashboard():
-    return render_template('engineer/dashboard.html')
+    return render_template('engineer/dashboard.html', initial_airport=current_airport_payload()['airport'])
+
+
+@app.route('/engineer/map.html')
+def engineer_live_map():
+    # Компьютерная страница только отображает GPS-метку с телефона.
+    # Получение геолокации и отправка координат здесь намеренно отсутствуют.
+    return render_template('engineer/map.html', initial_airport=current_airport_payload()['airport'])
 
 
 @app.route('/pilot/dashboard.html')
 def pilot_dashboard():
     return render_template('pilot/dashboard.html')
+
+
+# ============================================================
+# Мобильное приложение, раздаваемое с сервера
+# ============================================================
+@app.route('/mobile')
+@app.route('/mobile/')
+def mobile_entry():
+    return redirect('/mobile/login.html')
+
+
+@app.route('/mobile/<path:filename>')
+def mobile_files(filename):
+    return send_from_directory(MOBILE_DIR, filename)
+
+
+# Совместимость с мобильным клиентом, который открывает <base>/m/engineer
+@app.route('/m/engineer')
+@app.route('/m/engineer/')
+def mobile_engineer_entry():
+    return redirect('/m/engineer/login.html')
+
+
+@app.route('/m/engineer/<path:filename>')
+def mobile_engineer_files(filename):
+    return send_from_directory(MOBILE_DIR, filename)
 
 
 @app.route('/mcc/dashboard.html')
@@ -1264,6 +1344,17 @@ def cpu_dashboard():
 # ============================================================
 # Стоянки и объекты — API
 # ============================================================
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    return jsonify({
+        'success': True,
+        'service': 'InTrAvia',
+        'api_version': 'gps-heading-1',
+        'gps_location_endpoint': True,
+        'server_time': datetime.now().isoformat(timespec='seconds')
+    })
+
+
 @app.route('/api/parking', methods=['GET'])
 def api_parking():
     def sort_key(k):
@@ -1317,7 +1408,9 @@ def api_map_object_positions():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT object_type,object_id,lat,lng,updated_at
-                   FROM map_object_positions ORDER BY object_type,object_id""")
+                   FROM map_object_positions
+                   WHERE object_type != 'engineer_gps_heading'
+                   ORDER BY object_type,object_id""")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -1374,6 +1467,34 @@ def auth_login():
            'role': u['role'], 'avatar': u['avatar'] or '👤'}
     res.update(extra)
     return jsonify({'success': True, 'user': res})
+
+
+# ============================================================
+# Текущий аэропорт
+# ============================================================
+@app.route('/api/system/current-airport', methods=['GET'])
+def get_current_airport():
+    return jsonify(current_airport_payload())
+
+
+@app.route('/api/system/current-airport', methods=['POST'])
+def set_current_airport():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('airport') or '').strip().lower()
+    if code not in AIRPORTS:
+        return jsonify({'success': False, 'error': 'Неизвестный аэропорт'}), 400
+
+    settings = load_system_settings()
+    settings['airport'] = code
+    settings['confirmed_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    confirmed_by = str(data.get('confirmed_by') or '').strip()
+    if confirmed_by:
+        settings['confirmed_by'] = confirmed_by[:120]
+    save_system_settings(settings)
+
+    payload = current_airport_payload()
+    payload['success'] = True
+    return jsonify(payload)
 
 
 # ============================================================
@@ -3105,9 +3226,16 @@ def get_engineers():
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
                    COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   gps.lat AS gps_lat,gps.lng AS gps_lng,
+                   gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
-                   FROM engineers e LEFT JOIN map_object_positions p
-                     ON p.object_type='engineer' AND p.object_id=e.id""")
+                   FROM engineers e
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
+                   LEFT JOIN map_object_positions gps_heading
+                     ON gps_heading.object_type='engineer_gps_heading' AND gps_heading.object_id=e.id""")
     rows = cur.fetchall()
     conn.close()
     res = []
@@ -3141,9 +3269,16 @@ def get_engineer(eng_id):
     cur.execute("""SELECT e.id,e.name,e.device_id,e.specialization,
                    COALESCE(p.lat,e.coords_lat) AS coords_lat,
                    COALESCE(p.lng,e.coords_lng) AS coords_lng,
+                   gps.lat AS gps_lat,gps.lng AS gps_lng,
+                   gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
                    e.status,e.task,e.phone,e.task_step,e.task_started_at
-                   FROM engineers e LEFT JOIN map_object_positions p
+                   FROM engineers e
+                   LEFT JOIN map_object_positions p
                      ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
+                   LEFT JOIN map_object_positions gps_heading
+                     ON gps_heading.object_type='engineer_gps_heading' AND gps_heading.object_id=e.id
                    WHERE e.id=?""", (eng_id,))
     row = cur.fetchone()
     conn.close()
@@ -3339,10 +3474,100 @@ def delete_engineer(eng_id):
     cur = conn.cursor()
     cur.execute("DELETE FROM engineers WHERE id=?", (eng_id,))
     cur.execute("DELETE FROM users WHERE id=?", (eng_id,))
+    cur.execute("DELETE FROM map_object_positions WHERE object_type IN ('engineer_gps','engineer_gps_heading') AND object_id=?", (str(eng_id),))
     conn.commit()
     conn.close()
     _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True})
+
+
+@app.route('/api/engineers/<eng_id>/location', methods=['GET', 'PUT'])
+@app.route('/api/engineers/<eng_id>/gps', methods=['GET', 'PUT'])
+@app.route('/api/engineer/<eng_id>/location', methods=['GET', 'PUT'])
+def engineer_gps_location(eng_id):
+    """Отдельные реальные GPS-координаты мобильного устройства инженера.
+
+    Хранятся отдельно от coords, которые используются симуляцией маршрутов
+    и диспетчерской картой. Компьютерный экран читает только этот endpoint.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,name FROM engineers WHERE id=?", (eng_id,))
+    engineer = cur.fetchone()
+    if not engineer:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+
+    if request.method == 'GET':
+        cur.execute("""SELECT lat,lng,updated_at
+                       FROM map_object_positions
+                       WHERE object_type='engineer_gps' AND object_id=?""", (str(eng_id),))
+        row = cur.fetchone()
+        cur.execute("""SELECT lat,lng FROM map_object_positions
+                       WHERE object_type='engineer_gps_heading' AND object_id=?""", (str(eng_id),))
+        heading_row = cur.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'success': True, 'available': False, 'engineer_id': str(eng_id),
+                            'name': engineer['name'], 'location': None})
+        return jsonify({
+            'success': True,
+            'available': True,
+            'engineer_id': str(eng_id),
+            'name': engineer['name'],
+            'location': {
+                'lat': row['lat'],
+                'lng': row['lng'],
+                'heading': heading_row['lat'] if heading_row else None,
+                'accuracy': heading_row['lng'] if heading_row else None,
+                'updated_at': row['updated_at'],
+            }
+        })
+
+    data = request.get_json(silent=True) or {}
+    lat = data.get('lat')
+    lng = data.get('lng')
+    accuracy = data.get('accuracy')
+    heading = data.get('heading')
+    if lat is None or lng is None:
+        conn.close()
+        return jsonify({'success': False, 'error': 'lat/lng обязательны'}), 400
+    try:
+        lat = float(lat)
+        lng = float(lng)
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise ValueError('Координаты вне допустимого диапазона')
+        if accuracy is not None:
+            accuracy = float(accuracy)
+            if not (0 <= accuracy <= 100000):
+                raise ValueError('Некорректная точность GPS')
+        if heading is not None:
+            heading = float(heading) % 360.0
+            if not (0 <= heading < 360):
+                raise ValueError('Некорректный курс GPS')
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Некорректные координаты GPS'}), 400
+
+    # Важно: GPS — фактическое положение, его нельзя блокировать правилами
+    # симуляции движения самолётов или перезаписывать координатами маршрута.
+    cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                   VALUES ('engineer_gps',?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(object_type,object_id) DO UPDATE SET
+                     lat=excluded.lat,lng=excluded.lng,updated_at=CURRENT_TIMESTAMP""",
+                (str(eng_id), lat, lng))
+    if heading is not None:
+        # Keep compass metadata in a separate row in the existing table;
+        # no database migration or schema alteration is required.
+        cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                       VALUES ('engineer_gps_heading',?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(object_type,object_id) DO UPDATE SET
+                         lat=excluded.lat,lng=excluded.lng,updated_at=CURRENT_TIMESTAMP""",
+                    (str(eng_id), heading, accuracy if accuracy is not None else 0.0))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'engineer_id': str(eng_id), 'lat': lat,
+                    'lng': lng, 'accuracy': accuracy, 'heading': heading})
 
 
 @app.route('/api/engineers/<eng_id>/coords', methods=['PUT'])

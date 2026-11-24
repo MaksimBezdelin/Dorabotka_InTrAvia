@@ -3,7 +3,8 @@
   "appName": "InTrAvia Инженер",
   "webDir": "www",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "allowNavigation": ["*"]
   },
   "plugins": {
     "CapacitorHttp": {

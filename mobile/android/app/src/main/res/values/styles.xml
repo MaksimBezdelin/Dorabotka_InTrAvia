@@ -15,6 +15,14 @@
         <item name="android:background">@null</item>
     </style>
 
+    <!-- Стартовая плашка «как в референсном APK»: тёмный action bar + светлый диалог -->
+    <style name="AppTheme.ServerSetup" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">#1B1B1F</item>
+        <item name="colorPrimaryDark">#000000</item>
+        <item name="colorAccent">#009688</item>
+        <item name="android:windowBackground">#F2F2F2</item>
+    </style>
+
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
