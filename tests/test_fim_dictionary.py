@@ -38,6 +38,18 @@ def test_depressurization_and_gear_are_aog(client):
     assert _classify(client, 'пожар двигателя')['decision'] == 'AOG'
 
 
+def test_mel_and_aog_catalog_tables_populated(app_module):
+    conn = app_module.get_db()
+    try:
+        mel = conn.execute(
+            "SELECT COUNT(*) FROM mel_catalog WHERE source_document='FIM 007-00'").fetchone()[0]
+        aog = conn.execute('SELECT COUNT(*) FROM aog_catalog').fetchone()[0]
+    finally:
+        conn.close()
+    assert mel > 3000
+    assert aog > 100
+
+
 def test_catalog_filters_and_counts(client):
     resp = client.get('/api/faults/catalog',
                       query_string={'ata': '24', 'decision': 'AOG', 'limit': 5})

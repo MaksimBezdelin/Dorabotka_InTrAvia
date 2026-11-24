@@ -274,9 +274,23 @@ def ensure_schema(conn):
         source_page INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS aog_catalog (
+        id TEXT PRIMARY KEY,
+        fim_code TEXT UNIQUE NOT NULL,
+        ata TEXT NOT NULL,
+        title TEXT NOT NULL,
+        reason TEXT DEFAULT '',
+        conditions TEXT DEFAULT '',
+        confidence TEXT DEFAULT 'medium',
+        needs_review INTEGER DEFAULT 1,
+        source_file TEXT DEFAULT '',
+        source_page INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE INDEX IF NOT EXISTS idx_fault_class_ata ON fault_classification(ata);
     CREATE INDEX IF NOT EXISTS idx_fault_class_decision ON fault_classification(decision);
     CREATE INDEX IF NOT EXISTS idx_fault_rules_type ON fault_classification_rules(rule_type);
+    CREATE INDEX IF NOT EXISTS idx_aog_ata ON aog_catalog(ata);
     """)
 
 
@@ -314,6 +328,44 @@ def store_entries(conn, entries):
     return counts
 
 
+def sync_catalogs(conn):
+    """Раскладывает словарь в mel_catalog и aog_catalog (только в БД)."""
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mel_catalog WHERE source_document='FIM 007-00'")
+    cur.execute('DELETE FROM aog_catalog')
+    mel_count = 0
+    aog_count = 0
+    rows = cur.execute("""SELECT fim_code, ata, title, decision, mel_category,
+                                 interval_days, interval_text, conditions, reason,
+                                 confidence, source_file, source_page
+                          FROM fault_classification""").fetchall()
+    for row in rows:
+        (fim_code, ata, title, decision, category, days, interval,
+         conditions, reason, confidence, source_file, source_page) = row
+        if decision == 'MEL':
+            cur.execute("""INSERT OR REPLACE INTO mel_catalog
+                (id, aircraft_type, configuration, ata, item_ref, revision,
+                 category, description, rectification_interval, deadline_mode,
+                 deadline_value, deadline_start_rule, deadline_condition,
+                 restrictions, o_required, o_procedure, m_required,
+                 m_procedure, applicability_codes, source_document, active)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                        (fim_code, 'RRJ-95', '', ata, fim_code, 'FIM 007-00',
+                         category, title, interval, 'CALENDAR_DAYS',
+                         str(days) if days else '', 'С даты подписания MEL', '',
+                         conditions, 0, '', 0, '', '', 'FIM 007-00'))
+            mel_count += 1
+        else:
+            cur.execute("""INSERT OR REPLACE INTO aog_catalog
+                (id, fim_code, ata, title, reason, conditions, confidence,
+                 needs_review, source_file, source_page)
+                VALUES (?,?,?,?,?,?,?,1,?,?)""",
+                        (fim_code, fim_code, ata, title, reason, conditions,
+                         confidence, source_file, source_page))
+            aog_count += 1
+    return mel_count, aog_count
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--fim-dir', default=r'C:\Users\Вячеслав\OneDrive\Desktop\FIM 007-00')
@@ -337,13 +389,17 @@ def main():
         ensure_schema(conn)
         seed_rules(conn)
         counts = store_entries(conn, entries)
+        mel_rows, aog_rows = sync_catalogs(conn)
         conn.commit()
         total = conn.execute('SELECT COUNT(*) FROM fault_classification').fetchone()[0]
         aog = conn.execute("SELECT COUNT(*) FROM fault_classification WHERE decision='AOG'").fetchone()[0]
         mel = conn.execute("SELECT COUNT(*) FROM fault_classification WHERE decision='MEL'").fetchone()[0]
+        mel_catalog = conn.execute("SELECT COUNT(*) FROM mel_catalog WHERE source_document='FIM 007-00'").fetchone()[0]
+        aog_catalog = conn.execute('SELECT COUNT(*) FROM aog_catalog').fetchone()[0]
     finally:
         conn.close()
     print(f'Готово: {total} записей (AOG {aog}, MEL {mel}) в {db_path}')
+    print(f'Таблицы: mel_catalog={mel_catalog}, aog_catalog={aog_catalog}')
 
 
 if __name__ == '__main__':
