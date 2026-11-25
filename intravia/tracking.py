@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import threading
 from datetime import datetime, timezone
 
@@ -97,6 +98,13 @@ def _track_known_object(raw_obj):
         if row:
             return {'type': 'aircraft', 'id': str(row['aircraft']).upper(),
                     'label': str(row['aircraft']).upper()}
+
+        # Внешний имитатор может прислать борт по регистрации (RA-73101),
+        # которого ещё нет в БД. Принимаем такую регистрацию как id борта;
+        # сама запись создаётся в _track_apply_position при первой точке.
+        reg = raw.upper()
+        if re.fullmatch(r'[A-Z]{2}-?\d{3,5}', reg):
+            return {'type': 'aircraft', 'id': reg, 'label': reg}
     finally:
         conn.close()
     return None
@@ -263,6 +271,14 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None,
                 cur.execute("UPDATE aircraft SET lat=?, lng=?, updated_at=CURRENT_TIMESTAMP "
                             "WHERE id=?", (lat, lng, row['id']))
                 object_id = str(row['id'])
+            elif re.fullmatch(r'[A-Z]{2}-?\d{3,5}', str(object_id).upper()):
+                # Борт от внешнего имитатора по регистрации: регистрируем на лету.
+                reg = str(object_id).upper()
+                cur.execute("""INSERT INTO aircraft
+                               (id, callsign, lat, lng, status, updated_at)
+                               VALUES (?, ?, ?, ?, 'parked', CURRENT_TIMESTAMP)""",
+                            (reg, reg, lat, lng))
+                object_id = reg
 
         if update_coords:
             cur.execute("""INSERT INTO map_object_positions
