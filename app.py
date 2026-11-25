@@ -1582,6 +1582,16 @@ def mcc_clear(clear_type):
 def confirm_pilot_request(rid):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT aircraft, parking_id FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if not str(row['parking_id'] or '').strip():
+        # Заявка создаётся на борт: стоянку определяем по координатам ВС.
+        parking_id = _resolve_aircraft_parking(cur, row['aircraft'])
+        if parking_id:
+            cur.execute("UPDATE requests SET parking_id=? WHERE id=?", (parking_id, rid))
     cur.execute("UPDATE requests SET status='new', mcc_status='PENDING', routing_stage='mcc', flight_status='DO_NOT_FLY', flight_status_reason='Заявка о техническом дефекте зарегистрирована; полёт запрещён до решения MCC' WHERE id=?", (rid,))
     conn.commit()
     conn.close()
@@ -3772,6 +3782,59 @@ def parts_received(rid):
 # ============================================================
 # DISPATCH — создание заявки
 # ============================================================
+def _resolve_aircraft_parking(cur, aircraft):
+    """Определяет стоянку борта по его координатам.
+
+    Порядок: зона, в полигон которой попадает борт; ближайший центр
+    стоянки; последняя стоянка из заявок этого борта. Пустая строка —
+    определить не удалось.
+    """
+    key = str(aircraft or '').strip()
+    if not key:
+        return ''
+
+    cur.execute("""SELECT id, callsign, lat, lng FROM aircraft
+                   WHERE UPPER(id)=UPPER(?) OR UPPER(callsign)=UPPER(?)
+                   LIMIT 1""", (key, key))
+    row = cur.fetchone()
+
+    lat = lng = None
+    if row:
+        try:
+            lat, lng = float(row['lat']), float(row['lng'])
+        except (TypeError, ValueError):
+            lat = lng = None
+
+    if lat is not None and lng is not None:
+        for pid in geo.PARKING_META:
+            geometry = geo._zone_geometry(pid)
+            if geometry and geo._point_in_geometry(lat, lng, geometry):
+                return pid
+        best = None
+        for pid in geo.PARKING_META:
+            point = geo._parking_point(pid)
+            if not point:
+                continue
+            plat, plng = point
+            try:
+                dist = geo.distance_km(lat, lng, float(plat), float(plng))
+            except (TypeError, ValueError):
+                continue
+            if best is None or dist < best[0]:
+                best = (dist, pid)
+        if best:
+            return best[1]
+
+    cur.execute("""SELECT parking_id FROM requests
+                   WHERE UPPER(aircraft)=UPPER(?) AND parking_id IS NOT NULL
+                     AND parking_id!=''
+                   ORDER BY created_at DESC, id DESC LIMIT 1""", (key,))
+    previous = cur.fetchone()
+    if previous and previous['parking_id']:
+        return str(previous['parking_id'])
+    return ''
+
+
 @app.route('/api/dispatch', methods=['POST'])
 def dispatch():
     data = request.get_json() or {}
@@ -3815,9 +3878,12 @@ def dispatch():
 
         parking_id = str(data.get('parking_id') or '')
         if not parking_id:
+            parking_id = _resolve_aircraft_parking(cur, aircraft)
+        if not parking_id:
             conn.close()
-            return jsonify({'success': False, 'error': 'Не указана стоянка'}), 400
-        flight_number = (data.get('flight_number') or '').strip()
+            return jsonify({'success': False, 'error': 'Не удалось определить стоянку борта'}), 400
+        # Заявка создаётся на борт: номер рейса больше не требуется.
+        flight_number = ''
         raw_fault = data.get('fault_type') or data.get('description') or 'other'
         fault_info = classify_fault(raw_fault)
         fault = fault_info['code']

@@ -325,8 +325,6 @@
             </p>
             <div class="form-grid-3">
                 <div><label class="form-label">Борт</label><input type="text" class="data-input" id="reviewAircraft" placeholder="RA-73701"></div>
-                <div><label class="form-label">Номер рейса</label><input type="text" class="data-input" id="reviewFlight" placeholder="SU-101"></div>
-                <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="reviewParking" placeholder="SZ-1"></div>
             </div>
             <div class="defects-list" id="reviewDefectsList"></div>
             <div class="info-box" id="reviewAta" style="display:none;"></div>
@@ -357,8 +355,6 @@
             </p>
             <div class="form-grid-3">
                 <div><label class="form-label">Борт</label><input type="text" class="data-input" id="textAircraft" placeholder="RA-73701"></div>
-                <div><label class="form-label">Номер рейса</label><input type="text" class="data-input" id="textFlight" placeholder="SU-101"></div>
-                <div><label class="form-label">Стоянка *</label><input type="text" class="data-input" id="textParking" placeholder="SZ-1"></div>
             </div>
             <div class="defects-list" id="defectsList"></div>
             <div class="info-box" id="textAta" style="display:none;"></div>
@@ -1137,9 +1133,6 @@ window.exportATLB = exportATLB;
 // Изменено: не отправляем severity в payload (backend форсит 'medium' для pilot)
 function submitTextRequest(event) {
     var aircraft = document.getElementById('textAircraft').value.trim();
-    var flight = document.getElementById('textFlight').value.trim();
-    var parking = document.getElementById('textParking').value.trim();
-    if (!parking) { showToast('Укажите стоянку', 'error'); return; }
 
     var defects = collectDefects();
     if (!defects.length) { showToast('Добавьте хотя бы один дефект', 'error'); return; }
@@ -1162,8 +1155,6 @@ function submitTextRequest(event) {
         pilot_rank: user.rank || 'КВС',
         aircraft: aircraft || (user.aircraft || 'RA-XXXXX'),
         fault_type: labelToCode(defects[0].name),
-        parking_id: parking,
-        flight_number: flight || null,
         description: fullDescription
     };
 
@@ -1186,8 +1177,6 @@ function submitTextRequest(event) {
     })
     .then(function() {
         document.getElementById('textAircraft').value = '';
-        document.getElementById('textFlight').value = '';
-        document.getElementById('textParking').value = '';
         initDefectsForm();
         showToast('Заявка отправлена. Записей: ' + defects.length, 'success');
         showTab('logbook');
@@ -1239,8 +1228,6 @@ function analyzeRequest() {
             var parsed = (res && res.parsed) || {};
             var defects = (res && res.success) ? parseDefectsFromTranscription(parsed) : [];
             document.getElementById('reviewAircraft').value = parsed.aircraft || '';
-            document.getElementById('reviewParking').value = parsed.parking_id || '';
-            var fe = document.getElementById('reviewFlight'); if (fe) fe.value = parsed.flight_number || '';
 
             if (res && res.success && defects.length > 0) {
                 populateReviewDefects(defects);
@@ -1271,9 +1258,6 @@ function confirmRequest() {
     var confirmBtn = document.getElementById('confirmBtn');
     var originalHtml = confirmBtn.innerHTML;
     var aircraft = document.getElementById('reviewAircraft').value.trim();
-    var flight = document.getElementById('reviewFlight').value.trim();
-    var parking = document.getElementById('reviewParking').value.trim();
-    if (!parking) { showToast('Укажите стоянку', 'error'); return; }
 
     var defects = collectReviewDefects();
     if (!defects.length) { showToast('Нет дефектов', 'error'); return; }
@@ -1291,7 +1275,7 @@ function confirmRequest() {
         (defects.length > 1 ? ' ['+defects.length+' дефектов]' : '') + ':\n' + fullDescription;
 
     var data = {
-        aircraft: aircraft, parking_id: parking, flight_number: flight || null,
+        aircraft: aircraft,
         fault_type: labelToCode(defects[0].name),
         engineer_comment: commentText
     };
