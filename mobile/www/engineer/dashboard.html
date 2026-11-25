@@ -311,14 +311,22 @@
         .geojson-number-label { display: flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px; background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72); color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none; }
         /* SIMULATOR MAP LABELS: постоянные подписи как на itsim.geolaba.net */
         .sim-map-label-icon { background: transparent !important; border: 0 !important; }
-        .sim-map-label { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: inline-flex; align-items: center; justify-content: center; min-height: 16px; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,.86); border: 1px solid rgba(15,55,90,.35); color: #0b2945; font: 700 10px/1.15 Inter,Arial,sans-serif; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.28); pointer-events: none; user-select: none; }
+        .sim-map-label { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: inline-flex; align-items: center; justify-content: center; min-height: 15px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,.86); border: 1px solid rgba(15,55,90,.35); color: #0b2945; font: 700 10px/1.15 Inter,Arial,sans-serif; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.24); pointer-events: none; user-select: none; }
         .sim-map-label--clickable { pointer-events: auto; cursor: pointer; }
-        .sim-map-label-tooltip { background: rgba(255,255,255,.9) !important; border: 1px solid rgba(15,55,90,.35) !important; color: #0b2945 !important; font: 700 10px/1.15 Inter,Arial,sans-serif !important; padding: 2px 6px !important; border-radius: 5px !important; box-shadow: 0 1px 4px rgba(0,0,0,.28) !important; white-space: nowrap; }
+        .sim-map-label-tooltip { background: rgba(255,255,255,.9) !important; border: 1px solid rgba(15,55,90,.35) !important; color: #0b2945 !important; font: 700 10px/1.15 Inter,Arial,sans-serif !important; padding: 1px 5px !important; border-radius: 3px !important; box-shadow: 0 1px 3px rgba(0,0,0,.24) !important; white-space: nowrap; }
         .sim-map-label-tooltip.leaflet-tooltip-right:before { border-right-color: rgba(255,255,255,.9) !important; }
         .sim-map-label-tooltip.leaflet-tooltip-left:before { border-left-color: rgba(255,255,255,.9) !important; }
         .sim-map-label-tooltip.leaflet-tooltip-top:before { border-top-color: rgba(255,255,255,.9) !important; }
         .sim-map-label-tooltip.leaflet-tooltip-bottom:before { border-bottom-color: rgba(255,255,255,.9) !important; }
-        .engineer-live-label { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 3px); background: rgba(255,255,255,.9); border: 1px solid rgba(15,55,90,.35); color: #0b2945; font: 800 10px/1.1 Inter,Arial,sans-serif; padding: 1px 5px; border-radius: 5px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.28); pointer-events: none; }
+        #map.hide-object-labels .sim-map-label--object { display: none; }
+        .engineer-live-label { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 3px); background: #2f7ef7; border: 1px solid rgba(255,255,255,.85); color: #fff; font: 800 9px/1.1 Inter,Arial,sans-serif; padding: 1px 4px; border-radius: 3px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.3); pointer-events: none; }
+        .sim-agent-marker { display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+        .sim-agent-icon { width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 2px solid #2f7ef7; color: #2f7ef7; display: flex; align-items: center; justify-content: center; font-size: 11px; box-shadow: 0 1px 4px rgba(0,0,0,.32); }
+        .sim-agent-badge { margin-top: 1px; padding: 1px 4px; border-radius: 3px; background: #2f7ef7; color: #fff; font: 800 9px/1.1 Inter,Arial,sans-serif; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+        .sim-agent-transport .sim-agent-icon { border-radius: 5px; border-color: #e67e22; color: #e67e22; }
+        .sim-agent-transport .sim-agent-badge { background: #e67e22; }
+        .sim-agent-aircraft .sim-agent-icon { border-color: #1d4ed8; color: #1d4ed8; }
+        .sim-agent-aircraft .sim-agent-badge { background: #1d4ed8; }
 
     </style>
 </head>
@@ -958,8 +966,19 @@
             activeMapBaseLayer = mapBaseLayers[mobileMapLayerPreference] || mapBaseLayers.street;
             activeMapBaseLayer.addTo(map);
             L.control.zoom({ position: 'topleft' }).addTo(map);
+            map.on('zoomend', applyMapLabelZoomPolicy);
             mapInitialized = true;
             updateMobileMapLayerButtons();
+            applyMapLabelZoomPolicy();
+        }
+
+        // На обзорном зуме телефона прячем длинные подписи объектов f00…f05,
+        // чтобы они не перекрывали друг друга и подписи мс-01…мс-10.
+        function applyMapLabelZoomPolicy() {
+            if (!map) return;
+            var container = map.getContainer && map.getContainer();
+            if (!container) return;
+            container.classList.toggle('hide-object-labels', (map.getZoom() || 14) < 15);
         }
 
         var mapLayerTransitionTimer = null;
@@ -1057,22 +1076,35 @@
         window.toggleMobileTaskPanel = toggleMobileTaskPanel;
 
         
-        function createGeoJsonNumberIcon(rawId) {
+        function createGeoJsonNumberIcon(rawId, extraClass) {
             return L.divIcon({
                 className: 'sim-map-label-icon',
-                html: '<div class="sim-map-label">' + simEscapeHtml(rawId) + '</div>',
+                html: '<div class="sim-map-label' + (extraClass ? ' ' + extraClass : '') + '">' + simEscapeHtml(rawId) + '</div>',
                 iconSize: null,
                 iconAnchor: null
             });
         }
 
-        function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId) {
+        function createSimAgentIcon(kind, label) {
+            var iconClass = kind === 'transport' ? 'fa-car' : (kind === 'aircraft' ? 'fa-plane' : 'fa-user');
+            return L.divIcon({
+                className: 'sim-map-label-icon',
+                html: '<div class="sim-agent-marker sim-agent-' + kind + '">' +
+                    '<span class="sim-agent-icon"><i class="fas ' + iconClass + '"></i></span>' +
+                    '<span class="sim-agent-badge">' + simEscapeHtml(label) + '</span>' +
+                '</div>',
+                iconSize: [30, 46],
+                iconAnchor: [15, 12]
+            });
+        }
+
+        function addGeoJsonNumberLabel(targetLayer, featureLayer, rawId, extraClass) {
             if (rawId === undefined || rawId === null || rawId === '') return;
             if (!featureLayer || typeof featureLayer.getBounds !== 'function') return;
             var bounds = featureLayer.getBounds();
             if (!bounds || !bounds.isValid()) return;
             L.marker(bounds.getCenter(), {
-                icon: createGeoJsonNumberIcon(rawId),
+                icon: createGeoJsonNumberIcon(rawId, extraClass),
                 interactive: false,
                 keyboard: false,
                 zIndexOffset: 1800
@@ -1117,7 +1149,7 @@
                             if (id != null) {
                                 var zoneLabel = simGeoLabel('zone', id);
                                 lyr.bindTooltip(zoneLabel + ' · зона обслуживания', { sticky: true });
-                                addGeoJsonNumberLabel(vdnhLayer, lyr, zoneLabel);
+                                addGeoJsonNumberLabel(vdnhLayer, lyr, zoneLabel, 'sim-map-label--zone');
                             }
                         }
                     }).addTo(vdnhLayer);
@@ -1145,7 +1177,7 @@
                             var props = f.properties || {};
                             var objLabel = props.id != null ? simGeoLabel('object', props.id) : '';
                             if (props.name) lyr.bindTooltip((objLabel ? objLabel + ' · ' : '') + props.name, { sticky: true });
-                            if (objLabel) addGeoJsonNumberLabel(vdnhLayer, lyr, objLabel + (props.name ? ' · ' + props.name : ''));
+                            if (objLabel) addGeoJsonNumberLabel(vdnhLayer, lyr, objLabel + (props.name ? ' · ' + props.name : ''), 'sim-map-label--object');
                         }
                     }).addTo(vdnhLayer);
                 }
@@ -1159,29 +1191,6 @@
                 } else if (vdnhStillActive()) {
                     map.setView([55.8330, 37.6287], 14, { animate: false });
                 }
-            });
-        }
-
-        // Постоянные подписи стоянок ВДНХ: SZ-N -> мс-NN из /api/parking.
-        function loadEngineerVdnhParkingLabels() {
-            if (!mapInitialized || !map || currentAirport !== 'vdnh') return;
-            var layer = engineerAirportLayer;
-            if (!layer || !map.hasLayer(layer)) return;
-            Object.keys(PARKING_COORDS).forEach(function(ref) {
-                var p = PARKING_COORDS[ref];
-                if (!p || p.lat == null || p.lng == null) return;
-                var label = simStandLabel(ref);
-                var marker = L.marker([+p.lat, +p.lng], {
-                    icon: createGeoJsonNumberIcon(label),
-                    interactive: true,
-                    keyboard: false,
-                    riseOnHover: true,
-                    zIndexOffset: 1600
-                });
-                marker.bindTooltip(label + ' · Стоянка', {
-                    direction: 'top', offset: [0, -12], className: 'sim-map-label-tooltip'
-                });
-                marker.addTo(layer);
             });
         }
 
@@ -1208,15 +1217,20 @@
             var marker = engineerAgentMarkers[markerKey];
             if (marker) {
                 marker.setLatLng([lat, lng]);
-                if (marker.getTooltip()) marker.setTooltipContent(String(label));
+                if (String(marker._simLabel) !== String(label)) {
+                    marker._simLabel = String(label);
+                    marker.setIcon(createSimAgentIcon(kind, label));
+                    if (marker.getTooltip()) marker.setTooltipContent(String(label));
+                }
                 return;
             }
             marker = L.marker([lat, lng], {
-                icon: createGeoJsonNumberIcon(label),
+                icon: createSimAgentIcon(kind, label),
                 interactive: true,
                 keyboard: false,
                 zIndexOffset: kind === 'aircraft' ? 1500 : (kind === 'transport' ? 1400 : 1300)
             }).addTo(layer);
+            marker._simLabel = String(label);
             marker.bindTooltip(String(label), { direction: 'top', offset: [0, -10], className: 'sim-map-label-tooltip' });
             engineerAgentMarkers[markerKey] = marker;
         }
@@ -1288,7 +1302,6 @@
                 stopEngineerAirportAircraft();
                 map.setView([55.8330, 37.6287], 14, { animate: false });
                 return loadEngineerVdnhMap().then(function() {
-                    loadEngineerVdnhParkingLabels();
                     loadEngineerExternalAgents();
                 });
             }
@@ -2154,14 +2167,19 @@
 
         function loadTasks() {
             if (Date.now() < blockReloadUntil) return;
-            fetch('/api/engineers')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+            // /api/engineers закрыт для роли engineer (401). Общий снапшот
+            // /api/v1/agents доступен инженеру и содержит его статус/задачу.
+            fetch('/api/v1/agents', { cache: 'no-store' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(payload) {
+                    var data = payload && Array.isArray(payload.engineers) ? payload.engineers : [];
                     var eng = null;
                     for (var i = 0; i < data.length; i++) {
                         if (data[i].id === engineerId) { eng = data[i]; break; }
                     }
                     if (!eng) return;
+                    if (eng.coords_lat == null && eng.lat != null) eng.coords_lat = eng.lat;
+                    if (eng.coords_lng == null && eng.lng != null) eng.coords_lng = eng.lng;
 
                     if (taskStep === 'diagnosing' && isReportFormOpen() && eng.task) {
                         engineerData = eng;
@@ -3360,10 +3378,7 @@
             var mapReady = currentAirport === 'vdnh' ? loadEngineerVdnhMap() : Promise.resolve();
             mapReady.then(function() { return loadParkingCoords(); })
                 .then(function() {
-                    if (currentAirport === 'vdnh') {
-                        loadEngineerVdnhParkingLabels();
-                        loadEngineerExternalAgents();
-                    }
+                    if (currentAirport === 'vdnh') loadEngineerExternalAgents();
                 })
                 .finally(function() {
                     updateMobileMapLayerButtons();

@@ -1083,18 +1083,8 @@
                     <i class="fas fa-tower-broadcast"></i><span>Диспетчерская</span>
                 </a>
             </li>
-            <li id="navDelays">
-                <a onclick="switchTab('delays')">
-                    <i class="fas fa-hourglass-half"></i><span>Задержки рейсов</span>
-                    <span class="badge-nav" id="delaysBadge">0</span>
-                </a>
-            </li>
-            <li id="navFlights">
-                <a onclick="switchTab('flights')">
-                    <i class="fas fa-plane"></i><span>Рейсы</span>
-                    <span class="badge-nav" id="flightsBadge">0</span>
-                </a>
-            </li>
+            
+            
             <li id="navReports">
                 <a onclick="switchTab('reports')">
                     <i class="fas fa-clipboard-list"></i><span>Отчёты</span>
@@ -1107,12 +1097,7 @@
                     <span class="badge-nav" id="pilotBadge">0</span>
                 </a>
             </li>
-            <li id="navCancelled">
-                <a onclick="switchTab('cancelled')">
-                    <i class="fas fa-ban"></i><span>Отменённые</span>
-                    <span class="badge-nav" id="cancelledBadge">0</span>
-                </a>
-            </li>
+            
         </ul>
         <div class="sidebar-footer">
             <button class="btn-logout" onclick="logout()">
@@ -1283,131 +1268,14 @@
                    фильтров short/medium/critical и без
                    «отменить рейс».
              ==================================================== -->
-        <div class="tab-content" id="tab-delays">
-            <div class="page-header">
-                <h1>Задержки рейсов</h1>
-                <span class="date" id="delaysDate"></span>
-            </div>
-
-            <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
-                <div class="stat-card">
-                    <div class="stat-value orange" id="delaysTotal">0</div>
-                    <div class="stat-label">Задержанных рейсов</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value red" id="delaysCritical">0</div>
-                    <div class="stat-label">Критических (&gt; 4 ч)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value blue" id="delaysAvg">0 мин</div>
-                    <div class="stat-label">Среднее время задержки</div>
-                </div>
-            </div>
-
-            <div class="reports-toolbar">
-                <div class="search-box">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="delaysSearch"
-                           placeholder="Поиск по рейсу, причине..."
-                           oninput="filterDelays()">
-                </div>
-                <select id="delaysSeverityFilter" onchange="filterDelays()">
-                    <option value="">Все задержки</option>
-                    <option value="short">До 1 часа</option>
-                    <option value="medium">1–4 часа</option>
-                    <option value="critical">Более 4 часов</option>
-                </select>
-                <button class="btn btn-secondary btn-sm" onclick="clearDelaysFilters()">
-                    <i class="fas fa-times"></i> Сбросить
-                </button>
-            </div>
-
-            <div class="reports-list" id="delaysList">
-                <div class="empty-state">
-                    <i class="fas fa-hourglass-half"></i>
-                    <p>Нет задержанных рейсов</p>
-                    <small>Задержки появятся, если нет свободных инженеров</small>
-                </div>
-            </div>
-        </div>
+        
 
         <!-- ====================================================
              [MIX] Таб «Рейсы»: каркас AI,
                    [MAN] фильтр «Все отказались» и подсветка
                          строк — вручную.
              ==================================================== -->
-        <div class="tab-content" id="tab-flights">
-            <div class="page-header">
-                <h1>Рейсы</h1>
-                <span class="date" id="flightsDate"></span>
-            </div>
-
-            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
-                <div class="stat-card">
-                    <div class="stat-value blue" id="flightsTotal">0</div>
-                    <div class="stat-label">Всего рейсов</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value orange" id="flightsDelayed">0</div>
-                    <div class="stat-label">С задержкой</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value green" id="flightsCompleted">0</div>
-                    <div class="stat-label">Выполнено</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value red" id="flightsAllRejected">0</div>
-                    <div class="stat-label">Все отказались</div>
-                </div>
-            </div>
-
-            <div class="flights-toolbar">
-                <div class="search-box">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="flightsSearch"
-                           placeholder="Поиск по рейсу, инженеру, стоянке..."
-                           oninput="renderFlights()">
-                </div>
-                <select id="flightsStatusFilter" onchange="renderFlights()">
-                    <option value="">Все статусы</option>
-                    <option value="assigned">📌 Назначен</option>
-                    <option value="queued">⏳ В очереди / задержан</option>
-                    <option value="all_rejected">🔴 Все отказались</option>
-                    <option value="completed">✅ Выполнен</option>
-                    <option value="cancelled">🚫 Отменён инженером</option>
-                </select>
-                <button class="btn btn-secondary btn-sm" onclick="clearFlightsFilters()">
-                    <i class="fas fa-times"></i> Сбросить
-                </button>
-            </div>
-
-            <div class="card" style="padding: 0; overflow: hidden;">
-                <div style="overflow-x: auto;">
-                    <table class="flights-table">
-                        <thead>
-                            <tr>
-                                <th>Рейс</th>
-                                <th>Неисправность</th>
-                                <th>Стоянка</th>
-                                <th>Инженер</th>
-                                <th>Создан</th>
-                                <th>Статус</th>
-                                <th>Время / задержка</th>
-                            </tr>
-                        </thead>
-                        <tbody id="flightsTableBody">
-                            <tr>
-                                <td colspan="7" class="pilot-empty-row">
-                                    <i class="fas fa-plane"></i>
-                                    <p>Пока нет рейсов</p>
-                                    <small>Создайте первую заявку</small>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+        
 
         <!-- ====================================================
              [MIX] Таб «Отчёты»: каркас AI,
@@ -1560,56 +1428,7 @@
                    AI не показывала цепочку «кто отказался → на
                    кого переназначили → all_rejected».
              ==================================================== -->
-        <div class="tab-content" id="tab-cancelled">
-            <div class="page-header">
-                <h1>Отменённые заявки</h1>
-                <span class="date" id="cancelledDate"></span>
-            </div>
-
-            <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
-                <div class="stat-card">
-                    <div class="stat-value red" id="cancelledTotal">0</div>
-                    <div class="stat-label">Всего отменено</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value orange" id="cancelledToday">0</div>
-                    <div class="stat-label">Отменено сегодня</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value blue" id="cancelledEngineers">0</div>
-                    <div class="stat-label">Инженеров отменяло</div>
-                </div>
-            </div>
-
-            <div class="reports-toolbar">
-                <div class="search-box">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="cancelledSearch"
-                           placeholder="Поиск по рейсу, инженеру, причине..."
-                           oninput="filterCancelledRequests()">
-                </div>
-                <select id="cancelledPeriodFilter" onchange="filterCancelledRequests()">
-                    <option value="all">Всё время</option>
-                    <option value="today">Сегодня</option>
-                    <option value="week">7 дней</option>
-                    <option value="month">30 дней</option>
-                </select>
-                <button class="btn btn-secondary btn-sm" onclick="clearCancelledFilters()">
-                    <i class="fas fa-times"></i> Сбросить
-                </button>
-                <button class="btn btn-danger btn-sm" onclick="clearAllCancelled()">
-                    <i class="fas fa-trash"></i> Очистить все
-                </button>
-            </div>
-
-            <div class="reports-list" id="cancelledList">
-                <div class="empty-state">
-                    <i class="fas fa-ban"></i>
-                    <p>Пока нет отменённых заявок</p>
-                    <small>Отменённые инженерами заявки появятся здесь</small>
-                </div>
-            </div>
-        </div>
+        
 
     </div>
 
@@ -2165,6 +1984,7 @@
 
         // [AI] Переключение табов
         function switchTab(tab) {
+    if (!document.getElementById('tab-' + tab)) tab = 'dispatch';
             state.currentTab = tab;
             document.querySelectorAll('.tab-content').forEach(function(el) {
                 el.classList.remove('active');
