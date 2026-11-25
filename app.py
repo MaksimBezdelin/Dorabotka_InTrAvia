@@ -180,6 +180,24 @@ def _regulation_progress_tick():
 def _security_headers(response):
     return _authz_apply_security_headers(response)
 
+
+@app.after_request
+def _access_debug_log(response):
+    """Временный лог входов/мобильных запросов для диагностики телефона."""
+    if os.environ.get('INTRAVIA_ACCESS_LOG', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+        return response
+    try:
+        p = request.path or ''
+        if p.startswith('/mobile') or p.startswith('/api/auth') or p.startswith('/api/v1/track'):
+            ua = (request.headers.get('User-Agent') or '').replace('\n', ' ')[:200]
+            line = (f"{datetime.now().strftime('%H:%M:%S')} {request.method} {p} "
+                    f"{response.status_code} ip={request.remote_addr} ua={ua}\n")
+            with open(os.path.join(BASE_DIR, 'logs', 'access_mobile.log'), 'a', encoding='utf-8') as fh:
+                fh.write(line)
+    except Exception:
+        pass
+    return response
+
 # ------------------------------------------------------------
 # Текущий аэропорт — системная настройка, общая для всех ролей
 # ------------------------------------------------------------

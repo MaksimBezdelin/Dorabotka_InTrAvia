@@ -908,6 +908,7 @@
         }
 
         var session = sessionStorage.getItem('userSession');
+        if (!session) { try { session = localStorage.getItem('userSession'); } catch (_) {} }
         var user = null;
         try { user = session ? JSON.parse(session) : null; } catch (_) { user = null; }
 
@@ -920,10 +921,12 @@
                 .then(function(r) { return r.ok ? r.json() : null; })
                 .then(function(d) {
                     if (d && d.authenticated && d.user && d.user.role === 'engineer') {
-                        sessionStorage.setItem('userSession', JSON.stringify({
+                        var recovered = JSON.stringify({
                             id: d.user.id, name: d.user.name, role: d.user.role,
                             email: d.user.email || '', avatar: d.user.avatar || '🔧'
-                        }));
+                        });
+                        sessionStorage.setItem('userSession', recovered);
+                        try { localStorage.setItem('userSession', recovered); } catch (_) {}
                         window.location.reload();
                     } else {
                         window.location.href = loginPath;
@@ -3382,6 +3385,7 @@
             stopEngineerGpsTracking();
             stopMoving();
             sessionStorage.removeItem('userSession');
+            try { localStorage.removeItem('userSession'); } catch (_) {}
             window.location.href = window.location.pathname.indexOf('/mobile/') === 0 ? '/mobile/login.html' : '/login.html';
         };
 
