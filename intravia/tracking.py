@@ -4,12 +4,14 @@ import math
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 from intravia.config import BASE_DIR, _request_regulation_minutes
 from intravia.db import get_db, get_engineer_number_from_device
 from intravia.events import _utc_now_iso, append_event, sse_publish
-from intravia.geo import _parse_timestamp, _point_in_geometry, _zone_geometry
+from intravia.geo import (distance_km, _parse_timestamp, _point_in_geometry,
+                          _zone_geometry)
 from intravia.requests_logic import (_check_regulation_warning,
                                      _log_routing_event,
                                      _recalc_route_for_request_id,
@@ -18,6 +20,29 @@ from intravia.requests_logic import (_check_regulation_warning,
 
 _TRACK_META_LOCK = threading.Lock()
 _TRACK_META = {}
+
+# Троттлинг пересчёта маршрута: не чаще раза в 8 с и не при смещении GPS
+# меньше 30 м. Иначе ETA скачет на каждой точке (5.0 -> 8.3 -> 0 -> 5.0).
+_ROUTE_RECALC_LOCK = threading.Lock()
+_ROUTE_RECALC_STATE = {}
+ROUTE_RECALC_MIN_INTERVAL_S = 8.0
+ROUTE_RECALC_MIN_MOVE_M = 30.0
+
+
+def _should_recalc_route(kind, object_id, lat, lng):
+    """True, если маршрут пора пересчитать (интервал или заметное смещение)."""
+    key = (kind, str(object_id))
+    current = time.monotonic()
+    with _ROUTE_RECALC_LOCK:
+        previous = _ROUTE_RECALC_STATE.get(key)
+        if previous is not None:
+            elapsed = current - previous['t']
+            moved_m = distance_km(previous['lat'], previous['lng'], lat, lng) * 1000.0
+            if (elapsed < ROUTE_RECALC_MIN_INTERVAL_S
+                    and moved_m < ROUTE_RECALC_MIN_MOVE_M):
+                return False
+        _ROUTE_RECALC_STATE[key] = {'t': current, 'lat': lat, 'lng': lng}
+        return True
 
 def _log_ingest_error(raw_point, error):
     """Журнал ошибок приёма геоданных (append-only JSONL, без изменения схемы БД)."""
@@ -315,7 +340,7 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None,
         conn.close()
 
     if kind == 'engineer':
-        if recalc:
+        if recalc and _should_recalc_route('engineer', object_id, lat, lng):
             try:
                 _recalc_routes_for_engineer(object_id, force=True)
             except Exception as exc:
@@ -323,10 +348,11 @@ def _track_apply_position(kind, object_id, lat, lng, when, acc=None, spd=None,
         if active_request_id and not arrival_event:
             _check_regulation_warning(active_request_id)
     elif kind == 'transport' and assigned_request:
-        try:
-            _recalc_route_for_request_id(assigned_request, force=True)
-        except Exception as exc:
-            print(f'[TRACK] route recalc request: {exc}')
+        if recalc and _should_recalc_route('transport', object_id, lat, lng):
+            try:
+                _recalc_route_for_request_id(assigned_request, force=True)
+            except Exception as exc:
+                print(f'[TRACK] route recalc request: {exc}')
 
     _remember_track_meta(kind, object_id, acc, spd, when, heading)
     sse_publish('position', {'type': kind, 'obj': str(object_id),

@@ -10,7 +10,19 @@ from intravia.config import _request_regulation_minutes, _request_test_option
 from intravia.db import get_db
 from intravia.events import _utc_now_iso, append_event, sse_publish
 from intravia.geo import _parse_timestamp, _parking_point
-from intravia.routing import RouteError, build_route
+from intravia.routing import (RouteError, build_route, filter_transport_cars)
+
+# Свежесть полевого GPS: старая точка engineer_gps не должна перекрывать
+# актуальные координаты инженера (AT-0001/eng_3).
+GPS_MAX_AGE_S = 60.0
+
+
+def _gps_is_fresh(updated_at, now=None):
+    parsed = _parse_timestamp(updated_at)
+    if parsed is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    return (current - parsed).total_seconds() <= GPS_MAX_AGE_S
 
 
 def _regulation_started(row):
@@ -51,13 +63,17 @@ def _recompute_route_for_request(request_row):
     e_lng = float(eng['coords_lng']) if eng['coords_lng'] is not None else None
     # Полевой GPS мобильного устройства важнее координат симуляции:
     # если он есть, маршрут и ETA считаются от фактической точки.
-    cur.execute("""SELECT lat, lng FROM map_object_positions
+    cur.execute("""SELECT lat, lng, updated_at FROM map_object_positions
                    WHERE object_type='engineer_gps' AND object_id=?""",
                 (str(eng_id),))
     gps = cur.fetchone()
     if gps and gps['lat'] is not None and gps['lng'] is not None:
-        e_lat = float(gps['lat'])
-        e_lng = float(gps['lng'])
+        if _gps_is_fresh(gps['updated_at']):
+            e_lat = float(gps['lat'])
+            e_lng = float(gps['lng'])
+        else:
+            print(f'[ROUTE] {request_row["id"]}: engineer_gps устарел '
+                  f'({gps["updated_at"]}), беру coords инженера {eng_id}')
     if e_lat is None or e_lng is None:
         conn.close()
         return None
@@ -78,7 +94,9 @@ def _recompute_route_for_request(request_row):
     else:
         cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
         cars = [dict(r) for r in cur.fetchall()]
-    cars = [c for c in cars if c.get('lat') is not None and c.get('lng') is not None]
+    # Только машины внутри полигона ВДНХ и рядом с графом:
+    # CAR-004/005/006 из Шереметьево не участвуют в выборе.
+    cars = filter_transport_cars(cars)
 
     best_route = walk_route
     best_car = None
@@ -433,8 +451,7 @@ def _nearest_free_engineer(conn, target_lat, target_lng):
                    FROM engineers WHERE status='free'""")
     engineers = [dict(row) for row in cur.fetchall()]
     cur.execute("SELECT id, device_id, lat, lng FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(row) for row in cur.fetchall()
-            if row['lat'] is not None and row['lng'] is not None]
+    cars = filter_transport_cars([dict(row) for row in cur.fetchall()])
     best = None
     for engineer in engineers:
         if engineer['coords_lat'] is None or engineer['coords_lng'] is None:

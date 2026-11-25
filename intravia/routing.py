@@ -20,6 +20,10 @@ _GRAPH_TYPE_SETS = {
     'aircraft': {'taxi', 'runway'},
 }
 
+# Пешеход всегда идёт 5 км/ч, независимо от скорости ребра дороги
+# (service может быть 8/10/20 км/ч — это скорость транспорта).
+WALK_SPEED_KMH = 5.0
+
 
 def _build_graph(features, allowed_types, rules, closed_fids, label):
     """Строит граф по рёбрам указанных типов.
@@ -262,21 +266,80 @@ def _edge_projection(graph, lat, lng):
     return best
 
 
-def _attach_projection(graph, node, projection):
-    """Подключает виртуальный узел к концам спроецированного ребра."""
+def _attach_projection(graph, point_node, projection, speed_override=None):
+    """Подключает точку к спроецированному ребру через узел проекции.
+
+    В граф добавляется перпендикуляр ``точка → проекция`` и участки
+    ``проекция → u/v`` вдоль ребра. Поэтому подход к графу попадает в path,
+    distance_m и time_s, а не рисуется прямой от точки до конца ребра.
+
+    Возвращает узел проекции (lat, lng).
+    """
     data = projection['data']
-    speed = float(data.get('speed_kmh') or 5.0)
-    speed = max(speed, 1.0)
-    for endpoint, distance_m in ((projection['u'], projection['t'] * projection['edge_len']),
-                                 (projection['v'], (1 - projection['t']) * projection['edge_len'])):
-        distance_m = max(distance_m, 0.01)
-        graph.add_edge(node, endpoint,
-                       weight=distance_m / (speed / 3.6),
-                       distance_m=distance_m,
-                       speed_kmh=speed,
+    edge_speed = max(float(data.get('speed_kmh') or 5.0), 1.0)
+    perp_speed = max(float(speed_override), 1.0) if speed_override else edge_speed
+    proj_node = (float(projection['lat']), float(projection['lng']))
+    perp_m = max(float(projection['distance_m'] or 0.0), 0.0)
+
+    graph.add_edge(point_node, proj_node,
+                   weight=perp_m / (perp_speed / 3.6),
+                   distance_m=perp_m,
+                   speed_kmh=perp_speed,
+                   road_type='approach',
+                   allowed_agents=(),
+                   closed=False)
+    for endpoint, along_m in ((projection['u'], projection['t'] * projection['edge_len']),
+                              (projection['v'], (1 - projection['t']) * projection['edge_len'])):
+        # Проекция совпала с концом ребра — отдельное ребро не нужно.
+        if endpoint == proj_node:
+            continue
+        along_m = max(float(along_m), 0.0)
+        graph.add_edge(proj_node, endpoint,
+                       weight=along_m / (edge_speed / 3.6),
+                       distance_m=along_m,
+                       speed_kmh=edge_speed,
                        road_type=data.get('road_type'),
                        allowed_agents=data.get('allowed_agents') or (),
                        closed=False)
+    return proj_node
+
+
+def within_location_bbox(lat, lng):
+    """Точка внутри bbox полигона ВДНХ (как фильтр агентов на карте)."""
+    try:
+        bbox = load_location_config().get('bbox') or []
+        if len(bbox) != 4:
+            return True
+        min_lon, min_lat, max_lon, max_lat = (float(v) for v in bbox)
+    except Exception:
+        return True
+    return min_lat <= lat <= max_lat and min_lon <= lng <= max_lon
+
+
+def filter_transport_cars(cars, max_graph_distance_m=300.0):
+    """Оставляет машины внутри полигона и рядом с транспортным графом.
+
+    CAR-004/005/006 стоят в Шереметьево в 16-20 км от ВДНХ: их нельзя
+    предлагать для заявок, иначе в маршрут попадает сегмент в десятки км.
+    """
+    result = []
+    graph = GRAPH_VEHICLE
+    for car in cars or []:
+        if car.get('lat') is None or car.get('lng') is None:
+            continue
+        try:
+            lat = float(car['lat'])
+            lng = float(car['lng'])
+        except (TypeError, ValueError):
+            continue
+        if not within_location_bbox(lat, lng):
+            continue
+        if graph is not None and graph.edges:
+            proj = _edge_projection(graph, lat, lng)
+            if proj is not None and proj['distance_m'] > max_graph_distance_m:
+                continue
+        result.append(car)
+    return result
 
 
 def route_leg(graph, start, end, mode='engineer'):
@@ -297,23 +360,39 @@ def route_leg(graph, start, end, mode='engineer'):
     if ep['distance_m'] > 100:
         warnings.append(f'Цель в {int(ep["distance_m"])} м от дороги')
 
+    walk_mode = mode in ('walk', 'engineer')
+    walk_speed = WALK_SPEED_KMH if walk_mode else None
+
     graph_copy = graph.copy()
     start_node = ('__virt__', 'start')
     end_node = ('__virt__', 'end')
-    _attach_projection(graph_copy, start_node, sp)
-    _attach_projection(graph_copy, end_node, ep)
+    start_proj = _attach_projection(graph_copy, start_node, sp,
+                                    speed_override=walk_speed)
+    end_proj = _attach_projection(graph_copy, end_node, ep,
+                                  speed_override=walk_speed)
 
-    # Старт и цель на одном ребре — прямое соединение вдоль него.
-    if {sp['u'], sp['v']} == {ep['u'], ep['v']} and sp['u'] != sp['v']:
+    # Старт и цель на одном ребре — прямое соединение вдоль него
+    # (между точками проекции, а не исходными точками).
+    if ({sp['u'], sp['v']} == {ep['u'], ep['v']} and sp['u'] != sp['v']
+            and start_proj != end_proj):
         direct_m = abs(sp['t'] - ep['t']) * sp['edge_len']
-        speed = float(sp['data'].get('speed_kmh') or 5.0)
-        graph_copy.add_edge(start_node, end_node,
-                            distance_m=max(direct_m, 0.01),
-                            weight=max(direct_m, 0.01) / (max(speed, 1.0) / 3.6),
-                            speed_kmh=max(speed, 1.0),
+        speed = (WALK_SPEED_KMH if walk_mode
+                 else max(float(sp['data'].get('speed_kmh') or 5.0), 1.0))
+        graph_copy.add_edge(start_proj, end_proj,
+                            distance_m=max(direct_m, 0.0),
+                            weight=max(direct_m, 0.0) / (speed / 3.6),
+                            speed_kmh=speed,
                             road_type=sp['data'].get('road_type'),
                             allowed_agents=sp['data'].get('allowed_agents') or (),
                             closed=False)
+
+    if walk_mode:
+        # Пешеход всегда 5 км/ч: пересчитываем веса всего графа-копии,
+        # иначе Dijkstra выберет путь по «быстрым» автодорогам (8-20 км/ч).
+        for _, _, data in graph_copy.edges(data=True):
+            dist = float(data.get('distance_m') or 0.0)
+            data['weight'] = dist / (WALK_SPEED_KMH / 3.6)
+            data['speed_kmh'] = WALK_SPEED_KMH
 
     try:
         nodes = nx.shortest_path(graph_copy, start_node, end_node, weight='weight')
@@ -489,7 +568,7 @@ def choose_transport(engineer, target, waypoints=None, conn=None):
         cur = conn.cursor()
         cur.execute("SELECT id, device_id, lat, lng, speed FROM transport "
                     "WHERE assigned_to IS NULL")
-        cars = [dict(r) for r in cur.fetchall()]
+        cars = filter_transport_cars([dict(r) for r in cur.fetchall()])
     finally:
         if own_conn:
             conn.close()
