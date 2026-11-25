@@ -11,6 +11,30 @@ from intravia.faults import FAULT_SKILL
 from intravia.geo import _location_center, _parking_point
 from intravia.routing import RouteError, build_route
 
+
+def _skill_set(specialization):
+    """Набор допусков инженера: 'engine,mechanical' -> {'engine','mechanical'}.
+
+    Квалификации из геоданных хранятся строкой через запятую, поэтому
+    сравнение с профилем дефекта идёт по набору, а не по точному равенству.
+    """
+    if specialization is None:
+        return set()
+    if isinstance(specialization, (list, tuple, set)):
+        parts = specialization
+    else:
+        parts = str(specialization).split(',')
+    return {str(part).strip().lower() for part in parts if str(part).strip()}
+
+
+def _has_skill(specialization, required_skill):
+    """Есть ли у инженера допуск required_skill (trim/lower, без fallback)."""
+    required = str(required_skill or '').strip().lower()
+    if not required:
+        return False
+    return required in _skill_set(specialization)
+
+
 def get_free_engineer_for(conn, fault_type, required_skill_map,
                           target_lat=None, target_lng=None, exclude_ids=None,
                           required_skill_override=None,
@@ -18,7 +42,8 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
     if exclude_ids is None:
         exclude_ids = set()
     exclude_ids = {str(x) for x in exclude_ids}
-    required_skill = required_skill_override or required_skill_map.get(fault_type, 'general')
+    required_skill = (required_skill_override
+                      or required_skill_map.get(fault_type, 'general'))
 
     cur = conn.cursor()
     cur.execute("""SELECT id, name, device_id, specialization, coords_lat, coords_lng
@@ -34,7 +59,7 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
     all_free = [e for e in all_free
                 if str(e['id']) not in exclude_ids
                 and str(e['id']) not in busy_with_requests]
-    pool = [e for e in all_free if e['specialization'] == required_skill]
+    pool = [e for e in all_free if _has_skill(e['specialization'], required_skill)]
 
     if not pool:
         return None, None
@@ -177,7 +202,7 @@ def build_candidate_table(conn, fault_type, target_lat, target_lng,
             item['reason'] = 'работает по заявке ' + str(active[eid])
             table.append(item)
             continue
-        if engineer.get('specialization') != required_skill:
+        if not _has_skill(engineer.get('specialization'), required_skill):
             item['reason'] = 'нет допуска: требуется ' + required_skill
             table.append(item)
             continue
