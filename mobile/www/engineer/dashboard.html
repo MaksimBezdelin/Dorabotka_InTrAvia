@@ -309,6 +309,16 @@
     
         .geojson-number-label-icon { background: transparent !important; border: 0 !important; }
         .geojson-number-label { display: flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 4px; border-radius: 7px; background: rgba(255,255,255,.96); border: 1px solid rgba(15,55,90,.72); color: #0b2945; font: 800 11px/1 Inter,Arial,sans-serif; text-align: center; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.38); pointer-events: none; }
+        /* SIMULATOR MAP LABELS: постоянные подписи как на itsim.geolaba.net */
+        .sim-map-label-icon { background: transparent !important; border: 0 !important; }
+        .sim-map-label { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: inline-flex; align-items: center; justify-content: center; min-height: 16px; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,.86); border: 1px solid rgba(15,55,90,.35); color: #0b2945; font: 700 10px/1.15 Inter,Arial,sans-serif; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.28); pointer-events: none; user-select: none; }
+        .sim-map-label--clickable { pointer-events: auto; cursor: pointer; }
+        .sim-map-label-tooltip { background: rgba(255,255,255,.9) !important; border: 1px solid rgba(15,55,90,.35) !important; color: #0b2945 !important; font: 700 10px/1.15 Inter,Arial,sans-serif !important; padding: 2px 6px !important; border-radius: 5px !important; box-shadow: 0 1px 4px rgba(0,0,0,.28) !important; white-space: nowrap; }
+        .sim-map-label-tooltip.leaflet-tooltip-right:before { border-right-color: rgba(255,255,255,.9) !important; }
+        .sim-map-label-tooltip.leaflet-tooltip-left:before { border-left-color: rgba(255,255,255,.9) !important; }
+        .sim-map-label-tooltip.leaflet-tooltip-top:before { border-top-color: rgba(255,255,255,.9) !important; }
+        .sim-map-label-tooltip.leaflet-tooltip-bottom:before { border-bottom-color: rgba(255,255,255,.9) !important; }
+        .engineer-live-label { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 3px); background: rgba(255,255,255,.9); border: 1px solid rgba(15,55,90,.35); color: #0b2945; font: 800 10px/1.1 Inter,Arial,sans-serif; padding: 1px 5px; border-radius: 5px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.28); pointer-events: none; }
 
     </style>
 </head>
@@ -498,6 +508,56 @@
         // Демо-движение по маршруту включается только явно: ?demo=1.
         // В полевом режиме двигаться должна только реальная GPS-метка.
         var DEMO_MOVEMENT = /[?&]demo=1(?:&|$)/.test(window.location.search);
+        // Обозначения как в симуляторе itsim.geolaba.net.
+        // Живой инженер настраивается в URL: ?live=eng_3&liveLabel=AT-0001.
+        var SIM_QUERY = new URLSearchParams(window.location.search);
+        var LIVE_ENGINEER_ID = SIM_QUERY.get('live') || 'eng_3';
+        var LIVE_ENGINEER_LABEL = SIM_QUERY.get('liveLabel') || 'AT-0001';
+        var SIM_BBOX = { minLat: 55.80, maxLat: 55.86, minLng: 37.59, maxLng: 37.66 };
+        var OBJECT_F_IDS = { terminal: 0, hangar: 1, runway: 2, transport_park: 3, warehouse1: 4, warehouse2: 5 };
+        function simPad(value, len) { var s = String(value); while (s.length < len) s = '0' + s; return s; }
+        function simEscapeHtml(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch] || ch); }); }
+        function simGeoLabel(kind, id) {
+            var key = String(id == null ? '' : id);
+            if (kind === 'object' && OBJECT_F_IDS.hasOwnProperty(key)) return 'f' + simPad(OBJECT_F_IDS[key], 2);
+            var n = parseInt(key, 10);
+            if (!isFinite(n)) return key;
+            return (kind === 'object' ? 'f' : 'мс-') + simPad(n, 2);
+        }
+        function simStandLabel(ref) {
+            var n = parseInt(String(ref || '').replace(/\D/g, ''), 10);
+            return n ? 'мс-' + simPad(n, 2) : String(ref || '');
+        }
+        function simEngineerLabel(emp) {
+            if (!emp) return '';
+            if (emp.simLabel) return String(emp.simLabel);
+            var ident = emp.id != null ? emp.id : (emp.obj != null ? emp.obj : (emp.device_id || ''));
+            if (String(ident) === String(LIVE_ENGINEER_ID)) return String(LIVE_ENGINEER_LABEL);
+            var raw = emp.number != null ? emp.number : ident;
+            var n = parseInt(String(raw).replace(/\D/g, ''), 10);
+            var liveNum = parseInt(String(LIVE_ENGINEER_ID || '').replace(/\D/g, ''), 10);
+            var liveLabelNum = parseInt(String(LIVE_ENGINEER_LABEL || '').replace(/\D/g, ''), 10);
+            if (n && liveNum && liveLabelNum && n === liveLabelNum) return 'AT-' + simPad(liveNum, 4);
+            return n ? 'AT-' + simPad(n, 4) : String(ident);
+        }
+        function simTransportLabel(car) {
+            if (!car) return '';
+            if (car.simLabel) return String(car.simLabel);
+            var raw = car.id != null ? car.id : (car.obj != null ? car.obj : (car.deviceId || car.device_id || ''));
+            var n = parseInt(String(raw).replace(/\D/g, ''), 10);
+            return n ? 'vehicle-' + simPad(n, 2) : String(raw || '');
+        }
+        function simAircraftLabel(ac) {
+            if (!ac) return '';
+            return String(ac.label || ac.callsign || ac.obj || ac.id || '');
+        }
+        function simInBbox(lat, lng) {
+            return lat != null && lng != null && isFinite(lat) && isFinite(lng) &&
+                lat >= SIM_BBOX.minLat && lat <= SIM_BBOX.maxLat &&
+                lng >= SIM_BBOX.minLng && lng <= SIM_BBOX.maxLng;
+        }
+        var engineerAgentsLayer = null;
+        var engineerAgentMarkers = {};
         var geoMarker = null;
         var lastGeo = null;
         var GPS_SYNC_INTERVAL_MS = 500; // целевая частота отправки/синхронизации: 2 раза в секунду
@@ -543,7 +603,7 @@
         function animateEngineerAircraft(sim,done){if(sim.frame)cancelAnimationFrame(sim.frame);var r=sim.route||[],cum=[0],total=0;for(var i=1;i<r.length;i++){total+=engineerTaxiDistance(r[i-1],r[i]);cum.push(total);}if(r.length<2||total<1){if(done)done();return;}var duration=Math.max(6500,Math.min(26000,total/(7+Math.random()*2)*1000)),started=performance.now();sim.moving=true;function frame(now){if(!sim.marker||!map||!map.hasLayer(sim.marker))return;var progress=Math.min(1,(now-started)/duration),d=total*progress,j=1;while(j<cum.length-1&&cum[j]<d)j++;var x=r[j-1],y=r[j],seg=Math.max(.001,cum[j]-cum[j-1]),part=Math.max(0,Math.min(1,(d-cum[j-1])/seg));sim.marker.setLatLng([x[0]+(y[0]-x[0])*part,x[1]+(y[1]-x[1])*part]);if(progress<1)sim.frame=requestAnimationFrame(frame);else{sim.marker.setLatLng(r[r.length-1]);sim.moving=false;if(done)done();}}sim.frame=requestAnimationFrame(frame);}
         function removeEngineerAircraft(sim){if(!sim)return;if(sim.frame)cancelAnimationFrame(sim.frame);if(sim.timer)clearTimeout(sim.timer);if(sim.marker&&map&&map.hasLayer(sim.marker))map.removeLayer(sim.marker);if(sim.id!=null){delete engineerAircraftSimulations[String(sim.id)];delete engineerAircraftMarkers[String(sim.id)];}}
         function refreshEngineerRequestAircraft(){if(currentAirport!=='svo'||!mapInitialized||!map||!engineerTaxiGraph)return;fetch('/api/requests').then(function(r){return r.json();}).then(function(requests){if(!Array.isArray(requests))return;var live={};requests.forEach(function(req){if(!req||!req.parking_id||['completed','cancelled','flight_cancelled','deleted','draft'].indexOf(req.status)>=0||req.flight_cancelled)return;var p=PARKING_COORDS[String(req.parking_id)];if(!p)return;var id=String(req.id),signed=!!(req.crs_signed_at||req.crs_signed),sim=engineerAircraftSimulations[id];live[id]=true;var label=(req.aircraft||'Самолёт')+' · стоянка '+req.parking_id+(signed?' · подпись получена':' · ожидает подпись');if(!sim){var marker=L.marker([+p.lat,+p.lng],{icon:engineerPlaneIcon(),zIndexOffset:1700,interactive:true}).addTo(map).bindTooltip(label,{direction:'top'});sim=engineerAircraftSimulations[id]={id:id,marker:marker,aircraft:req.aircraft||'Самолёт',parkingId:String(req.parking_id),waitingForSignature:true,requestAircraft:true};engineerAircraftMarkers[id]=marker;}else sim.marker.setTooltipContent(label);if(signed&&sim.waitingForSignature&&!sim.departureStarted){sim.waitingForSignature=false;sim.departureStarted=true;var from=[+p.lat,+p.lng],area=engineerAreaNodes(),exits=area.filter(function(k){return engineerTaxiDistance(engineerTaxiGraph.nodes[k].point,from)>350;}),to=exits.length?engineerTaxiGraph.nodes[exits[Math.floor(Math.random()*exits.length)]].point:null;sim.route=to?createEngineerTaxiRoute(from,to):null;if(sim.route&&sim.route.length>1){sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · выезд после подписи');animateEngineerAircraft(sim,function(){removeEngineerAircraft(sim);});}else{sim.departureStarted=false;sim.waitingForSignature=true;sim.marker.setTooltipContent((sim.aircraft||'Самолёт')+' · подпись получена, ожидание маршрута выезда');}}});Object.keys(engineerAircraftSimulations).forEach(function(id){var sim=engineerAircraftSimulations[id];if(sim.requestAircraft&&!live[id])removeEngineerAircraft(sim);});}).catch(function(e){console.warn('[AIRCRAFT] Не удалось обновить самолёты заявок:',e);});}
-        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(currentAirport!=='svo'||!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['SU 1452','DP 602','FV 318','UT 721','N4 205','SU 218','DP 814','FV 407','U6 331','S7 426','DP 910','FV 552'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
+        function spawnEngineerAmbientAircraft(delay){setTimeout(function(){if(currentAirport!=='svo'||!mapInitialized||!map||!engineerTaxiGraph)return;var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active>=engineerAmbientTarget)return;var area=engineerAreaNodes();if(!area||area.length<2)return;var k=area[Math.floor(Math.random()*area.length)],from=engineerTaxiGraph.nodes[k].point,to=null;if(Math.random()<.38){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];to=[+p.lat,+p.lng];}}var route=createEngineerRandomRoute(from,to);if(!route||route.length<2)return;var names=['RA-73101','RA-73102','RA-73103','RA-73104','RA-73105','RA-73106','RA-73107','RA-73108','RA-73109','RA-73110','RA-73111','RA-73112'],call=names[Math.floor(Math.random()*names.length)],marker=L.marker(route[0],{icon:engineerPlaneIcon(),zIndexOffset:1500}).addTo(map).bindTooltip(call+(to?' · руление к стоянке':' · руление по перрону B/C')),sim={marker:marker,route:route,callsign:call,parkingPoint:to,legs:0,maxLegs:2+Math.floor(Math.random()*3),ambient:true};engineerAmbientAircraft.push(sim);function removeAmbient(){removeEngineerAircraft(sim);var ix=engineerAmbientAircraft.indexOf(sim);if(ix>=0)engineerAmbientAircraft.splice(ix,1);setTimeout(function(){spawnEngineerAmbientAircraft(0);},1200+Math.random()*6000);}function nextLeg(){if(!sim.marker||!map.hasLayer(marker))return;sim.legs++;if(sim.parkingPoint&&sim.legs===1){sim.timer=setTimeout(function(){var here=marker.getLatLng();sim.parkingPoint=null;sim.route=createEngineerRandomRoute([here.lat,here.lng],null);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+' · выезд со стоянки');animateEngineerAircraft(sim,nextLeg);},9000+Math.random()*18000);return;}if(sim.legs>=sim.maxLegs){removeAmbient();return;}sim.timer=setTimeout(function(){var here=marker.getLatLng(),next=null;if(Math.random()<.32){var refs=Object.keys(PARKING_COORDS);if(refs.length){var p=PARKING_COORDS[refs[Math.floor(Math.random()*refs.length)]];next=[+p.lat,+p.lng];}}sim.parkingPoint=next;sim.route=createEngineerRandomRoute([here.lat,here.lng],next);if(!sim.route||sim.route.length<2){removeAmbient();return;}marker.setTooltipContent(call+(next?' · руление к стоянке':' · руление по перрону'));animateEngineerAircraft(sim,nextLeg);},1400+Math.random()*5000);}animateEngineerAircraft(sim,nextLeg);},delay||0);}
         function startEngineerAmbientAircraft(){if(currentAirport!=='svo'||engineerAircraftTimer)return;fetch('/static/aircraft_paths.geojson').then(function(r){if(!r.ok)throw new Error('aircraft_paths.geojson');return r.json();}).then(function(data){if(currentAirport!=='svo')return;buildEngineerTaxiGraph(data);if(!engineerTaxiGraph||!engineerTaxiGraph.edgeCount)return;engineerAmbientTarget=3+Math.floor(Math.random()*5);for(var i=0;i<engineerAmbientTarget;i++)spawnEngineerAmbientAircraft(i*(700+Math.random()*700));engineerAircraftTimer=setInterval(function(){engineerAmbientTarget=3+Math.floor(Math.random()*5);var active=engineerAmbientAircraft.filter(function(x){return x.marker;}).length;if(active<engineerAmbientTarget)spawnEngineerAmbientAircraft(0);},8000);}).catch(function(e){console.warn('[AIRCRAFT] Сеть руления не загружена:',e);});}
 
         // ─── Движение инженера по маршруту (по времени) ───
@@ -880,7 +940,7 @@
             var initialZoom = currentAirport === 'svo' ? 13 : 14;
             map = L.map('map', {
                 center: initialCenter, zoom: initialZoom,
-                zoomControl: false, attributionControl: true
+                zoomControl: false, attributionControl: false
             });
             // Тайлы OSM/Esri внешние и в офлайн-кэш приложения не входят:
             // при отсутствии сети Leaflet получает прозрачную заглушку,
@@ -998,14 +1058,11 @@
 
         
         function createGeoJsonNumberIcon(rawId) {
-            var safeId = String(rawId).replace(/[&<>\"']/g, function(ch) {
-                return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[ch] || ch);
-            });
             return L.divIcon({
-                className: 'geojson-number-label-icon',
-                html: '<span class="geojson-number-label">' + safeId + '</span>',
-                iconSize: [29, 23],
-                iconAnchor: [14, 11]
+                className: 'sim-map-label-icon',
+                html: '<div class="sim-map-label">' + simEscapeHtml(rawId) + '</div>',
+                iconSize: null,
+                iconAnchor: null
             });
         }
 
@@ -1058,8 +1115,9 @@
                         onEachFeature: function(f, lyr) {
                             var id = f.properties && f.properties.id;
                             if (id != null) {
-                                lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
-                                addGeoJsonNumberLabel(vdnhLayer, lyr, id);
+                                var zoneLabel = simGeoLabel('zone', id);
+                                lyr.bindTooltip(zoneLabel + ' · зона обслуживания', { sticky: true });
+                                addGeoJsonNumberLabel(vdnhLayer, lyr, zoneLabel);
                             }
                         }
                     }).addTo(vdnhLayer);
@@ -1085,8 +1143,9 @@
                         style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
                         onEachFeature: function(f, lyr) {
                             var props = f.properties || {};
-                            if (props.name) lyr.bindTooltip(props.name, { sticky: true });
-                            if (props.id != null) addGeoJsonNumberLabel(vdnhLayer, lyr, props.id);
+                            var objLabel = props.id != null ? simGeoLabel('object', props.id) : '';
+                            if (props.name) lyr.bindTooltip((objLabel ? objLabel + ' · ' : '') + props.name, { sticky: true });
+                            if (objLabel) addGeoJsonNumberLabel(vdnhLayer, lyr, objLabel + (props.name ? ' · ' + props.name : ''));
                         }
                     }).addTo(vdnhLayer);
                 }
@@ -1101,6 +1160,108 @@
                     map.setView([55.8330, 37.6287], 14, { animate: false });
                 }
             });
+        }
+
+        // Постоянные подписи стоянок ВДНХ: SZ-N -> мс-NN из /api/parking.
+        function loadEngineerVdnhParkingLabels() {
+            if (!mapInitialized || !map || currentAirport !== 'vdnh') return;
+            var layer = engineerAirportLayer;
+            if (!layer || !map.hasLayer(layer)) return;
+            Object.keys(PARKING_COORDS).forEach(function(ref) {
+                var p = PARKING_COORDS[ref];
+                if (!p || p.lat == null || p.lng == null) return;
+                var label = simStandLabel(ref);
+                var marker = L.marker([+p.lat, +p.lng], {
+                    icon: createGeoJsonNumberIcon(label),
+                    interactive: true,
+                    keyboard: false,
+                    riseOnHover: true,
+                    zIndexOffset: 1600
+                });
+                marker.bindTooltip(label + ' · Стоянка', {
+                    direction: 'top', offset: [0, -12], className: 'sim-map-label-tooltip'
+                });
+                marker.addTo(layer);
+            });
+        }
+
+        function clearEngineerAgentsLayer() {
+            if (engineerAgentsLayer && map && map.hasLayer(engineerAgentsLayer)) map.removeLayer(engineerAgentsLayer);
+            engineerAgentsLayer = null;
+            engineerAgentMarkers = {};
+        }
+
+        function ensureEngineerAgentsLayer() {
+            if (!map) return null;
+            if (!engineerAgentsLayer || !map.hasLayer(engineerAgentsLayer)) {
+                engineerAgentsLayer = L.layerGroup().addTo(map);
+                engineerAgentMarkers = {};
+            }
+            return engineerAgentsLayer;
+        }
+
+        function upsertEngineerAgentMarker(kind, key, lat, lng, label) {
+            if (currentAirport !== 'vdnh' || !isFinite(lat) || !isFinite(lng) || !simInBbox(lat, lng)) return;
+            var layer = ensureEngineerAgentsLayer();
+            if (!layer) return;
+            var markerKey = kind + '_' + key;
+            var marker = engineerAgentMarkers[markerKey];
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+                if (marker.getTooltip()) marker.setTooltipContent(String(label));
+                return;
+            }
+            marker = L.marker([lat, lng], {
+                icon: createGeoJsonNumberIcon(label),
+                interactive: true,
+                keyboard: false,
+                zIndexOffset: kind === 'aircraft' ? 1500 : (kind === 'transport' ? 1400 : 1300)
+            }).addTo(layer);
+            marker.bindTooltip(String(label), { direction: 'top', offset: [0, -10], className: 'sim-map-label-tooltip' });
+            engineerAgentMarkers[markerKey] = marker;
+        }
+
+        function loadEngineerExternalAgents() {
+            if (currentAirport !== 'vdnh' || !mapInitialized || !map) return;
+            fetch('/api/v1/agents', { cache: 'no-store' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data || currentAirport !== 'vdnh') return;
+                    (data.aircraft || []).forEach(function(ac) {
+                        var lat = Number(ac.lat), lng = Number(ac.lng);
+                        if (!simInBbox(lat, lng)) return;
+                        upsertEngineerAgentMarker('aircraft', String(ac.obj || ac.id), lat, lng, simAircraftLabel(ac));
+                    });
+                    (data.transport || []).forEach(function(car) {
+                        var lat = Number(car.lat), lng = Number(car.lng);
+                        if (!simInBbox(lat, lng)) return;
+                        upsertEngineerAgentMarker('transport', String(car.id != null ? car.id : car.obj), lat, lng, simTransportLabel(car));
+                    });
+                    (data.engineers || []).forEach(function(emp) {
+                        if (String(emp.id || emp.obj) === String(engineerId)) return;
+                        var lat = Number(emp.lat), lng = Number(emp.lng);
+                        if (!simInBbox(lat, lng)) return;
+                        upsertEngineerAgentMarker('engineer', String(emp.id || emp.obj), lat, lng, simEngineerLabel(emp));
+                    });
+                })
+                .catch(function(err) { console.warn('[AGENTS] /api/v1/agents:', err); });
+        }
+
+        function updateEngineerAgentFromPoint(point) {
+            if (!point || currentAirport !== 'vdnh') return;
+            var lat = Number(point.lat), lng = Number(point.lon != null ? point.lon : point.lng);
+            if (!simInBbox(lat, lng)) return;
+            if (point.type === 'engineer') {
+                if (String(point.obj) === String(engineerId)) return;
+                upsertEngineerAgentMarker('engineer', String(point.obj), lat, lng,
+                    simEngineerLabel({ id: point.obj, obj: point.obj, label: point.label }));
+            } else if (point.type === 'transport') {
+                upsertEngineerAgentMarker('transport', String(point.obj != null ? point.obj : point.id), lat, lng,
+                    simTransportLabel({ id: point.obj != null ? point.obj : point.id, obj: point.obj, device_id: point.label }));
+            } else if (point.type === 'aircraft') {
+                upsertEngineerAgentMarker('aircraft', String(point.obj != null ? point.obj : point.id), lat, lng,
+                    simAircraftLabel(point));
+            }
         }
 
         function stopEngineerAirportAircraft() {
@@ -1123,10 +1284,15 @@
             engineerAirportInitialized = true;
             if (nextAirport === 'vdnh') {
                 clearEngineerParkingIdLayer();
+                clearEngineerAgentsLayer();
                 stopEngineerAirportAircraft();
                 map.setView([55.8330, 37.6287], 14, { animate: false });
-                return loadEngineerVdnhMap();
+                return loadEngineerVdnhMap().then(function() {
+                    loadEngineerVdnhParkingLabels();
+                    loadEngineerExternalAgents();
+                });
             }
+            clearEngineerAgentsLayer();
             if (engineerAirportLayer && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
             engineerAirportLayer = null;
             map.setView([55.981349, 37.388359], 13, { animate: false });
@@ -1167,13 +1333,14 @@
             if (typeof L === 'undefined') return;
             if (!mapInitialized) initMap();
             if (!geoMarker) {
+                var selfLabel = simEscapeHtml(simEngineerLabel({ id: engineerId }) || LIVE_ENGINEER_LABEL);
                 var icon = L.divIcon({
                     className: 'engineer-live-marker',
-                    html: '<div class="gps-cursor-shell"><div class="gps-cursor-halo"></div><div class="gps-direction-arrow"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div><div class="gps-cursor-center"></div></div>',
+                    html: '<div class="gps-cursor-shell"><div class="gps-cursor-halo"></div><div class="gps-direction-arrow"><svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg></div><div class="gps-cursor-center"></div><span class="engineer-live-label">' + selfLabel + '</span></div>',
                     iconSize: [48, 48], iconAnchor: [24, 24]
                 });
                 geoMarker = L.marker([lat, lng], { icon: icon, zIndexOffset: 2200 })
-                    .addTo(map).bindPopup('Ваше местоположение');
+                    .addTo(map).bindPopup('Вы · ' + selfLabel);
             } else {
                 geoMarker.setLatLng([lat, lng]);
             }
@@ -1639,7 +1806,10 @@
             sseSource.addEventListener('position', function(event) {
                 try {
                     var point = JSON.parse(event.data);
-                    if (!point || point.type !== 'engineer') return;
+                    if (!point) return;
+                    // Чужие агенты (AT/vehicle/RA) — на карту инженера в границах ВДНХ.
+                    try { updateEngineerAgentFromPoint(point); } catch (_) {}
+                    if (point.type !== 'engineer') return;
                     if (String(point.obj) !== String(engineerId)) return;
                     if (!isFinite(Number(point.lat)) || !isFinite(Number(point.lon))) return;
                     // Если собственный GPS давно молчит, показываем серверную позицию.
@@ -1903,7 +2073,7 @@
                     iconSize: [32, 32], iconAnchor: [16, 16]
                 });
                 routeMarkers['car'] = L.marker([routeData.bestCarLat, routeData.bestCarLng], { icon: carIcon })
-                    .addTo(map).bindPopup('Спецтранспорт ' + (routeData.bestCar ? routeData.bestCar.deviceId : ''));
+                    .addTo(map).bindPopup('Спецтранспорт ' + simTransportLabel(routeData.bestCar));
             }
 
             var endIcon = L.divIcon({
@@ -1925,7 +2095,7 @@
                 routeInfo.innerHTML =
                     '<strong style="color:var(--aero-blue);">' + routeData.time + ' мин</strong>' +
                     '<br><span style="font-size:13px;color:var(--aero-text-light);">' +
-                    routeData.walkToCar + ' мин пешком до ' + routeData.bestCar.deviceId +
+                    routeData.walkToCar + ' мин пешком до ' + simTransportLabel(routeData.bestCar) +
                     ' + ' + routeData.bestCarTime + ' мин на машине</span>';
             } else if (routeData.usingCar) {
                 routeInfo.innerHTML =
@@ -3189,6 +3359,12 @@
             startEngineerGpsTracking();
             var mapReady = currentAirport === 'vdnh' ? loadEngineerVdnhMap() : Promise.resolve();
             mapReady.then(function() { return loadParkingCoords(); })
+                .then(function() {
+                    if (currentAirport === 'vdnh') {
+                        loadEngineerVdnhParkingLabels();
+                        loadEngineerExternalAgents();
+                    }
+                })
                 .finally(function() {
                     updateMobileMapLayerButtons();
                     setTimeout(function() { if (map) map.invalidateSize(); }, 200);
@@ -3198,6 +3374,7 @@
                     }
                     loadTasks();
                     setInterval(loadTasks, 5000);
+                    setInterval(loadEngineerExternalAgents, 5000);
                     setInterval(refreshEngineerRequestAircraft, 5000);
                     // Уточняем аэропорт у сервера. Если он недоступен (401/сеть/протухшая сессия),
                     // остаёмся на ВДНХ; refreshEngineerAirport сам повторит через 5 с,
