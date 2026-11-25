@@ -100,7 +100,14 @@ def serve_https(host, port, upstream_addr, certfile, keyfile):
 
 
 def _waitress_kwargs():
-    kwargs = {'threads': 8}
+    # SSE-клиенты (диспетчер, MCC, инженер, админ, несколько экранов)
+    # держат по потоку. 8 потоков мало: очередь запросов блокирует
+    # загрузку страниц во время демонстрации.
+    try:
+        threads = int(os.environ.get('INTRAVIA_THREADS', '32'))
+    except ValueError:
+        threads = 32
+    kwargs = {'threads': max(8, threads)}
     trusted_proxy = os.environ.get('INTRAVIA_TRUSTED_PROXY', '').strip()
     if trusted_proxy:
         # за обратным прокси берём X-Forwarded-* только от него

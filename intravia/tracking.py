@@ -48,6 +48,29 @@ def _track_known_object(raw_obj):
     conn = get_db()
     try:
         cur = conn.cursor()
+        # AT-подписи на карте свапнуты: живой инженер (INTRAVIA_LIVE_ENGINEER,
+        # по умолчанию eng_3) занимает AT-0001, а инженер с номером 1 получает
+        # номер живого (AT-0003). Серверный маппинг должен совпадать с картой,
+        # иначе виртуальный AT-0003 будет двигать телефон.
+        at_match = re.fullmatch(r'at-0*(\d+)', needle)
+        if at_match:
+            at_num = int(at_match.group(1))
+            live_id = (os.environ.get('INTRAVIA_LIVE_ENGINEER', 'eng_3') or 'eng_3').strip()
+            live_at = (os.environ.get('INTRAVIA_LIVE_AT', 'AT-0001') or 'AT-0001').strip()
+            live_num = int(re.sub(r'\D', '', live_id) or 0)
+            label_num = int(re.sub(r'\D', '', live_at) or 1)
+            target_num = at_num
+            if at_num == label_num:
+                target_num = live_num
+            elif at_num == live_num:
+                target_num = label_num
+            cur.execute("SELECT id, name, device_id FROM engineers")
+            for row in cur.fetchall():
+                device = str(row['device_id'] or '')
+                if get_engineer_number_from_device(device) == target_num:
+                    return {'type': 'engineer', 'id': str(row['id']),
+                            'label': row['name'] or device}
+
         cur.execute("SELECT id, name, device_id FROM engineers")
         for row in cur.fetchall():
             eid = str(row['id'])
