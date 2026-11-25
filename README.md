@@ -20,3 +20,13 @@
 - Адрес можно изменить при входе на экран приложения кнопкой «Изменить сервер».
 - После авторизации инженера доступна кнопка «Сервер» в верхней части страницы.
 - Обе кнопки открывают нативное окно настройки сервера; сохранённый адрес заменяется после проверки соединения.
+
+## Финальный этап: ВДНХ, маршруты и норматив 15 минут
+
+- Подробное описание решения и соответствия критериям: [`docs/FINAL_STAGE.md`](docs/FINAL_STAGE.md).
+- Презентация: [`docs/presentation/InTrAvia_final_stage.pdf`](docs/presentation/InTrAvia_final_stage.pdf) и `.pptx`.
+- Контракт геопозиции: `POST /api/v1/track` (одиночная точка или `{"points":[...]}`, поля `obj/lat/lon/t/acc/spd`).
+- Маршруты: `/api/route` с `waypoints`/`via`, спецтранспортом и скоростями 5/8/10/20 км/ч.
+- Норматив и риск: `/api/dispatcher/norms`, `warnings`; журнал: `/api/event-log` и `/api/event-log.xlsx`.
+- Открытый классификатор дефектов: `/api/defects`, `/api/defects/classify`.
+- Smoke-тест: `python tests/final_stage_smoke.py`.

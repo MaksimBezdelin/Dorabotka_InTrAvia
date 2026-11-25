@@ -1,0 +1,4145 @@
+[
+ {
+  "node_id": "n0001",
+  "lon": 37.6156269,
+  "lat": 55.8340309,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0002",
+  "lon": 37.6156625,
+  "lat": 55.8349545,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0003",
+  "lon": 37.6156816,
+  "lat": 55.8350775,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0004",
+  "lon": 37.6157483,
+  "lat": 55.8339526,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0005",
+  "lon": 37.6168383,
+  "lat": 55.8371032,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0006",
+  "lon": 37.6168978,
+  "lat": 55.8372002,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0007",
+  "lon": 37.6173535,
+  "lat": 55.8374389,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0008",
+  "lon": 37.6175152,
+  "lat": 55.8375182,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0009",
+  "lon": 37.617619,
+  "lat": 55.8339957,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0010",
+  "lon": 37.6176702,
+  "lat": 55.8338573,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0011",
+  "lon": 37.6176939,
+  "lat": 55.8339473,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0012",
+  "lon": 37.6178646,
+  "lat": 55.8337457,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0013",
+  "lon": 37.6178874,
+  "lat": 55.837715,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0014",
+  "lon": 37.6179194,
+  "lat": 55.8338196,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0015",
+  "lon": 37.6180189,
+  "lat": 55.8337638,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0016",
+  "lon": 37.6180192,
+  "lat": 55.8377845,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0017",
+  "lon": 37.6181936,
+  "lat": 55.8335007,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0018",
+  "lon": 37.6183548,
+  "lat": 55.8379599,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0019",
+  "lon": 37.6184711,
+  "lat": 55.8380207,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0020",
+  "lon": 37.6185866,
+  "lat": 55.8337191,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0021",
+  "lon": 37.6186058,
+  "lat": 55.833831,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0022",
+  "lon": 37.6186571,
+  "lat": 55.8337344,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0023",
+  "lon": 37.6186612,
+  "lat": 55.8381204,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0024",
+  "lon": 37.6186706,
+  "lat": 55.8381266,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0025",
+  "lon": 37.6187454,
+  "lat": 55.8381128,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0026",
+  "lon": 37.6187471,
+  "lat": 55.838171,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0027",
+  "lon": 37.6187496,
+  "lat": 55.8381046,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0028",
+  "lon": 37.6187529,
+  "lat": 55.8381788,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0029",
+  "lon": 37.6187598,
+  "lat": 55.8380974,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0030",
+  "lon": 37.6187661,
+  "lat": 55.8380929,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0031",
+  "lon": 37.6187729,
+  "lat": 55.8381888,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0032",
+  "lon": 37.618781,
+  "lat": 55.8381922,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0033",
+  "lon": 37.6190239,
+  "lat": 55.8334464,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0034",
+  "lon": 37.6194834,
+  "lat": 55.8334198,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0035",
+  "lon": 37.6219828,
+  "lat": 55.8344687,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0036",
+  "lon": 37.6219991,
+  "lat": 55.8337369,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0037",
+  "lon": 37.6221098,
+  "lat": 55.8339166,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0038",
+  "lon": 37.6221441,
+  "lat": 55.8346778,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0039",
+  "lon": 37.6223351,
+  "lat": 55.8337746,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0040",
+  "lon": 37.6226077,
+  "lat": 55.8349243,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0041",
+  "lon": 37.6228152,
+  "lat": 55.8349629,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0042",
+  "lon": 37.6229676,
+  "lat": 55.833595,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0043",
+  "lon": 37.6234254,
+  "lat": 55.8336124,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0044",
+  "lon": 37.623511,
+  "lat": 55.8349593,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0045",
+  "lon": 37.6236837,
+  "lat": 55.8349314,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0046",
+  "lon": 37.6238346,
+  "lat": 55.8337608,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0047",
+  "lon": 37.6238937,
+  "lat": 55.8348632,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0048",
+  "lon": 37.6239332,
+  "lat": 55.834846,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0049",
+  "lon": 37.6240765,
+  "lat": 55.8337243,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0050",
+  "lon": 37.6240922,
+  "lat": 55.8338869,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0051",
+  "lon": 37.6241314,
+  "lat": 55.8347335,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0052",
+  "lon": 37.6241412,
+  "lat": 55.8336841,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0053",
+  "lon": 37.6241888,
+  "lat": 55.8348702,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0054",
+  "lon": 37.6255328,
+  "lat": 55.8392207,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0055",
+  "lon": 37.6256246,
+  "lat": 55.8356212,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0056",
+  "lon": 37.6256436,
+  "lat": 55.8391683,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0057",
+  "lon": 37.6257858,
+  "lat": 55.8383548,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0058",
+  "lon": 37.6258091,
+  "lat": 55.8383685,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0059",
+  "lon": 37.625837,
+  "lat": 55.8383849,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0060",
+  "lon": 37.6258474,
+  "lat": 55.838391,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0061",
+  "lon": 37.6259059,
+  "lat": 55.8384774,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0062",
+  "lon": 37.6259113,
+  "lat": 55.8384633,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0063",
+  "lon": 37.6259449,
+  "lat": 55.8383748,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0064",
+  "lon": 37.6259489,
+  "lat": 55.8383644,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0065",
+  "lon": 37.6259594,
+  "lat": 55.8383369,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0066",
+  "lon": 37.625977,
+  "lat": 55.8356096,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0067",
+  "lon": 37.6264286,
+  "lat": 55.8323595,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0068",
+  "lon": 37.6265073,
+  "lat": 55.8351169,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0069",
+  "lon": 37.6265136,
+  "lat": 55.8323256,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0070",
+  "lon": 37.6265218,
+  "lat": 55.8350521,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0071",
+  "lon": 37.6266624,
+  "lat": 55.8351972,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0072",
+  "lon": 37.6266996,
+  "lat": 55.8346263,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0073",
+  "lon": 37.6267039,
+  "lat": 55.8347324,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0074",
+  "lon": 37.6267661,
+  "lat": 55.8352513,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0075",
+  "lon": 37.6267981,
+  "lat": 55.834573,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0076",
+  "lon": 37.6268103,
+  "lat": 55.8346622,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0077",
+  "lon": 37.6268155,
+  "lat": 55.8345624,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0078",
+  "lon": 37.6268283,
+  "lat": 55.8345546,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0079",
+  "lon": 37.6268373,
+  "lat": 55.834793,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0080",
+  "lon": 37.6268423,
+  "lat": 55.8348735,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0081",
+  "lon": 37.6269078,
+  "lat": 55.8321788,
+  "kind": "junction",
+  "networks": [
+   "runway",
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0082",
+  "lon": 37.6269189,
+  "lat": 55.8345651,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0083",
+  "lon": 37.6269977,
+  "lat": 55.8323753,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0084",
+  "lon": 37.6272705,
+  "lat": 55.8343701,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0085",
+  "lon": 37.6272774,
+  "lat": 55.8342816,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0086",
+  "lon": 37.6272996,
+  "lat": 55.8346414,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0087",
+  "lon": 37.6273914,
+  "lat": 55.834278,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0088",
+  "lon": 37.6277348,
+  "lat": 55.8343709,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0089",
+  "lon": 37.6278831,
+  "lat": 55.8342795,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0090",
+  "lon": 37.6278988,
+  "lat": 55.83427,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0091",
+  "lon": 37.627949,
+  "lat": 55.8328589,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0092",
+  "lon": 37.6280114,
+  "lat": 55.8343713,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0093",
+  "lon": 37.6280346,
+  "lat": 55.8343567,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0094",
+  "lon": 37.6280493,
+  "lat": 55.8343476,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0095",
+  "lon": 37.6281706,
+  "lat": 55.8342717,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0096",
+  "lon": 37.6282142,
+  "lat": 55.8328439,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0097",
+  "lon": 37.6282242,
+  "lat": 55.8329967,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0098",
+  "lon": 37.6282325,
+  "lat": 55.8342331,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0099",
+  "lon": 37.6284741,
+  "lat": 55.8361261,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0100",
+  "lon": 37.6284894,
+  "lat": 55.8361341,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0101",
+  "lon": 37.6285012,
+  "lat": 55.83614,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0102",
+  "lon": 37.6285155,
+  "lat": 55.8361478,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0103",
+  "lon": 37.6285251,
+  "lat": 55.8361513,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0104",
+  "lon": 37.628533,
+  "lat": 55.8361599,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0105",
+  "lon": 37.6285444,
+  "lat": 55.8362305,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0106",
+  "lon": 37.6285549,
+  "lat": 55.8362239,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0107",
+  "lon": 37.6286664,
+  "lat": 55.8361526,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0108",
+  "lon": 37.6286796,
+  "lat": 55.8361442,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0109",
+  "lon": 37.6292062,
+  "lat": 55.8335039,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0110",
+  "lon": 37.6292124,
+  "lat": 55.8336456,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0111",
+  "lon": 37.6293351,
+  "lat": 55.8335688,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0112",
+  "lon": 37.629455,
+  "lat": 55.8356546,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0113",
+  "lon": 37.6294565,
+  "lat": 55.8334937,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0114",
+  "lon": 37.6294693,
+  "lat": 55.8336369,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0115",
+  "lon": 37.6296185,
+  "lat": 55.8355556,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0116",
+  "lon": 37.629663,
+  "lat": 55.8356757,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0117",
+  "lon": 37.6305827,
+  "lat": 55.8361505,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0118",
+  "lon": 37.6306303,
+  "lat": 55.8359151,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0119",
+  "lon": 37.6309529,
+  "lat": 55.8363308,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0120",
+  "lon": 37.6309704,
+  "lat": 55.8347034,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0121",
+  "lon": 37.6309797,
+  "lat": 55.8344349,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0122",
+  "lon": 37.6309836,
+  "lat": 55.8346954,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0123",
+  "lon": 37.6309971,
+  "lat": 55.8346872,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0124",
+  "lon": 37.6310203,
+  "lat": 55.8357325,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0125",
+  "lon": 37.6310433,
+  "lat": 55.8355196,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0126",
+  "lon": 37.6310751,
+  "lat": 55.8361156,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0127",
+  "lon": 37.631089,
+  "lat": 55.8354938,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0128",
+  "lon": 37.6311059,
+  "lat": 55.8346214,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0129",
+  "lon": 37.6311479,
+  "lat": 55.8361502,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0130",
+  "lon": 37.6312021,
+  "lat": 55.8357182,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0131",
+  "lon": 37.6312333,
+  "lat": 55.8347567,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0132",
+  "lon": 37.631245,
+  "lat": 55.8363415,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0133",
+  "lon": 37.6313303,
+  "lat": 55.8357088,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0134",
+  "lon": 37.63134,
+  "lat": 55.8344761,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0135",
+  "lon": 37.6314266,
+  "lat": 55.8362334,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0136",
+  "lon": 37.6314413,
+  "lat": 55.8344093,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0137",
+  "lon": 37.6314476,
+  "lat": 55.8347219,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0138",
+  "lon": 37.6314541,
+  "lat": 55.8344009,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0139",
+  "lon": 37.6314608,
+  "lat": 55.8343964,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0140",
+  "lon": 37.6314731,
+  "lat": 55.8347148,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0141",
+  "lon": 37.6314788,
+  "lat": 55.8343846,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0142",
+  "lon": 37.6315011,
+  "lat": 55.8344654,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0143",
+  "lon": 37.6315427,
+  "lat": 55.8346781,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0144",
+  "lon": 37.6315555,
+  "lat": 55.8346683,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0145",
+  "lon": 37.6315614,
+  "lat": 55.8347167,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0146",
+  "lon": 37.6315804,
+  "lat": 55.8351804,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0147",
+  "lon": 37.6315982,
+  "lat": 55.8347851,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0148",
+  "lon": 37.6316917,
+  "lat": 55.8347268,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0149",
+  "lon": 37.6317377,
+  "lat": 55.8348847,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0150",
+  "lon": 37.631745,
+  "lat": 55.8342172,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0151",
+  "lon": 37.6317709,
+  "lat": 55.8342012,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0152",
+  "lon": 37.6317738,
+  "lat": 55.8341994,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0153",
+  "lon": 37.6317841,
+  "lat": 55.834193,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0154",
+  "lon": 37.6318036,
+  "lat": 55.834846,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0155",
+  "lon": 37.6318332,
+  "lat": 55.8343564,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0156",
+  "lon": 37.6318444,
+  "lat": 55.8353276,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0157",
+  "lon": 37.6318565,
+  "lat": 55.8341483,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0158",
+  "lon": 37.631862,
+  "lat": 55.8342052,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0159",
+  "lon": 37.6318665,
+  "lat": 55.8341422,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0160",
+  "lon": 37.6318708,
+  "lat": 55.8342091,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0161",
+  "lon": 37.6318719,
+  "lat": 55.8348069,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0162",
+  "lon": 37.631877,
+  "lat": 55.8359863,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0163",
+  "lon": 37.6319055,
+  "lat": 55.835308,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0164",
+  "lon": 37.6319208,
+  "lat": 55.8355784,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0165",
+  "lon": 37.6319523,
+  "lat": 55.8355674,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0166",
+  "lon": 37.631966,
+  "lat": 55.8342155,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0167",
+  "lon": 37.6320461,
+  "lat": 55.8352472,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0168",
+  "lon": 37.6320486,
+  "lat": 55.83578,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0169",
+  "lon": 37.6320623,
+  "lat": 55.8342093,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0170",
+  "lon": 37.6320903,
+  "lat": 55.8342252,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0171",
+  "lon": 37.6320908,
+  "lat": 55.8355284,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0172",
+  "lon": 37.6321,
+  "lat": 55.8344908,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0173",
+  "lon": 37.6321267,
+  "lat": 55.8346662,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0174",
+  "lon": 37.6322281,
+  "lat": 55.8341187,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0175",
+  "lon": 37.632341,
+  "lat": 55.8341775,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0176",
+  "lon": 37.6324127,
+  "lat": 55.8348134,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0177",
+  "lon": 37.6324352,
+  "lat": 55.8345104,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0178",
+  "lon": 37.6324863,
+  "lat": 55.8355215,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0179",
+  "lon": 37.6325109,
+  "lat": 55.8350382,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0180",
+  "lon": 37.632587,
+  "lat": 55.8344162,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0181",
+  "lon": 37.6325979,
+  "lat": 55.8357715,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0182",
+  "lon": 37.6326238,
+  "lat": 55.8354802,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0183",
+  "lon": 37.6326278,
+  "lat": 55.8349342,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0184",
+  "lon": 37.6326491,
+  "lat": 55.8349481,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0185",
+  "lon": 37.6326807,
+  "lat": 55.8353023,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0186",
+  "lon": 37.6326816,
+  "lat": 55.8346369,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0187",
+  "lon": 37.6327569,
+  "lat": 55.835595,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0188",
+  "lon": 37.6328051,
+  "lat": 55.8353676,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0189",
+  "lon": 37.6328711,
+  "lat": 55.83452,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0190",
+  "lon": 37.6328813,
+  "lat": 55.8353952,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0191",
+  "lon": 37.6329278,
+  "lat": 55.8357734,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0192",
+  "lon": 37.6329712,
+  "lat": 55.8349257,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0193",
+  "lon": 37.6330069,
+  "lat": 55.8349124,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0194",
+  "lon": 37.633016,
+  "lat": 55.8334187,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0195",
+  "lon": 37.6330281,
+  "lat": 55.8351444,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0196",
+  "lon": 37.6330287,
+  "lat": 55.8334105,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0197",
+  "lon": 37.6330744,
+  "lat": 55.8343938,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0198",
+  "lon": 37.6331007,
+  "lat": 55.8345291,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0199",
+  "lon": 37.6331034,
+  "lat": 55.8351015,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0200",
+  "lon": 37.6331127,
+  "lat": 55.8351883,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0201",
+  "lon": 37.6331569,
+  "lat": 55.8333277,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0202",
+  "lon": 37.6331724,
+  "lat": 55.8345904,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0203",
+  "lon": 37.6331739,
+  "lat": 55.8333167,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0204",
+  "lon": 37.6332851,
+  "lat": 55.8334576,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0205",
+  "lon": 37.6332931,
+  "lat": 55.8357279,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0206",
+  "lon": 37.633341,
+  "lat": 55.8353619,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0207",
+  "lon": 37.6334432,
+  "lat": 55.8350245,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0208",
+  "lon": 37.63365,
+  "lat": 55.8347871,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0209",
+  "lon": 37.6336615,
+  "lat": 55.8349129,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0210",
+  "lon": 37.6337157,
+  "lat": 55.8350771,
+  "kind": "junction",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0211",
+  "lon": 37.633758,
+  "lat": 55.8355141,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0212",
+  "lon": 37.633831,
+  "lat": 55.8351017,
+  "kind": "waypoint",
+  "networks": [
+   "pedestrian"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0213",
+  "lon": 37.6338498,
+  "lat": 55.8329523,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0214",
+  "lon": 37.6338629,
+  "lat": 55.8337499,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0215",
+  "lon": 37.633873,
+  "lat": 55.8337554,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0216",
+  "lon": 37.6338811,
+  "lat": 55.8337599,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0217",
+  "lon": 37.6338823,
+  "lat": 55.8353611,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0218",
+  "lon": 37.6338894,
+  "lat": 55.8337644,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0219",
+  "lon": 37.6338934,
+  "lat": 55.8351711,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0220",
+  "lon": 37.6339043,
+  "lat": 55.8333068,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0221",
+  "lon": 37.6339155,
+  "lat": 55.8332606,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0222",
+  "lon": 37.6339183,
+  "lat": 55.8337807,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0223",
+  "lon": 37.6339198,
+  "lat": 55.834756,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0224",
+  "lon": 37.6339211,
+  "lat": 55.8332264,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0225",
+  "lon": 37.6339227,
+  "lat": 55.8346724,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0226",
+  "lon": 37.633925,
+  "lat": 55.8337848,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0227",
+  "lon": 37.6339305,
+  "lat": 55.833756,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0228",
+  "lon": 37.6339327,
+  "lat": 55.8337896,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0229",
+  "lon": 37.6339338,
+  "lat": 55.8337561,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0230",
+  "lon": 37.6339368,
+  "lat": 55.834326,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0231",
+  "lon": 37.6339395,
+  "lat": 55.8337495,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0232",
+  "lon": 37.6339415,
+  "lat": 55.8342658,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0233",
+  "lon": 37.6339434,
+  "lat": 55.8337961,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0234",
+  "lon": 37.6339461,
+  "lat": 55.8337444,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0235",
+  "lon": 37.6339494,
+  "lat": 55.8337413,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0236",
+  "lon": 37.6339511,
+  "lat": 55.8340855,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0237",
+  "lon": 37.6339568,
+  "lat": 55.8337345,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0238",
+  "lon": 37.633957,
+  "lat": 55.8340169,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0239",
+  "lon": 37.6339697,
+  "lat": 55.8338814,
+  "kind": "junction",
+  "networks": [
+   "pedestrian",
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0240",
+  "lon": 37.6339917,
+  "lat": 55.8333535,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0241",
+  "lon": 37.6340469,
+  "lat": 55.8333612,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0242",
+  "lon": 37.6340475,
+  "lat": 55.8328704,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0243",
+  "lon": 37.6340622,
+  "lat": 55.8328643,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0244",
+  "lon": 37.634108,
+  "lat": 55.8334131,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0245",
+  "lon": 37.6341116,
+  "lat": 55.8277228,
+  "kind": "junction",
+  "networks": [
+   "runway",
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0246",
+  "lon": 37.6341237,
+  "lat": 55.8330309,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0247",
+  "lon": 37.6341316,
+  "lat": 55.8335005,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0248",
+  "lon": 37.6341691,
+  "lat": 55.8331335,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0249",
+  "lon": 37.6341857,
+  "lat": 55.8330804,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0250",
+  "lon": 37.6342228,
+  "lat": 55.8331082,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0251",
+  "lon": 37.6342619,
+  "lat": 55.8331378,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0252",
+  "lon": 37.6342767,
+  "lat": 55.833086,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0253",
+  "lon": 37.6343582,
+  "lat": 55.8332115,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0254",
+  "lon": 37.634403,
+  "lat": 55.8332208,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0255",
+  "lon": 37.6345023,
+  "lat": 55.8330006,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0256",
+  "lon": 37.6345582,
+  "lat": 55.8330168,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0257",
+  "lon": 37.6345704,
+  "lat": 55.82743,
+  "kind": "junction",
+  "networks": [
+   "runway",
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0258",
+  "lon": 37.6346087,
+  "lat": 55.8276977,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0259",
+  "lon": 37.634623,
+  "lat": 55.8331323,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0260",
+  "lon": 37.6346367,
+  "lat": 55.8331273,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0261",
+  "lon": 37.6346398,
+  "lat": 55.8330839,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0262",
+  "lon": 37.6346491,
+  "lat": 55.8331227,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0263",
+  "lon": 37.634653,
+  "lat": 55.8331251,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0264",
+  "lon": 37.6346577,
+  "lat": 55.8330977,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0265",
+  "lon": 37.6346597,
+  "lat": 55.8330993,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0266",
+  "lon": 37.6346667,
+  "lat": 55.8331047,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0267",
+  "lon": 37.6346974,
+  "lat": 55.8331226,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0268",
+  "lon": 37.6347068,
+  "lat": 55.8331274,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0269",
+  "lon": 37.6347149,
+  "lat": 55.8331316,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0270",
+  "lon": 37.6347903,
+  "lat": 55.8325715,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0271",
+  "lon": 37.6349037,
+  "lat": 55.833255,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0272",
+  "lon": 37.6350643,
+  "lat": 55.8324499,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0273",
+  "lon": 37.6351453,
+  "lat": 55.8322103,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0274",
+  "lon": 37.6352308,
+  "lat": 55.8323259,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0275",
+  "lon": 37.6352878,
+  "lat": 55.832216,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0276",
+  "lon": 37.6353032,
+  "lat": 55.8321715,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0277",
+  "lon": 37.6353306,
+  "lat": 55.832447,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0278",
+  "lon": 37.6353397,
+  "lat": 55.8324522,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0279",
+  "lon": 37.6353595,
+  "lat": 55.8324618,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0280",
+  "lon": 37.6353814,
+  "lat": 55.8280936,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0281",
+  "lon": 37.6354026,
+  "lat": 55.8322219,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0282",
+  "lon": 37.6354203,
+  "lat": 55.8313782,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0283",
+  "lon": 37.6354212,
+  "lat": 55.8283649,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0284",
+  "lon": 37.6355816,
+  "lat": 55.8313549,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0285",
+  "lon": 37.6356375,
+  "lat": 55.8313286,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0286",
+  "lon": 37.6356416,
+  "lat": 55.8282269,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0287",
+  "lon": 37.635646,
+  "lat": 55.8312442,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0288",
+  "lon": 37.6356475,
+  "lat": 55.8312299,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0289",
+  "lon": 37.6356481,
+  "lat": 55.8312232,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0290",
+  "lon": 37.6356489,
+  "lat": 55.831216,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0291",
+  "lon": 37.6356527,
+  "lat": 55.8311781,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0292",
+  "lon": 37.6356535,
+  "lat": 55.8311702,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0293",
+  "lon": 37.6356547,
+  "lat": 55.8311588,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0294",
+  "lon": 37.6356557,
+  "lat": 55.8311487,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0295",
+  "lon": 37.6356935,
+  "lat": 55.8308711,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0296",
+  "lon": 37.635702,
+  "lat": 55.8311965,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0297",
+  "lon": 37.6357321,
+  "lat": 55.8312002,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0298",
+  "lon": 37.6357748,
+  "lat": 55.8312603,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0299",
+  "lon": 37.6358408,
+  "lat": 55.8308514,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0300",
+  "lon": 37.6358433,
+  "lat": 55.8312039,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0301",
+  "lon": 37.6358522,
+  "lat": 55.8312043,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0302",
+  "lon": 37.6358571,
+  "lat": 55.828097,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0303",
+  "lon": 37.6358676,
+  "lat": 55.831205,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0304",
+  "lon": 37.6358824,
+  "lat": 55.8283545,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0305",
+  "lon": 37.635896,
+  "lat": 55.8312411,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0306",
+  "lon": 37.6359616,
+  "lat": 55.8312093,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0307",
+  "lon": 37.6360429,
+  "lat": 55.8308104,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0308",
+  "lon": 37.6360706,
+  "lat": 55.8308631,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0309",
+  "lon": 37.6360707,
+  "lat": 55.8314023,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0310",
+  "lon": 37.6360864,
+  "lat": 55.8308639,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0311",
+  "lon": 37.6361016,
+  "lat": 55.8308646,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0312",
+  "lon": 37.6361162,
+  "lat": 55.8308653,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0313",
+  "lon": 37.6361243,
+  "lat": 55.8308657,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0314",
+  "lon": 37.6361436,
+  "lat": 55.830837,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0315",
+  "lon": 37.6361659,
+  "lat": 55.8312186,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0316",
+  "lon": 37.6363278,
+  "lat": 55.8306378,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0317",
+  "lon": 37.6363744,
+  "lat": 55.8286072,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0318",
+  "lon": 37.6364389,
+  "lat": 55.8314178,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0319",
+  "lon": 37.6364792,
+  "lat": 55.831292,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0320",
+  "lon": 37.6364965,
+  "lat": 55.8262223,
+  "kind": "waypoint",
+  "networks": [
+   "runway",
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0321",
+  "lon": 37.6365555,
+  "lat": 55.8312369,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0322",
+  "lon": 37.6366036,
+  "lat": 55.8312717,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0323",
+  "lon": 37.6366086,
+  "lat": 55.8287615,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0324",
+  "lon": 37.636696,
+  "lat": 55.8306575,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0325",
+  "lon": 37.6367444,
+  "lat": 55.8308409,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0326",
+  "lon": 37.6367707,
+  "lat": 55.8308967,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0327",
+  "lon": 37.6368059,
+  "lat": 55.8314317,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0328",
+  "lon": 37.6368081,
+  "lat": 55.8322845,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0329",
+  "lon": 37.63685,
+  "lat": 55.8308745,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0330",
+  "lon": 37.6369998,
+  "lat": 55.8321948,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0331",
+  "lon": 37.6370324,
+  "lat": 55.8325715,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0332",
+  "lon": 37.6370383,
+  "lat": 55.8314434,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0333",
+  "lon": 37.6370527,
+  "lat": 55.8306715,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0334",
+  "lon": 37.637109,
+  "lat": 55.8323002,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0335",
+  "lon": 37.6371484,
+  "lat": 55.8315522,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0336",
+  "lon": 37.6371931,
+  "lat": 55.8313842,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0337",
+  "lon": 37.6372177,
+  "lat": 55.8306806,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0338",
+  "lon": 37.6372884,
+  "lat": 55.8324761,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0339",
+  "lon": 37.6373097,
+  "lat": 55.8323513,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0340",
+  "lon": 37.6373158,
+  "lat": 55.8323142,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0341",
+  "lon": 37.6373275,
+  "lat": 55.8322534,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0342",
+  "lon": 37.6373512,
+  "lat": 55.8307791,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0343",
+  "lon": 37.6373688,
+  "lat": 55.8306898,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0344",
+  "lon": 37.6373877,
+  "lat": 55.8306221,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0345",
+  "lon": 37.637461,
+  "lat": 55.8323248,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0346",
+  "lon": 37.6375158,
+  "lat": 55.8306978,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0347",
+  "lon": 37.6375425,
+  "lat": 55.8311409,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0348",
+  "lon": 37.6376732,
+  "lat": 55.8305394,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0349",
+  "lon": 37.6376755,
+  "lat": 55.83053,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0350",
+  "lon": 37.6376808,
+  "lat": 55.8305386,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0351",
+  "lon": 37.6376824,
+  "lat": 55.830511,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0352",
+  "lon": 37.6377553,
+  "lat": 55.8295057,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0353",
+  "lon": 37.6377605,
+  "lat": 55.830181,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0354",
+  "lon": 37.6377788,
+  "lat": 55.8296713,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0355",
+  "lon": 37.637779,
+  "lat": 55.8300836,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0356",
+  "lon": 37.6378282,
+  "lat": 55.8268957,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0357",
+  "lon": 37.637832,
+  "lat": 55.8307114,
+  "kind": "crossing",
+  "networks": [
+   "service",
+   "taxi"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0358",
+  "lon": 37.6378378,
+  "lat": 55.8299647,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0359",
+  "lon": 37.6379212,
+  "lat": 55.8298842,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0360",
+  "lon": 37.6379379,
+  "lat": 55.8307159,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0361",
+  "lon": 37.6380472,
+  "lat": 55.8297736,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0362",
+  "lon": 37.6380477,
+  "lat": 55.829532,
+  "kind": "junction",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0363",
+  "lon": 37.6382508,
+  "lat": 55.8296541,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0364",
+  "lon": 37.6384334,
+  "lat": 55.829569,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0365",
+  "lon": 37.638602,
+  "lat": 55.8294963,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0366",
+  "lon": 37.6388543,
+  "lat": 55.8294144,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0367",
+  "lon": 37.6389547,
+  "lat": 55.8292497,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0368",
+  "lon": 37.6390193,
+  "lat": 55.8290675,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0369",
+  "lon": 37.6391021,
+  "lat": 55.8293497,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0370",
+  "lon": 37.6393933,
+  "lat": 55.829265,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 4,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0371",
+  "lon": 37.6394477,
+  "lat": 55.8286897,
+  "kind": "waypoint",
+  "networks": [
+   "taxi"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0372",
+  "lon": 37.6394758,
+  "lat": 55.8288492,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 1,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0373",
+  "lon": 37.6396114,
+  "lat": 55.8289348,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0374",
+  "lon": 37.6396754,
+  "lat": 55.8291789,
+  "kind": "junction",
+  "networks": [
+   "service"
+  ],
+  "degree": 3,
+  "delay_s": 0
+ },
+ {
+  "node_id": "n0375",
+  "lon": 37.6397469,
+  "lat": 55.8290669,
+  "kind": "waypoint",
+  "networks": [
+   "service"
+  ],
+  "degree": 2,
+  "delay_s": 0
+ }
+]

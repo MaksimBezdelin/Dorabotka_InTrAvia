@@ -89,6 +89,7 @@
                         if (!r.ok) throw new Error('svo_all.geojson');
                         return r.json();
                     }).then(function(data) {
+                        if (selectedAirport !== 'svo' || !selectedAirportLayer || !map.hasLayer(selectedAirportLayer)) return;
                         (data.features || []).forEach(function(feature) {
                             var props = feature.properties || {};
                             var geometry = feature.geometry || {};
@@ -110,18 +111,17 @@
                     fetch('/static/vdnh/objects.geojson').then(function(r) { if (!r.ok) throw new Error('objects'); return r.json(); }),
                     fetch('/static/vdnh/airport_boundaries.geojson').then(function(r) { if (!r.ok) throw new Error('airport_boundaries'); return r.json(); })
                 ]).then(function(data) {
+                    if (selectedAirport !== 'vdnh') return;
                     selectedAirportLayer = L.layerGroup().addTo(map);
                     L.geoJSON(data[0], {
                         style: function() { return { color: '#0891b2', weight: 1, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
                         onEachFeature: function(f, lyr) {
-                            var id = f.properties && f.properties.id;
-                            if (id != null) { lyr.bindTooltip('Сервисная зона ' + id); addMapFeatureIdLabel(selectedAirportLayer, lyr, id); }
                         }
                     }).addTo(selectedAirportLayer);
                     L.geoJSON(data[1], { style: function(f) { var t=f.properties&&f.properties.type; return t==='runway'?{color:'#334155',weight:7,opacity:.85}:t==='taxi'?{color:'#f59e0b',weight:3.5,opacity:.9}:t==='pedestrian'?{color:'#16a34a',weight:1.5,dashArray:'4 4'}:{color:'#64748b',weight:2,opacity:.7}; } }).addTo(selectedAirportLayer);
                     L.geoJSON(data[2], {
                         style: function(f) { var n=String(f.properties&&f.properties.name||'').toLowerCase(); return n.indexOf('терминал')>=0?{color:'#1d4ed8',weight:2,fillColor:'#60a5fa',fillOpacity:.35}:n.indexOf('стоянка')>=0?{color:'#b45309',weight:1.5,fillColor:'#f59e0b',fillOpacity:.3}:{color:'#0f766e',weight:1.5,fillColor:'#14b8a6',fillOpacity:.32}; },
-                        onEachFeature: function(f, lyr) { var props=f.properties||{}; if (props.name) lyr.bindTooltip(props.name); if (props.id != null) addMapFeatureIdLabel(selectedAirportLayer, lyr, props.id); }
+                        onEachFeature: function() {}
                     }).addTo(selectedAirportLayer);
                     var boundary = L.geoJSON(data[3], { style: function() { return { color: '#be123c', weight: 2.5, fillOpacity: 0.03, dashArray: '8 5' }; } }).addTo(selectedAirportLayer);
                     var bounds = boundary.getBounds();

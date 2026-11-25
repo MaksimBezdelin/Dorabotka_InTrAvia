@@ -223,16 +223,23 @@
         .employee-marker:hover { transform: scale(1.12); z-index: 1000; }
         .employee-marker .marker-icon { font-size: 14px; display: block; line-height: 1; }
         .employee-marker .marker-id { font-size: 6px; font-weight: 600; display: block; line-height: 1; margin-top: 1px; }
+        .employee-marker.gps-employee-marker .marker-icon { font-size: 16px; }
+        .employee-marker.gps-employee-marker .marker-id { font-size: 8px; font-weight: 700; }
         .employee-marker.status-free { border-color: #2ecc71; }
         .employee-marker.status-busy { border-color: #e74c3c; }
         .employee-marker.status-free .marker-icon { color: #2ecc71; }
         .employee-marker.status-busy .marker-icon { color: #e74c3c; }
         .dispatcher-gps-marker-wrap.leaflet-div-icon { background: transparent !important; border: 0 !important; }
         .dispatcher-gps-marker { width: 48px; height: 56px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow: visible; }
-        .dispatcher-gps-marker .dispatcher-gps-arrow { display: block; width: 39px; height: 44px; transform-origin: 50% 50%; transition: transform .12s linear; filter: drop-shadow(0 2px 3px rgba(0,0,0,.42)); }
-        .dispatcher-gps-marker .dispatcher-gps-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
-        .dispatcher-gps-marker .dispatcher-gps-arrow path { fill: #0866dc; stroke: #fff; stroke-width: 3; stroke-linejoin: round; }
-        .dispatcher-gps-marker .gps-marker-id { margin-top: -1px; font-size: 8px; line-height: 10px; padding: 1px 4px; border-radius: 5px; color: #fff; background: #0f4c9a; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+        .dispatcher-gps-marker .dispatcher-gps-pin { display: block; height: 40px; font-size: 36px; line-height: 40px; color: #2ecc71; filter: drop-shadow(0 2px 3px rgba(0,0,0,.42)); }
+        .dispatcher-gps-marker .dispatcher-gps-pin i { color: inherit !important; -webkit-text-stroke: 0; }
+        .dispatcher-gps-marker-wrap.status-free .dispatcher-gps-pin, .dispatcher-gps-marker-wrap.status-free .dispatcher-gps-pin i { color: #2ecc71 !important; }
+        .dispatcher-gps-marker-wrap.status-busy .dispatcher-gps-pin, .dispatcher-gps-marker-wrap.status-busy .dispatcher-gps-pin i { color: #e74c3c !important; }
+        .dispatcher-gps-marker .gps-marker-id { margin-top: -1px; font-size: 8px; line-height: 10px; padding: 1px 4px; border-radius: 5px; color: #fff; background: #239b56; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+        .dispatcher-gps-marker-wrap.status-free .dispatcher-gps-pin { color: #2ecc71; }
+        .dispatcher-gps-marker-wrap.status-free .gps-marker-id { background: #239b56; }
+        .dispatcher-gps-marker-wrap.status-busy .dispatcher-gps-pin { color: #e74c3c; }
+        .dispatcher-gps-marker-wrap.status-busy .gps-marker-id { background: #c0392b; }
 
         .car-marker {
             border-radius: 4px; text-align: center; font-weight: 700;
@@ -957,6 +964,12 @@
         <li id="navCancelled" onclick="switchTab('cancelled')">
             <a><i class="fas fa-ban"></i><span>Отменённые</span></a>
         </li>
+        <li>
+            <a href="/api/event-log.xlsx" title="Журнал событий: Excel"><i class="fas fa-file-excel"></i><span>Журнал (Excel)</span></a>
+        </li>
+        <li>
+            <a href="/api/event-log?format=csv" title="Журнал событий: CSV"><i class="fas fa-file-csv"></i><span>Журнал (CSV)</span></a>
+        </li>
     </ul>
     <div class="aeroflot-brand">
         <img src="/static/aeroflot.png" alt="Аэрофлот" onerror="this.style.display='none';">
@@ -1012,6 +1025,8 @@
 
         <div id="notificationContainer"></div>
 
+        <div id="dispatchingWarnings" style="display:none;margin-bottom:14px;"></div>
+
         <div class="card">
             <div class="card-header">
                 <h3>Активные заявки</h3>
@@ -1030,30 +1045,7 @@
             </div>
         </div>
 
-        <div class="card" id="dispatcherPriorityCard">
-            <div class="card-header">
-                <div>
-                    <h3><i class="fas fa-ranking-star" style="color:var(--aero-gold);margin-right:7px;"></i>Таблица приоритетов назначения инженеров</h3>
-                    <div style="font-size:11px;color:var(--aero-gray);margin-top:5px;">Сначала учитывается критичность заявки, затем совместимость специализации, доступность и расчётное время прибытия.</div>
-                </div>
-                <span class="badge-ai" id="dispatcherPriorityCount">0</span>
-            </div>
-            <div class="priority-table-wrap" style="width:100%;overflow-x:auto;">
-                <table class="priority-table" style="width:100%;min-width:980px;border-collapse:collapse;font-size:12px;">
-                    <thead><tr style="background:#f8fafc;text-align:left;">
-                        <th style="padding:11px 10px;">Приоритет</th>
-                        <th style="padding:11px 10px;">Заявка / стоянка</th>
-                        <th style="padding:11px 10px;">Инженер</th>
-                        <th style="padding:11px 10px;">Специализация</th>
-                        <th style="padding:11px 10px;">Прибытие</th>
-                        <th style="padding:11px 10px;">Почему рекомендован</th>
-                        <th style="padding:11px 10px;">Действие</th>
-                    </tr></thead>
-                    <tbody id="dispatcherPriorityBody"><tr><td colspan="7" style="padding:18px;text-align:center;color:var(--aero-gray);">Загрузка рекомендаций…</td></tr></tbody>
-                </table>
-            </div>
-            <div style="font-size:10px;color:var(--aero-gray);margin-top:10px;">Норматив подбора — не более 15 минут. Назначение выполняется только после выбора диспетчером; рекомендации не назначают инженера автоматически.</div>
-        </div>
+
 
     </div>
 
@@ -1395,7 +1387,6 @@
 var API_URL = '/api';
 
 var CONFIG = {
-    REGULATION_MINUTES: 15,
     WALK_SPEED_KMH: 5,
     CAR_SPEED_DEFAULT: 30,
     PARKING_BY_TERMINAL: {
@@ -1507,13 +1498,13 @@ var CONFIG = {
 };
 
 var state = {
-    employees: [], transport: [], tickets: [], activeRequests: [],
+    employees: [], transport: [], aircraft: [], tickets: [], activeRequests: [],
     reports: [], deletedReports: [], pilotRequests: [],
     cancelledRequests: [], delays: [], flights: [],
     recognizingPilotId: null,
     loadInterval: null, coordsInterval: null, map: null,
     routeData: {}, routeFetchPending: {}, transportLoaded: false, isUpdating: false,
-    dataLoaded: false, mapMarkers: {},
+    dataLoaded: false, mapMarkers: {}, aircraftMarkers: {},
     roadsLayer: null, aircraftLayer: null, parkingLayer: null, taxiGraph: null, aircraftSimulations: {}, aircraftTaxiLayer: null, aircraftSafetyTimer: null,
     ambientAircraftTarget: 3 + Math.floor(Math.random() * 5), ambientAircraftTargetTimer: null,
     currentTab: 'dispatch',
@@ -1533,7 +1524,11 @@ var PILOT_STORAGE_KEY = 'dispatcherPilotRequests_v4';
 var pilotTableSignature = '';
 var workflowQueueInterval = null;
 var dispatcherPriorityInterval = null;
+var dispatchingWarningsInterval = null;
+var aircraftRefreshInterval = null;
+var dispatchingWarningsByRequest = {};
 var dispatcherPriorityBusy = false;
+var dispatcherPriorityByRequest = {};
 var pilotAudioState = {};
 
 var transcriptionQueue = [];
@@ -2019,6 +2014,13 @@ function init() {
             initMap();
             updateParkingList();
             loadDataOnce();
+            loadDefectReference();
+            loadDispatcherPriorityTable();
+            if (dispatcherPriorityInterval) clearInterval(dispatcherPriorityInterval);
+            dispatcherPriorityInterval = setInterval(loadDispatcherPriorityTable, 5000);
+            loadDispatchingWarnings();
+            if (dispatchingWarningsInterval) clearInterval(dispatchingWarningsInterval);
+            dispatchingWarningsInterval = setInterval(loadDispatchingWarnings, 3000);
             relayDispatcherReportsToCpu();
             if (workflowQueueInterval) clearInterval(workflowQueueInterval);
             workflowQueueInterval = setInterval(relayDispatcherReportsToCpu, 2000);
@@ -2032,105 +2034,195 @@ function init() {
             state.coordsInterval = setInterval(function() {
                 if (!state.isUpdating && !state.isDragging) refreshCoordsOnly();
             }, 500);
-            loadDispatcherPriorityTable();
-            if (dispatcherPriorityInterval) clearInterval(dispatcherPriorityInterval);
-            dispatcherPriorityInterval = setInterval(loadDispatcherPriorityTable, 5000);
+            if (aircraftRefreshInterval) clearInterval(aircraftRefreshInterval);
+            aircraftRefreshInterval = setInterval(refreshVdnhAircraft, 1000);
         });
 }
 
 
+function loadDispatchingWarnings() {
+    fetch(API_URL + '/dispatcher/norms', {cache: 'no-store'})
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(payload) {
+            var norms = (payload && payload.norms) || [];
+            var warnings = (payload && payload.warnings) || [];
+            dispatchingWarningsByRequest = {};
+            norms.forEach(function(n) { dispatchingWarningsByRequest[String(n.request_id)] = n; });
+            renderDispatchingWarnings(warnings);
+        })
+        .catch(function(err) { console.warn('[NORMS]', err); });
+}
+
+function renderDispatchingWarnings(warnings) {
+    var box = document.getElementById('dispatchingWarnings');
+    if (!box) return;
+    if (!warnings || !warnings.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    var html = '<div class="card" style="border-left:4px solid var(--aero-red);"><div class="card-header"><h3 style="color:var(--aero-red);"><i class="fas fa-triangle-exclamation"></i> Предупреждения диспетчеру</h3><span class="badge-ai">' + warnings.length + '</span></div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px;">';
+    warnings.forEach(function(w) {
+        var color = w.level === 'critical' ? 'var(--aero-red)' : (w.level === 'warning' ? 'var(--aero-orange)' : 'var(--aero-blue)');
+        var bg = w.level === 'critical' ? '#fef2f2' : (w.level === 'warning' ? '#fffbeb' : '#eff6ff');
+        var alt = w.alternative || null;
+        html += '<div style="padding:10px 12px;background:' + bg + ';border:1px solid ' + color + '33;border-left:3px solid ' + color + ';border-radius:6px;font-size:12px;color:var(--aero-text);line-height:1.5;">' +
+            '<div><strong style="color:' + color + ';">' + escapeHtml(String(w.type || 'warning')) + '</strong> · заявка ' + escapeHtml(String(w.request_id || '')) + ' · ' + escapeHtml(String(w.aircraft || '')) + '</div>' +
+            '<div style="margin-top:3px;">' + escapeHtml(String(w.message || '')) + '</div>';
+        if (alt && alt.engineer_id) {
+            html += '<button class="btn btn-primary btn-sm" style="margin-top:7px;" onclick="quickReassign(\'' + encodeURIComponent(String(w.request_id)) + '\',\'' + encodeURIComponent(String(alt.engineer_id)) + '\',\'' + encodeURIComponent(String(alt.engineer_name || 'Инженер')) + '\',' + (w.type === 'norm_risk' ? 'true' : 'false') + ')"><i class="fas fa-user-check"></i> Переназначить на ' + escapeHtml(String(alt.engineer_name || 'инженера')) + ' (ETA ' + escapeHtml(String(alt.eta_min || '—')) + ' мин)</button>';
+        }
+        html += '</div>';
+    });
+    html += '</div></div>';
+    box.innerHTML = html;
+    box.style.display = 'block';
+}
+
+function quickReassign(encodedRid, encodedEid, encodedName, started) {
+    var rid = decodeURIComponent(encodedRid);
+    var eid = decodeURIComponent(encodedEid);
+    var name = decodeURIComponent(encodedName);
+    var reason = prompt('Причина переназначения на ' + name + ':', 'Перераспределение для соблюдения норматива 15 минут');
+    if (reason == null) return;
+    var senior = false;
+    if (started) {
+        senior = confirm('Работы уже начаты. Подтверждаете переназначение решением старшего смены?');
+        if (!senior) return;
+    }
+    fetch(API_URL + '/dispatcher/requests/' + encodeURIComponent(rid) + '/reassign', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engineer_id: eid, reason: reason, senior_confirmed: senior, actor: 'Старший смены'})
+    })
+    .then(function(r) { return r.json().catch(function(){ return {}; }).then(function(d) { if (!r.ok || !d.success) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
+    .then(function() {
+        showToast('Переназначено на ' + name, 'success');
+        loadDispatchingWarnings();
+        loadRequestsOnly();
+    })
+    .catch(function(err) { showToast('Ошибка переназначения: ' + err.message, 'error'); });
+}
+
+function renderNormBadge(requestId) {
+    var n = dispatchingWarningsByRequest[String(requestId)];
+    if (!n) return '';
+    var color = n.level === 'critical' ? 'var(--aero-red)' : (n.level === 'warning' ? 'var(--aero-orange)' : 'var(--aero-green)');
+    var text = n.arrived_at ? ('Прибыл: ' + Number(n.norm_minutes || 0).toFixed(1) + ' мин') :
+        ('ETA ' + Number(n.eta_min || 0).toFixed(1) + ' мин · осталось ' + Number(n.remaining_min || 0).toFixed(1) + ' мин');
+    return '<div style="margin-top:4px;font-size:10px;font-weight:700;color:' + color + ';">' +
+        (n.level === 'critical' ? 'НОРМАТИВ НАРУШЕН · ' : (n.level === 'warning' ? 'РИСК 15 МИН · ' : 'НОРМАТИВ OK · ')) +
+        escapeHtml(text) + '</div>';
+}
+
 function loadDispatcherPriorityTable() {
     if (dispatcherPriorityBusy) return;
-    var tbody = document.getElementById('dispatcherPriorityBody');
-    if (!tbody) return;
     dispatcherPriorityBusy = true;
     fetch(API_URL + '/dispatcher/priorities', {cache: 'no-store'})
         .then(function(response) { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(function(payload) {
-            if (!payload || !payload.success || !Array.isArray(payload.requests)) throw new Error('Некорректный ответ приоритета');
-            renderDispatcherPriorityTable(payload.requests);
+            if (!payload || !payload.success || !Array.isArray(payload.requests)) throw new Error('Некорректный ответ рекомендаций');
+            dispatcherPriorityByRequest = {};
+            payload.requests.forEach(function(item) {
+                dispatcherPriorityByRequest[String(item.request_id)] = item;
+            });
+            updateActiveRequests();
         })
-        .catch(function(error) {
-            tbody.innerHTML = '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--aero-red);">Не удалось загрузить таблицу приоритетов: ' + escapeHtml(error.message) + '</td></tr>';
-        })
+        .catch(function(error) { console.warn('[PRIORITY] Не удалось загрузить рекомендации инженеров:', error); })
         .finally(function() { dispatcherPriorityBusy = false; });
 }
 
-function renderDispatcherPriorityTable(items) {
-    var tbody = document.getElementById('dispatcherPriorityBody');
-    var badge = document.getElementById('dispatcherPriorityCount');
-    if (!tbody) return;
-    if (badge) badge.textContent = String(items.length);
-    if (!items.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--aero-gray);"><i class="fas fa-circle-check" style="color:var(--aero-green);"></i> Нет заявок, ожидающих назначения инженера</td></tr>';
-        return;
-    }
-    var html = '';
-    items.forEach(function(item) {
-        var ranking = item.ranking || {};
-        var candidates = ranking.candidates || [];
-        var priorityColor = item.priority === 'high' ? '#dc2626' : (item.priority === 'low' ? '#64748b' : '#d97706');
-        var priorityHtml = '<span style="display:inline-block;padding:4px 7px;border-radius:5px;background:' + priorityColor + '18;color:' + priorityColor + ';font-weight:800;">' + escapeHtml(item.priority_label || 'Средний') + '</span>';
-        var reqHtml = '<strong>' + escapeHtml(item.aircraft || 'ВС') + '</strong>' +
-            (item.flight_number ? '<div style="color:var(--aero-gray);margin-top:3px;">Рейс ' + escapeHtml(item.flight_number) + '</div>' : '') +
-            '<div style="margin-top:3px;">Стоянка ' + escapeHtml(item.parking_id || '—') + '</div>' +
-            '<div style="color:var(--aero-gray);margin-top:3px;">' + escapeHtml(item.description || item.fault_type || '—') + '</div>';
-        if (!candidates.length) {
-            html += '<tr style="border-top:1px solid var(--aero-gray-light);">' +
-                '<td style="padding:12px 10px;">' + priorityHtml + '</td>' +
-                '<td style="padding:12px 10px;">' + reqHtml + '</td>' +
-                '<td colspan="4" style="padding:12px 10px;color:var(--aero-red);">' + escapeHtml(ranking.no_candidate_reason || 'Нет доступного кандидата') + '</td>' +
-                '<td style="padding:12px 10px;color:var(--aero-gray);">Ожидание</td></tr>';
-            return;
+// Таблица рекомендаций размещается непосредственно внутри карточки своей заявки.
+// Она видна только пока заявка ожидает назначения инженера.
+function renderRequestRecommendationTable(requestId) {
+    var item = dispatcherPriorityByRequest[String(requestId)];
+    if (!item) return '<div class="request-recommendations-loading" style="margin:0 0 12px 12px;padding:10px 12px;color:var(--aero-gray);font-size:12px;">Загрузка рекомендаций инженеров…</div>';
+    var ranking = item.ranking || {};
+    var candidates = ranking.candidates || [];
+    var html = '<div class="request-recommendations" style="margin:0 0 14px 12px;padding:10px 12px;background:#fff;border:1px solid var(--aero-gray-light);border-left:3px solid var(--aero-gold);border-radius:0 8px 8px 0;overflow-x:auto;" onclick="event.stopPropagation();">' +
+        '<div style="font-size:12px;font-weight:800;color:var(--aero-text);margin-bottom:8px;">Рекомендации по назначению инженера</div>';
+    if (!candidates.length) {
+        html += '<div style="padding:8px 4px;color:var(--aero-red);font-size:12px;">' + escapeHtml(ranking.no_candidate_reason || 'Нет подходящих свободных инженеров') + '</div>';
+        var noneRejected = ranking.rejected || [];
+        if (noneRejected.length) {
+            html += '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:11px;color:var(--aero-gray);">Причины отклонения кандидатов (' + noneRejected.length + ')</summary><div style="font-size:11px;color:var(--aero-text-light);line-height:1.6;margin-top:5px;">';
+            noneRejected.forEach(function(r) { html += '<div>• <strong>' + escapeHtml(r.engineer_name || '') + '</strong>: ' + escapeHtml(r.reason || '') + '</div>'; });
+            html += '</div></details>';
         }
-        candidates.forEach(function(candidate) {
-            var eta = Number(candidate.travel_time || 0);
-            var transportText = candidate.using_car ? ('Спецтранспорт ' + (candidate.best_car || '')) : 'Пешком';
-            html += '<tr style="border-top:1px solid var(--aero-gray-light);">' +
-                '<td style="padding:12px 10px;">' + priorityHtml + '<div style="font-size:10px;color:var(--aero-gray);margin-top:4px;">Кандидат №' + candidate.rank + '</div></td>' +
-                '<td style="padding:12px 10px;">' + reqHtml + '</td>' +
-                '<td style="padding:12px 10px;"><strong>' + escapeHtml(candidate.engineer_name || 'Инженер') + '</strong><div style="font-size:10px;color:var(--aero-gray);margin-top:3px;">' + escapeHtml(candidate.device_id || '') + '</div></td>' +
-                '<td style="padding:12px 10px;">' + escapeHtml(candidate.specialization_label || ranking.required_skill_label || '—') + '</td>' +
-                '<td style="padding:12px 10px;white-space:nowrap;"><strong>' + eta.toFixed(1) + ' мин</strong><div style="font-size:10px;color:var(--aero-gray);margin-top:3px;">' + escapeHtml(transportText) + '</div></td>' +
-                '<td style="padding:12px 10px;min-width:270px;max-width:420px;line-height:1.45;">' + escapeHtml(candidate.reason || 'Совпадение специализации и минимальное ETA') + '</td>' +
-                '<td style="padding:12px 10px;"><button class="btn btn-primary btn-sm priority-assign-btn" data-request-id="' + encodeURIComponent(item.request_id) + '" data-engineer-id="' + encodeURIComponent(candidate.engineer_id) + '" data-engineer-name="' + encodeURIComponent(candidate.engineer_name || 'Инженер') + '" data-eta="' + eta + '" data-rank="' + candidate.rank + '"><i class="fas fa-user-check"></i> Назначить</button></td>' +
-                '</tr>';
-        });
+        return html + '</div>';
+    }
+    html += '<table style="width:100%;min-width:650px;border-collapse:collapse;font-size:11px;">' +
+        '<thead><tr style="color:var(--aero-gray);text-align:left;border-bottom:1px solid var(--aero-gray-light);">' +
+        '<th style="padding:7px 6px;">Приоритет</th><th style="padding:7px 6px;">Инженер</th><th style="padding:7px 6px;">Специализация</th><th style="padding:7px 6px;">Время прибытия</th><th style="padding:7px 6px;">Обоснование</th><th style="padding:7px 6px;">Действие</th></tr></thead><tbody>';
+    candidates.forEach(function(candidate) {
+        var eta = Number(candidate.travel_time || 0);
+        var transportText = candidate.using_car ? ('Спецтранспорт ' + (candidate.best_car || '')) : 'Пешком';
+        var rank = Number(candidate.rank || 0);
+        html += '<tr style="border-top:1px solid var(--aero-gray-light);">' +
+            '<td style="padding:8px 6px;font-weight:900;font-size:14px;">' + rank + '</td>' +
+            '<td style="padding:8px 6px;"><strong>' + escapeHtml(candidate.engineer_name || 'Инженер') + '</strong><div style="font-size:10px;color:var(--aero-gray);">' + escapeHtml(candidate.device_id || '') + '</div></td>' +
+            '<td style="padding:8px 6px;">' + escapeHtml(candidate.specialization_label || ranking.required_skill_label || '—') + '</td>' +
+            '<td style="padding:8px 6px;white-space:nowrap;"><strong>' + eta.toFixed(1) + ' мин</strong><div style="font-size:10px;color:var(--aero-gray);">' + escapeHtml(transportText) + '</div></td>' +
+            '<td style="padding:8px 6px;line-height:1.4;">' + escapeHtml(candidate.reason || 'Совпадение специализации и минимальное время прибытия') + '</td>' +
+            '<td style="padding:8px 6px;"><button class="btn btn-primary btn-sm priority-assign-btn" data-request-id="' + encodeURIComponent(item.request_id) + '" data-engineer-id="' + encodeURIComponent(candidate.engineer_id) + '" data-engineer-name="' + encodeURIComponent(candidate.engineer_name || 'Инженер') + '" data-eta="' + eta + '" data-rank="' + rank + '"><i class="fas fa-user-check"></i> Назначить</button></td></tr>';
     });
-    tbody.innerHTML = html;
+    var rejected = ranking.rejected || [];
+    if (rejected.length) {
+        html += '</tbody></table><details style="margin-top:8px;"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--aero-gray);">Почему отклонены остальные (' + rejected.length + ')</summary><div style="margin-top:6px;font-size:11px;color:var(--aero-text-light);line-height:1.6;">';
+        rejected.forEach(function(r) {
+            html += '<div>• <strong>' + escapeHtml(r.engineer_name || 'Инженер') + '</strong>: ' + escapeHtml(r.reason || '') + '</div>';
+        });
+        html += '</div></details>';
+    }
+    var cls = ranking.classification || {};
+    html += '<div style="margin-top:7px;font-size:10px;color:var(--aero-gray);">Классификация: ATA ' + escapeHtml(cls.ata || '—') + ' · ' + escapeHtml(cls.ata_name || cls.category_name || '') + ' · допуск ' + escapeHtml(ranking.required_skill_label || '') + (ranking.aog ? ' · AOG' : '') + ' · список кандидатов: ' + escapeHtml(String(ranking.duration_ms == null ? '—' : ranking.duration_ms)) + ' мс</div>';
+    return html + '</div>';
 }
 
-function assignPriorityCandidate(requestId, engineerId, engineerName, eta, rank) {
-    var comment = 'Выбран из таблицы приоритетов: кандидат №' + rank + ', совпадает специализация, расчётное прибытие ' + Number(eta).toFixed(1) + ' мин.';
-    if (!confirm('Назначить ' + engineerName + ' на заявку?\n\nОснование: ' + comment)) return;
+function assignPriorityCandidate(requestId, engineerId, engineerName, eta, rank, button) {
+    var comment = 'Выбран из таблицы рекомендаций: приоритет №' + rank + ', расчётное прибытие ' + Number(eta).toFixed(1) + ' мин.';
+    if (!requestId || !engineerId) { showToast('Не удалось определить заявку или инженера', 'error'); return; }
+    if (!confirm('Назначить ' + engineerName + ' на заявку?\n\n' + comment)) return;
+    if (button) { button.disabled = true; button.dataset.assigning = '1'; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Назначение…'; }
     fetch(API_URL + '/dispatcher/assign', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({request_id: requestId, engineer_id: engineerId, comment: comment})
     })
-    .then(function(response) { return response.json().then(function(data) { if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось назначить инженера'); return data; }); })
+    .then(function(response) { return response.json().catch(function(){ return {}; }).then(function(data) { if (!response.ok || !data.success) throw new Error(data.error || ('HTTP ' + response.status)); return data; }); })
     .then(function() {
+        delete dispatcherPriorityByRequest[String(requestId)];
         showToast('Назначен инженер: ' + engineerName, 'success');
-        loadRequestsOnly();
-        loadDispatcherPriorityTable();
+        return Promise.all([loadRequestsOnly(), loadDispatcherPriorityTable()]);
     })
-    .catch(function(error) { showToast('Ошибка назначения: ' + error.message, 'error'); });
+    .catch(function(error) {
+        if (button) { button.disabled = false; delete button.dataset.assigning; button.innerHTML = '<i class="fas fa-user-check"></i> Назначить'; }
+        showToast('Ошибка назначения: ' + error.message, 'error');
+    });
 }
 
+// Делегирование на document переживает полную перерисовку списка заявок.
 (function bindDispatcherPriorityActions() {
-    var tbody = document.getElementById('dispatcherPriorityBody');
-    if (!tbody) return;
-    tbody.addEventListener('click', function(event) {
-        var button = event.target.closest('.priority-assign-btn');
-        if (!button) return;
+    if (window.__dispatcherPriorityClickBound) return;
+    window.__dispatcherPriorityClickBound = true;
+    document.addEventListener('click', function(event) {
+        var button = event.target && event.target.closest ? event.target.closest('.priority-assign-btn') : null;
+        if (!button || button.dataset.assigning === '1') return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
         assignPriorityCandidate(
             decodeURIComponent(button.getAttribute('data-request-id') || ''),
             decodeURIComponent(button.getAttribute('data-engineer-id') || ''),
             decodeURIComponent(button.getAttribute('data-engineer-name') || 'Инженер'),
             Number(button.getAttribute('data-eta') || 0),
-            Number(button.getAttribute('data-rank') || 1)
+            Number(button.getAttribute('data-rank') || 1), button
         );
-    });
+    }, true);
 })();
+
+function refreshVdnhAircraft() {
+    if (!map || state.currentAirport !== 'vdnh') return;
+    fetch(API_URL + '/aircraft', {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(data) { state.aircraft = Array.isArray(data) ? data : []; syncVdnhAircraftMarkers(); })
+        .catch(function(err) { console.warn('[AIRCRAFT] refresh', err); });
+}
 
 function loadDataOnce() {
     var promises = [];
@@ -2144,18 +2236,29 @@ function loadDataOnce() {
         .catch(function(err) { console.error(err); }));
 
     promises.push(fetch(API_URL + '/transport')
-        .then(function(res) { return res.json(); })
+        .then(function(res) { if (!res.ok) throw new Error('Не удалось загрузить транспорт'); return res.json(); })
         .then(function(data) {
-            if (data && data.length > 0) {
-                state.transport = [];
-                for (var i = 0; i < data.length; i++) {
-                    var item = data[i];
-                    state.transport.push(new Transport(item.device_id, item.lat, item.lng, item.speed, item.id));
-                }
-                state.transportLoaded = true;
-            }
+            state.transport = [];
+            (Array.isArray(data) ? data : []).forEach(function(item) {
+                var vehicle = new Transport(item.device_id, item.lat, item.lng, item.speed, item.id);
+                vehicle.assignedTo = item.assigned_to || null;
+                state.transport.push(vehicle);
+            });
+            state.transportLoaded = true;
         })
-        .catch(function(err) { if (!state.transportLoaded) initTransport(); }));
+        .catch(function(err) {
+            console.error('[SYNC] load transport', err);
+            state.transport = [];
+            state.transportLoaded = true;
+        }));
+
+    promises.push(fetch(API_URL + '/aircraft')
+        .then(function(res) { if (!res.ok) throw new Error('aircraft'); return res.json(); })
+        .then(function(data) {
+            state.aircraft = Array.isArray(data) ? data : [];
+            syncVdnhAircraftMarkers();
+        })
+        .catch(function(err) { console.warn('[SYNC] aircraft', err); state.aircraft = []; }));
 
     promises.push(fetch(API_URL + '/requests')
         .then(function(res) { return res.json(); })
@@ -2182,6 +2285,7 @@ function loadDataOnce() {
 function processRequestsData(data) {
     state.tickets = data || [];
     setTimeout(syncAircraftFromRequests, 0);
+    setTimeout(syncVdnhAircraftFromRequests, 0);
     state.activeRequests = [];
     state.cancelledRequests = [];
     state.delays = [];
@@ -2276,7 +2380,12 @@ function processRequestsData(data) {
             assignedAt: t.inspection_assigned_at || null,
             engineerTaskStep: t.engineer_task_step || 'idle',
             engineerStatus: t.engineer_status || 'free',
-            createdAt: t.created_at || null
+            createdAt: t.created_at || null,
+            aog: !!t.aog_since || t.criticality === 'high',
+            aogAction: t.aog_action || '',
+            waitingParts: t.aog_action === 'WAITING_PARTS',
+            mccAta: t.mcc_ata || '',
+            description: t.description || ''
         });
     }
 
@@ -2514,8 +2623,9 @@ function refreshCoordsOnly() {
     fetch(API_URL + '/engineers')
         .then(function(res) { return res.json(); })
         .then(function(data) {
-            if (!data) return;
+            if (!Array.isArray(data)) return;
             var changed = false;
+            var markerSetChanged = false;
             for (var i = 0; i < data.length; i++) {
                 var e = data[i];
                 for (var j = 0; j < state.employees.length; j++) {
@@ -2530,11 +2640,13 @@ function refreshCoordsOnly() {
                     emp.gpsLng = rawGpsLng == null ? null : Number(rawGpsLng);
                     var previousGpsHeading = emp.gpsHeading;
                     var previousHasGps = emp.hasGps;
+                    var previousStatus = emp.status;
                     var rawGpsHeading = e.gps_heading != null ? e.gps_heading : (e.heading != null ? e.heading : (e.gpsHeading != null ? e.gpsHeading : gpsPayload.heading));
                     emp.gpsHeading = rawGpsHeading == null ? null : Number(rawGpsHeading);
                     emp.gpsUpdatedAt = e.gps_updated_at || null;
                     emp.hasGps = emp.gpsLat != null && emp.gpsLng != null && isFinite(emp.gpsLat) && isFinite(emp.gpsLng);
                     if (previousGpsHeading !== emp.gpsHeading || previousHasGps !== emp.hasGps) changed = true;
+                    if ((state.currentAirport === 'vdnh' && previousHasGps !== emp.hasGps) || previousStatus !== (e.status || 'free')) markerSetChanged = true;
                     if (!emp._syncPending) {
                         var newLat = emp.hasGps ? emp.gpsLat : ((e.coords_lat !== undefined && e.coords_lat !== null) ? Number(e.coords_lat) : emp.lat);
                         var newLng = emp.hasGps ? emp.gpsLng : ((e.coords_lng !== undefined && e.coords_lng !== null) ? Number(e.coords_lng) : emp.lng);
@@ -2561,6 +2673,9 @@ function refreshCoordsOnly() {
                 }
             }
             if (changed) {
+                if (markerSetChanged) {
+                    renderMapMarkers();
+                } else {
                 // Двигаем существующие маркеры без пересоздания
                 for (var k = 0; k < state.employees.length; k++) {
                     var empK = state.employees[k];
@@ -2572,6 +2687,7 @@ function refreshCoordsOnly() {
                 }
                 // Пересчитываем оставшееся время в карточках
                 if (typeof updateActiveRequests === 'function') updateActiveRequests();
+                }
             }
             // Keep the live direction arrow visible and synchronized on every engineer refresh.
             for (var gpsIndex = 0; gpsIndex < state.employees.length; gpsIndex++) {
@@ -2584,59 +2700,37 @@ function refreshCoordsOnly() {
 
     // ─────────── Транспорт ───────────
     fetch(API_URL + '/transport')
-        .then(function(res) { return res.json(); })
+        .then(function(res) { if (!res.ok) throw new Error('Не удалось обновить транспорт'); return res.json(); })
         .then(function(data) {
-            if (!data || !data.length) return;
+            data = Array.isArray(data) ? data : [];
+            var incomingIds = data.map(function(t) { return String(t.id); }).sort().join('|');
+            var currentIds = state.transport.map(function(t) { return String(t.id); }).sort().join('|');
+            if (incomingIds !== currentIds) {
+                state.transport = data.map(function(item) {
+                    var vehicle = new Transport(item.device_id, item.lat, item.lng, item.speed, item.id);
+                    vehicle.assignedTo = item.assigned_to || null;
+                    return vehicle;
+                });
+                renderMapMarkers();
+                saveStateToLocalStorage();
+                return;
+            }
             var changed = false;
             for (var i = 0; i < data.length; i++) {
                 var t = data[i];
-                for (var j = 0; j < state.transport.length; j++) {
-                    var tr = state.transport[j];
-                    if (tr.id !== t.id) continue;
-
-                    // Пока наш PUT ещё летит — координаты с сервера НЕ применяем
-                    if (!tr._syncPending) {
-                        if (Math.abs(tr.lat - t.lat) > 0.00001 ||
-                            Math.abs(tr.lng - t.lng) > 0.00001) {
-                            tr.lat = t.lat;
-                            tr.lng = t.lng;
-                            changed = true;
-                        }
-                        if (t.speed && tr.speed !== t.speed) {
-                            tr.speed = t.speed;
-                            changed = true;
-                        }
-                    }
-                    tr.assignedTo = t.assigned_to || tr.assignedTo;
-                    break;
+                var tr = state.transport.find(function(x) { return String(x.id) === String(t.id); });
+                if (!tr) continue;
+                if (!tr._syncPending && (Math.abs(tr.lat - Number(t.lat)) > 0.00001 || Math.abs(tr.lng - Number(t.lng)) > 0.00001)) {
+                    tr.lat = Number(t.lat); tr.lng = Number(t.lng); changed = true;
                 }
+                if (t.speed != null && tr.speed !== t.speed) { tr.speed = t.speed; changed = true; }
+                tr.assignedTo = t.assigned_to || null;
             }
             if (changed) {
                 for (var k = 0; k < state.transport.length; k++) {
-                    var carK = state.transport[k];
-                    var mkC = state.mapMarkers['car_' + carK.id];
-                    if (!mkC) continue;
-                    var cLat = carK.lat, cLng = carK.lng;
-                    // Если машина привязана к заявке и инженер в ней — двигаем к инженеру
-                    if (carK.assignedTo) {
-                        for (var ia2 = 0; ia2 < state.activeRequests.length; ia2++) {
-                            var aR2 = state.activeRequests[ia2];
-                            if (aR2.id === carK.assignedTo && aR2.engineerId) {
-                                var empK2 = null;
-                                for (var ie2 = 0; ie2 < state.employees.length; ie2++) {
-                                    if (state.employees[ie2].realId === aR2.engineerId) { empK2 = state.employees[ie2]; break; }
-                                }
-                                if (empK2 && empK2.taskStep === 'in_car' && empK2.lat != null && empK2.lng != null) {
-                                    cLat = empK2.lat;
-                                    cLng = empK2.lng;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    if (cLat != null && cLng != null) {
-                        mkC.setLatLng([cLat, cLng]);
-                    }
+                    var vehicle = state.transport[k];
+                    var marker = state.mapMarkers['car_' + vehicle.id];
+                    if (marker && !vehicle._syncPending) marker.setLatLng([vehicle.lat, vehicle.lng]);
                 }
             }
         })
@@ -2964,7 +3058,7 @@ function syncAircraftFromRequests() {
         }
         var parkingPoint = [CONFIG.MAP_POINTS[ticket.parking_id].lat, CONFIG.MAP_POINTS[ticket.parking_id].lng];
         // Заявочный самолёт появляется сразу на стоянке — руление к ней не проигрывается.
-        var marker = L.marker(parkingPoint, { icon: aircraftIcon(), zIndexOffset: 1700, interactive: true })
+        var marker = L.marker(parkingPoint, { icon: aircraftIcon(), zIndexOffset: 3000, interactive: true })
             .addTo(map).bindTooltip((ticket.aircraft || 'Самолёт') + (isSigned ? ' — подпись получена' : ' — ожидает подпись пилота'));
         var sim = state.aircraftSimulations[id] = {
             id: id, aircraft: ticket.aircraft || 'Самолёт', parkingId: String(ticket.parking_id),
@@ -2993,6 +3087,83 @@ function syncAircraftFromRequests() {
         }
     });
     syncAircraftSafetyReservations();
+}
+
+function syncVdnhAircraftMarkers() {
+    if (!map) return;
+    if (state.currentAirport !== 'vdnh') {
+        Object.keys(state.aircraftMarkers).forEach(function(id) {
+            try { map.removeLayer(state.aircraftMarkers[id]); } catch (e) {}
+            delete state.aircraftMarkers[id];
+        });
+        return;
+    }
+    var live = {};
+    (state.aircraft || []).forEach(function(ac) {
+        var lat = Number(ac.lat), lng = Number(ac.lng);
+        if (!isFinite(lat) || !isFinite(lng)) return;
+        if (lat < 55.82 || lat > 55.845 || lng < 37.60 || lng > 37.66) return;
+        var id = String(ac.callsign || ac.id || '');
+        if (!id) return;
+        live[id] = true;
+        var label = id + ' · ' + (ac.status || 'ВС');
+        var marker = state.aircraftMarkers[id];
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+            marker.setTooltipContent(label);
+        } else {
+            state.aircraftMarkers[id] = L.marker([lat, lng], {
+                icon: aircraftIcon(), zIndexOffset: 3000, interactive: true
+            }).addTo(map).bindTooltip(label, {direction: 'top'});
+        }
+    });
+    Object.keys(state.aircraftMarkers).forEach(function(id) {
+        if (live[id]) return;
+        try { map.removeLayer(state.aircraftMarkers[id]); } catch (e) {}
+        delete state.aircraftMarkers[id];
+    });
+}
+
+var vdnhRequestAircraftMarkers = {};
+
+function syncVdnhAircraftFromRequests() {
+    if (!map) return;
+    if (state.currentAirport !== 'vdnh') {
+        Object.keys(vdnhRequestAircraftMarkers).forEach(function(id) {
+            try { map.removeLayer(vdnhRequestAircraftMarkers[id]); } catch (e) {}
+            delete vdnhRequestAircraftMarkers[id];
+        });
+        return;
+    }
+    if (!state.tickets) return;
+    if (!_allParkingsCache || !_allParkingsCache.length) return;
+    var zones = {};
+    _allParkingsCache.forEach(function(p) { if (p && p.ref != null) zones[String(p.ref)] = p; });
+    var live = {};
+    state.tickets.forEach(function(ticket) {
+        if (!ticket || !ticket.parking_id) return;
+        if (['draft', 'deleted', 'cancelled', 'flight_cancelled', 'completed'].indexOf(ticket.status) !== -1) return;
+        if (ticket.flight_cancelled) return;
+        var zone = zones[String(ticket.parking_id)];
+        if (!zone || zone.lat == null || zone.lng == null) return;
+        var id = String(ticket.id);
+        live[id] = true;
+        var label = (ticket.aircraft || 'ВС') + ' · сервисная зона ' + ticket.parking_id;
+        var existing = vdnhRequestAircraftMarkers[id];
+        if (existing) {
+            existing.setLatLng([Number(zone.lat), Number(zone.lng)]);
+            existing.setTooltipContent(label);
+            return;
+        }
+        vdnhRequestAircraftMarkers[id] = L.marker([Number(zone.lat), Number(zone.lng)], {
+            icon: aircraftIcon(), zIndexOffset: 1700, interactive: true
+        }).addTo(map).bindTooltip(label, {direction: 'top'});
+    });
+    Object.keys(vdnhRequestAircraftMarkers).forEach(function(id) {
+        if (live[id]) return;
+        try { map.removeLayer(vdnhRequestAircraftMarkers[id]); } catch (e) {}
+        delete vdnhRequestAircraftMarkers[id];
+    });
 }
 
 // Фоновое движение воздушных судов: только терминалы B/C.
@@ -3082,6 +3253,8 @@ function initMap() {
 
     // ── Слой объектов (полигоны) — под маркерами ──
     state.objectsLayer = L.layerGroup().addTo(map);
+    if (state.vdnhLayer && map.hasLayer(state.vdnhLayer)) map.removeLayer(state.vdnhLayer);
+    state.vdnhLayer = null;
 
     // ── Слой стоянок ──
     state.parkingLayer = L.layerGroup().addTo(map);
@@ -3100,6 +3273,7 @@ function initMap() {
         fetch(API_URL + '/map-objects')
             .then(function(r) { return r.json(); })
             .then(function(objects) {
+                if (state.currentAirport !== 'svo') return; // игнорируем ответ старого аэропорта
                 if (!Array.isArray(objects) || objects.length === 0) {
                     console.warn('[MAP] /api/map-objects вернул пусто');
                     return;
@@ -3242,7 +3416,7 @@ function vdnhObjectStyle(name) {
         });
         return L.divIcon({
         className: 'geojson-number-label-icon',
-        html: '<span class="geojson-number-label">' + safeId + '</span>',
+        html: '<span class="geojson-number-label" style="background:#2563eb;border-color:#1d4ed8;color:#fff;">' + safeId + '</span>',
         iconSize: [29, 23],
         iconAnchor: [14, 11]
         });
@@ -3262,6 +3436,9 @@ function vdnhObjectStyle(name) {
     }
 
 function loadVdnhAirportMap() {
+    if (state.currentAirport !== 'vdnh') return Promise.resolve();
+    if (state.vdnhLayer && map.hasLayer(state.vdnhLayer)) map.removeLayer(state.vdnhLayer);
+    if (state.objectsLayer) state.objectsLayer.clearLayers();
     var layer = state.vdnhLayer = L.layerGroup().addTo(map);
 
     function getJson(path) {
@@ -3275,9 +3452,11 @@ function loadVdnhAirportMap() {
         getJson('/static/vdnh/service_zones.geojson').catch(function(e) { console.warn('[MAP] VDNKh service_zones:', e.message); return null; }),
         getJson('/static/vdnh/roads.geojson').catch(function(e) { console.warn('[MAP] VDNKh roads:', e.message); return null; }),
         getJson('/static/vdnh/objects.geojson').catch(function(e) { console.warn('[MAP] VDNKh objects:', e.message); return null; }),
-        getJson('/static/vdnh/airport_boundaries.geojson').catch(function(e) { console.warn('[MAP] VDNKh boundaries:', e.message); return null; })
+        getJson('/static/vdnh/airport_boundaries.geojson').catch(function(e) { console.warn('[MAP] VDNKh boundaries:', e.message); return null; }),
+        getJson('/static/vdnh/layers.geojson').catch(function(e) { console.warn('[MAP] VDNKh official layers:', e.message); return null; })
     ]).then(function(result) {
-        var zones = result[0], roads = result[1], objects = result[2], boundaries = result[3];
+        if (state.currentAirport !== 'vdnh') { if (map.hasLayer(layer)) map.removeLayer(layer); return; }
+        var zones = result[0], roads = result[1], objects = result[2], boundaries = result[3], officialLayers = result[4];
 
         if (zones) {
             L.geoJSON(zones, {
@@ -3294,7 +3473,53 @@ function loadVdnhAirportMap() {
             }).addTo(layer);
         }
 
-        if (roads) {
+        if (officialLayers) {
+            L.geoJSON(officialLayers, {
+                filter: function(f) { return (f.properties || {}).layer === 'edge'; },
+                style: function(f) {
+                    var net = String((f.properties || {}).network || '');
+                    if (net === 'runway') return { color: '#dc2626', weight: 4, opacity: 0.9 };
+                    if (net === 'taxi') return { color: '#f59e0b', weight: 3, opacity: 0.9 };
+                    if (net === 'pedestrian') return { color: '#111827', weight: 1.4, opacity: 0.75 };
+                    return { color: '#eab308', weight: 2.2, opacity: 0.9 };
+                },
+                onEachFeature: function(f, lyr) {
+                    var p = f.properties || {};
+                    lyr.bindTooltip((p.network || 'дорога') + (p.spd_kmh ? ' · ' + p.spd_kmh + ' км/ч' : ''), {sticky: true});
+                }
+            }).addTo(layer);
+            L.geoJSON(officialLayers, {
+                filter: function(f) { return (f.properties || {}).layer === 'stand'; },
+                style: function() { return { color: '#f59e0b', weight: 1.5, opacity: 0.9, fillColor: '#fbbf24', fillOpacity: 0.28 }; },
+                onEachFeature: function(f, lyr) {
+                    var p = f.properties || {};
+                    var label = p.zone_num != null ? ('Зона ' + p.zone_num) : (p.stand_id || 'Стоянка');
+                    lyr.bindTooltip(label + (p.name ? ' · ' + p.name : ''), {sticky: true});
+                    if (p.zone_num != null) addGeoJsonNumberLabel(layer, lyr, p.zone_num);
+                }
+            }).addTo(layer);
+            L.geoJSON(officialLayers, {
+                filter: function(f) { return (f.properties || {}).layer === 'facility'; },
+                style: function(f) {
+                    var kind = String((f.properties || {}).kind || '');
+                    if (kind === 'warehouse') return { color: '#2563eb', weight: 1.5, opacity: 0.9, fillColor: '#60a5fa', fillOpacity: 0.22 };
+                    return { color: '#64748b', weight: 1.2, opacity: 0.8, fillColor: '#94a3b8', fillOpacity: 0.12 };
+                },
+                onEachFeature: function(f, lyr) {
+                    var p = f.properties || {};
+                    if (p.name) lyr.bindTooltip(p.name, {sticky: false, direction: 'top'});
+                }
+            }).addTo(layer);
+            var officialBoundary = L.geoJSON(officialLayers, {
+                filter: function(f) { return (f.properties || {}).layer === 'boundary'; },
+                style: function() { return { color: '#64748b', weight: 2, opacity: 0.8, fillOpacity: 0 }; }
+            }).addTo(layer);
+            var ob = officialBoundary.getBounds();
+            if (ob.isValid()) map.fitBounds(ob, {padding: [24, 24]});
+            console.log('[MAP] Официальные слои ВДНХ загружены');
+        }
+
+        if (!officialLayers && roads) {
             var roadLabels = { runway: 'ВПП', taxi: 'Руление', service: 'Спецтранспорт', pedestrian: 'Пешеходная дорожка' };
             L.geoJSON(roads, {
                 style: function(f) {
@@ -3311,18 +3536,17 @@ function loadVdnhAirportMap() {
             }).addTo(layer);
         }
 
-        if (objects) {
+        if (!officialLayers && objects) {
             L.geoJSON(objects, {
                 style: function(f) { return vdnhObjectStyle(f.properties && f.properties.name); },
                 onEachFeature: function(f, lyr) {
                     var props = f.properties || {};
-                    if (props.name) lyr.bindTooltip(props.name, { sticky: true });
-                    if (props.id != null) addGeoJsonNumberLabel(layer, lyr, props.id);
+                    if (props.name) lyr.bindTooltip(props.name, { sticky: false, direction: 'top' });
                 }
             }).addTo(layer);
         }
 
-        if (boundaries) {
+        if (!officialLayers && boundaries) {
             var boundary = L.geoJSON(boundaries, {
                 style: function() {
                     return { color: '#be123c', weight: 2.5, opacity: 0.9, fillColor: '#be123c', fillOpacity: 0.03, dashArray: '8 5' };
@@ -3333,7 +3557,7 @@ function loadVdnhAirportMap() {
         }
 
         var hint = document.querySelector('.map-hint');
-        if (hint) hint.textContent = 'ВДНХ · схема аэропорта · OSM';
+        if (hint) hint.textContent = 'ВДНХ · официальная сеть полигона';
 
         console.log('[MAP] Карта ВДНХ загружена (static/vdnh)');
     });
@@ -3341,23 +3565,14 @@ function loadVdnhAirportMap() {
 
 function createEmployeeMapIcon(employee) {
     var statusClass = employee.isFree() ? 'free' : 'busy';
-    if (employee.hasGps) {
-        var rawHeading = employee.gpsHeading;
-        var heading = rawHeading != null && isFinite(Number(rawHeading)) ? ((Number(rawHeading) % 360) + 360) % 360 : 0;
-        var safeDeviceId = String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '');
-        var html = '<div class="dispatcher-gps-marker">' +
-            '<div class="dispatcher-gps-arrow" style="transform:rotate(' + heading + 'deg)">' +
-                '<svg viewBox="0 0 40 46" aria-hidden="true"><path d="M20 2 L37 42 L20 32 L3 42 Z"></path></svg>' +
-            '</div>' +
-            '<span class="gps-marker-id">' + safeDeviceId + '</span>' +
-        '</div>';
-        return L.divIcon({ className: 'dispatcher-gps-marker-wrap status-' + statusClass, html: html, iconSize: [48, 56], iconAnchor: [24, 25] });
-    }
-    var safeId = String(employee.deviceId || '').replace(/[&<>\"]/g, '');
-    var iconHtml = '<span class="marker-icon"><i class="fas fa-wrench"></i></span><span class="marker-id">' + safeId + '</span>';
-    return L.divIcon({ className: 'employee-marker status-' + statusClass, html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18] });
+    // На общей карте GPS-инженер отображается так же, как обычная метка:
+    // белый круг, цветная обводка и гаечный ключ. Курс движения здесь не показываем.
+    var safeId = String(employee.deviceId || 'Инженер').replace(/[&<>\"]/g, '');
+    var iconHtml = '<span class="marker-icon gps-wrench-marker"><i class="fas fa-wrench"></i></span>' +
+        '<span class="marker-id">' + safeId + '</span>';
+    var className = 'employee-marker' + (employee.hasGps ? ' gps-employee-marker' : '') + ' status-' + statusClass;
+    return L.divIcon({ className: className, html: iconHtml, iconSize: [36, 36], iconAnchor: [18, 18] });
 }
-
 function syncDispatcherGpsDirection(employee, marker) {
     if (!employee || !marker) return;
     if (!employee.hasGps) {
@@ -3368,18 +3583,13 @@ function syncDispatcherGpsDirection(employee, marker) {
         }
         return;
     }
+    // Не вращаем GPS-метку на общей карте: курс отображается только у самого инженера.
     var element = marker.getElement && marker.getElement();
-    var arrow = element && element.querySelector('.dispatcher-gps-arrow');
-    if (!marker._usesGpsIcon || !arrow) {
+    if (!marker._usesGpsIcon || !element || !element.querySelector('.gps-wrench-marker')) {
         marker.setIcon(createEmployeeMapIcon(employee));
         marker._usesGpsIcon = true;
         if (marker.dragging && marker.dragging.disable) marker.dragging.disable();
-        element = marker.getElement && marker.getElement();
-        arrow = element && element.querySelector('.dispatcher-gps-arrow');
     }
-    var heading = employee.gpsHeading != null && isFinite(Number(employee.gpsHeading))
-        ? ((Number(employee.gpsHeading) % 360) + 360) % 360 : 0;
-    if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
 }
 
 function renderMapMarkers() {
@@ -3397,6 +3607,8 @@ function renderMapMarkers() {
     var coordIndex = {};
     for (var iE = 0; iE < state.employees.length; iE++) {
         var emp = state.employees[iE];
+        // На ВДНХ показываем стартовую позицию из официальных данных,
+        // пока не пришёл первый GPS-трек.
         var lat = emp.lat, lng = emp.lng;
         var coordKey = lat.toFixed(5) + ',' + lng.toFixed(5);
         if (!emp.hasGps) {
@@ -3412,7 +3624,7 @@ function renderMapMarkers() {
         }
         var icon = createEmployeeMapIcon(emp);
         (function(employee) {
-            var marker = L.marker([lat, lng], {icon: icon, draggable: !employee.hasGps, autoPan: true})
+            var marker = L.marker([lat, lng], {icon: icon, draggable: !employee.hasGps, autoPan: true, zIndexOffset: 3000})
             .on('dragstart', function() { state.isDragging = true; })
             .on('dragend', function(e) {
                 state.isDragging = false;
@@ -3455,7 +3667,7 @@ function renderMapMarkers() {
                         '</span><span class="car-speed">' + car.speed + ' км/ч</span>';
         var iconC = L.divIcon({ className: 'car-marker', html: iconHtmlC, iconSize: [44, 44], iconAnchor: [22, 22] });
         (function(vehicle) {
-            var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true})
+            var markerC = L.marker([carLat, carLng], {icon: iconC, draggable: true, autoPan: true, zIndexOffset: 3000})
             .on('dragstart', function() { state.isDragging = true; })
             .on('dragend', function(e) {
                 state.isDragging = false;
@@ -3709,45 +3921,52 @@ function updateRouteForEngineer(engineerId, force) {
 }
 
 function drawRoute(route) {
-    if (!route) return;
+    if (!route || !map || !map._loaded) return;
     var routeKey = 'route_' + route.empId;
     if (state.mapMarkers[routeKey]) { try { map.removeLayer(state.mapMarkers[routeKey]); } catch(e) {} delete state.mapMarkers[routeKey]; }
     if (state.mapMarkers[routeKey + '_label']) { try { map.removeLayer(state.mapMarkers[routeKey + '_label']); } catch(e) {} delete state.mapMarkers[routeKey + '_label']; }
 
-    var latlngs;
-    if (route.path && route.path.length > 0) latlngs = route.path;
-    else if (route.usingCar && route.bestCar) latlngs = [
-        [route.from.lat, route.from.lng],
-        [route.bestCar.lat, route.bestCar.lng],
-        [route.to.lat, route.to.lng]
-    ];
-    else latlngs = [[route.from.lat, route.from.lng], [route.to.lat, route.to.lng]];
+    // Backend returns [lat, lng] pairs. Normalize also object-shaped points,
+    // reject malformed/out-of-range coordinates and remove duplicate neighbors.
+    var sourcePath = Array.isArray(route.path) ? route.path : [];
+    var latlngs = [];
+    sourcePath.forEach(function(point) {
+        var lat, lng;
+        if (Array.isArray(point) && point.length >= 2) { lat = Number(point[0]); lng = Number(point[1]); }
+        else if (point && typeof point === 'object') { lat = Number(point.lat); lng = Number(point.lng != null ? point.lng : point.lon); }
+        if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+        var prev = latlngs[latlngs.length - 1];
+        if (!prev || prev[0] !== lat || prev[1] !== lng) latlngs.push([lat, lng]);
+    });
 
-    var polyline = L.polyline(latlngs, {
-        color: '#c9a84c', weight: 4,
-        dashArray: '8, 6', opacity: 0.9,
-        lineCap: 'round', lineJoin: 'round'
-    }).addTo(map);
-    state.mapMarkers[routeKey] = polyline;
-
-    var labelText;
-    if (route.usingCar && route.bestCar) {
-        // Сумму считаем из точных слагаемых, чтобы не было 6.6 + 1.7 = 10.8
-        var wExact = (route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar;
-        var cExact = (route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime;
-        var sum = round1(wExact + cExact);
-        labelText = round1(wExact) + ' мин пешком → ' + round1(cExact) + ' мин на машине = ' + sum + ' мин';
-    } else {
-        labelText = route.totalTime + ' мин пешком';
+    // Do not draw a misleading straight chord: a road route is shown only
+    // when the routing service supplied at least two valid road coordinates.
+    if (latlngs.length < 2) {
+        console.warn('[ROUTE] Дорожная геометрия ещё не получена для инженера', route.empId);
+        return;
     }
 
-    var midIdx = Math.floor(latlngs.length / 2);
-    var midPoint = latlngs[midIdx];
-    var labelIcon = L.divIcon({
-        className: 'route-label-marker', html: labelText,
-        iconSize: [280, 22], iconAnchor: [140, 11]
-    });
-    var labelMarker = L.marker(midPoint, { icon: labelIcon }).addTo(map);
+    if (!map.getPane('engineerRoutes')) {
+        map.createPane('engineerRoutes');
+        map.getPane('engineerRoutes').style.zIndex = 640;
+        map.getPane('engineerRoutes').style.pointerEvents = 'none';
+    }
+    var polyline = L.polyline(latlngs, {
+        pane: 'engineerRoutes',
+        color: '#2563eb', weight: 6,
+        dashArray: '12, 9', opacity: 1,
+        lineCap: 'round', lineJoin: 'round', interactive: false
+    }).addTo(map);
+    if (polyline.bringToFront) polyline.bringToFront();
+    state.mapMarkers[routeKey] = polyline;
+
+    var labelText = route.usingCar && route.bestCar
+        ? round1((route.walkToCarExact != null) ? route.walkToCarExact : route.walkToCar) + ' мин пешком → ' +
+          round1((route.bestCarTimeExact != null) ? route.bestCarTimeExact : route.bestCarTime) + ' мин на машине'
+        : (Number(route.totalTime) || 0) + ' мин пешком';
+    var midPoint = latlngs[Math.floor(latlngs.length / 2)];
+    var labelIcon = L.divIcon({ className: 'route-label-marker', html: labelText, iconSize: [280, 22], iconAnchor: [140, 11] });
+    var labelMarker = L.marker(midPoint, { icon: labelIcon, interactive: false, zIndexOffset: 2000 }).addTo(map);
     state.mapMarkers[routeKey + '_label'] = labelMarker;
 }
 
@@ -3895,7 +4114,7 @@ function _fillParkingSelect(list) {
         if (!p.ref) continue;
         var option = document.createElement('option');
         option.value = p.ref;
-        option.textContent = 'Стоянка ' + p.ref;
+        option.textContent = p.name || ('Стоянка ' + p.ref);
         if (String(current) === String(p.ref)) option.selected = true;
         parkingSelect.appendChild(option);
     }
@@ -3917,32 +4136,168 @@ function showNotification(engineer, flightNumber) {
     setTimeout(function() { container.innerHTML = ''; }, 8000);
 }
 
+var _defectSearchTimer = null;
+var _lastDefectClassification = null;
+
+function toggleCreateRequestForm() {
+    var body = document.getElementById('createRequestBody');
+    var btn = document.getElementById('createRequestToggle');
+    if (!body) return;
+    var hidden = body.style.display === 'none';
+    body.style.display = hidden ? '' : 'none';
+    if (btn) btn.innerHTML = hidden ? '<i class="fas fa-chevron-up"></i> Свернуть' : '<i class="fas fa-chevron-down"></i> Развернуть';
+}
+
+function loadDefectReference() {
+    fetch(API_URL + '/defects/ata')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var ataSelect = document.getElementById('defectAta');
+            var catSelect = document.getElementById('defectCategory');
+            if (ataSelect && data.ata_chapters) {
+                Object.keys(data.ata_chapters).sort().forEach(function(code) {
+                    var opt = document.createElement('option');
+                    opt.value = code;
+                    opt.textContent = 'ATA ' + code + ' — ' + data.ata_chapters[code];
+                    ataSelect.appendChild(opt);
+                });
+            }
+            if (catSelect && data.categories) {
+                data.categories.forEach(function(cat) {
+                    var opt = document.createElement('option');
+                    opt.value = cat.code;
+                    opt.textContent = cat.name;
+                    catSelect.appendChild(opt);
+                });
+            }
+        })
+        .catch(function(err) { console.warn('[DEFECTS] reference load', err); });
+}
+
+function scheduleDefectSearch() {
+    if (_defectSearchTimer) clearTimeout(_defectSearchTimer);
+    _defectSearchTimer = setTimeout(searchDefectSuggestions, 350);
+}
+
+function searchDefectSuggestions() {
+    var text = (document.getElementById('defectText') || {}).value || '';
+    var box = document.getElementById('defectSuggestions');
+    if (!box) return;
+    if (text.trim().length < 3) { box.style.display = 'none'; return; }
+    fetch(API_URL + '/defects?q=' + encodeURIComponent(text.trim()) + '&limit=6')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var items = (data && data.defects) || [];
+            if (!items.length) {
+                box.innerHTML = '<div style="padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#78350f;">' +
+                    'Такого дефекта нет в каталоге. Введите свободный текст и нажмите «Сохранить как новый тип» — код менять не нужно.</div>';
+                box.style.display = 'block';
+                return;
+            }
+            var html = '<div style="padding:10px 12px;background:#f8fafc;border:1px solid var(--aero-gray-light);border-radius:8px;">' +
+                '<div style="font-size:11px;font-weight:700;color:var(--aero-gray);margin-bottom:6px;">Найдено в открытом каталоге дефектов</div>';
+            items.forEach(function(item) {
+                html += '<button type="button" class="btn btn-secondary btn-sm" style="margin:3px;justify-content:flex-start;" onclick="applyDefectSuggestion(' +
+                    encodeURIComponent(JSON.stringify(item)) + ')">' +
+                    escapeHtml(item.text || '') + ' · ATA ' + escapeHtml(item.ata || '—') +
+                    ' · ' + escapeHtml(item.category || '') + '</button>';
+            });
+            html += '</div>';
+            box.innerHTML = html;
+            box.style.display = 'block';
+        })
+        .catch(function(err) { console.warn('[DEFECTS] search', err); });
+}
+
+function applyDefectSuggestion(encoded) {
+    var item = {};
+    try { item = JSON.parse(decodeURIComponent(encoded)); } catch (e) { return; }
+    var text = document.getElementById('defectText');
+    var ata = document.getElementById('defectAta');
+    var cat = document.getElementById('defectCategory');
+    if (text) text.value = item.text || text.value;
+    if (ata && item.ata) ata.value = item.ata;
+    if (cat && item.category) cat.value = item.category;
+    var result = document.getElementById('defectClassifyResult');
+    if (result) result.textContent = 'Выбрано: ATA ' + (item.ata || '—') + ', ' + (item.category || '') + ', допуск ' + (item.skill || '');
+    var box = document.getElementById('defectSuggestions');
+    if (box) box.style.display = 'none';
+    _lastDefectClassification = item;
+}
+
+function classifyCurrentDefect() {
+    var text = (document.getElementById('defectText') || {}).value || '';
+    var ata = (document.getElementById('defectAta') || {}).value || '';
+    var category = (document.getElementById('defectCategory') || {}).value || '';
+    if (!text.trim()) { showToast('Введите описание неисправности', 'warning'); return; }
+    fetch(API_URL + '/defects/classify', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: text, ata: ata, category: category})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        _lastDefectClassification = data;
+        document.getElementById('defectAta').value = data.ata || '';
+        document.getElementById('defectCategory').value = data.category || '';
+        document.getElementById('defectClassifyResult').textContent =
+            'ATA ' + (data.ata || '—') + ' · ' + (data.category_name || '') +
+            ' · допуск: ' + (data.skill || '') + ' · метод: ' + (data.method || '');
+        showToast('Дефект классифицирован: ATA ' + data.ata, 'success');
+    })
+    .catch(function(err) { showToast('Ошибка классификации: ' + err.message, 'error'); });
+}
+
+function addCurrentDefect() {
+    var text = (document.getElementById('defectText') || {}).value || '';
+    if (text.trim().length < 3) { showToast('Введите описание нового дефекта', 'warning'); return; }
+    var ata = (document.getElementById('defectAta') || {}).value || '';
+    var category = (document.getElementById('defectCategory') || {}).value || '';
+    fetch(API_URL + '/defects', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: text, ata: ata, category: category})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) throw new Error(data.error || 'Не удалось сохранить дефект');
+        _lastDefectClassification = data.defect;
+        document.getElementById('defectAta').value = data.defect.ata || '';
+        document.getElementById('defectCategory').value = data.defect.category || '';
+        document.getElementById('defectClassifyResult').textContent =
+            'Сохранено: ATA ' + data.defect.ata + ' · ' + data.defect.category + (data.created ? ' · новый тип' : ' · обновлён');
+        showToast(data.created ? 'Новый тип дефекта добавлен в каталог' : 'Тип дефекта обновлён', 'success');
+        searchDefectSuggestions();
+    })
+    .catch(function(err) { showToast('Ошибка сохранения: ' + err.message, 'error'); });
+}
+
 function createRequest(e) {
     e.preventDefault();
     var parking = document.getElementById('parkingSelect').value;
-    var fault = document.getElementById('faultType').value;
     var severity = document.getElementById('faultSeverity').value;
     var flightNumber = document.getElementById('flightNumber').value.trim();
+    var defectText = document.getElementById('defectText').value.trim();
+    var ata = document.getElementById('defectAta').value;
+    var category = document.getElementById('defectCategory').value;
+    var scheduledInput = (document.getElementById('aircraftScheduledAt') || {}).value || '';
+    var scheduledAt = '';
+    if (scheduledInput) {
+        var scheduledDate = new Date(scheduledInput);
+        if (!isNaN(scheduledDate.getTime())) scheduledAt = scheduledDate.toISOString();
+    }
 
-    if (!parking || !flightNumber) { showToast('Заполните все поля', 'error'); return; }
+    if (!parking || !flightNumber) { showToast('Заполните борт и стоянку', 'error'); return; }
 
     var btn = e.target.querySelector('button[type="submit"]');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Поиск...';
 
-    var parkingCoords = CONFIG.MAP_POINTS[parking];
-    if (!parkingCoords) {
-        showToast('Координаты стоянки не найдены', 'error');
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить заявку';
-        return;
-    }
-
     fetch(API_URL + '/dispatch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            aircraft: flightNumber, fault_type: fault, severity: severity,
-            parking_id: parking
+            aircraft: flightNumber, fault_type: 'other', severity: severity,
+            parking_id: parking, description: defectText,
+            ata: ata, defect_category: category, auto_assign: false,
+            scheduled_at: scheduledAt || null
         })
     })
     .then(function(res) { return res.json(); })
@@ -3966,6 +4321,8 @@ function createRequest(e) {
         }
         clearRouteForEngineer(engineerId);
         showNotification(engineer, flightNumber);
+        document.getElementById('defectText').value = '';
+        document.getElementById('defectSuggestions').style.display = 'none';
         loadRequestsOnly();
         setTimeout(function() { renderAll(); updateStats(); saveStateToLocalStorage(); }, 500);
         document.getElementById('flightNumber').value = '';
@@ -4098,6 +4455,34 @@ function relayDispatcherReportsToCpu() {
         .finally(function() { dispatcherReportRelayBusy = false; });
 }
 
+function setRequestPriority(select, requestId) {
+    if (!select || !requestId) return;
+    var value = String(select.value || '');
+    if (['1', '2', '3'].indexOf(value) === -1) return;
+    select.disabled = true;
+    fetch(API_URL + '/dispatcher/requests/' + encodeURIComponent(requestId) + '/priority', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({priority: value})
+    })
+    .then(function(response) {
+        return response.json().then(function(data) {
+            if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось сохранить приоритет');
+            return data;
+        });
+    })
+    .then(function() {
+        var req = state.activeRequests.find(function(item) { return String(item.id) === String(requestId); });
+        if (req) req.criticality = value === '1' ? 'high' : (value === '2' ? 'medium' : 'low');
+        showToast('Приоритет заявки установлен: ' + value, 'success');
+    })
+    .catch(function(error) {
+        showToast('Ошибка приоритета: ' + error.message, 'error');
+        select.value = '2';
+    })
+    .finally(function() { select.disabled = false; });
+}
+
 function updateActiveRequests() {
     var list = document.getElementById('activeRequests');
     var badge = document.getElementById('activeBadge');
@@ -4124,23 +4509,27 @@ function updateActiveRequests() {
 
         // В активной карточке показываем только факт назначения.
         // Длительность маршрута отображается на карте рядом с линией маршрута.
-        var statusText = req.engineerId ? 'Назначен' : 'Автоподбор инженера';
+        var statusText = req.engineerId ? 'Назначен' : 'Ожидает назначения';
         var statusColor = req.engineerId ? 'var(--aero-blue)' : 'var(--aero-orange)';
         var reportIndicator = hasReport(req.comment) ? '<span class="report-badge">ОТЧЁТ</span>' : '';
         var replacementBadge = req.isReplacement ? '<span class="report-badge" style="background:#dbeafe;color:var(--aero-blue);">ПЕРЕНАЗНАЧЕНО</span>' : '';
-        var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : req.engineer);
+        var assignedEngineerText = req.engineerId ? req.engineer : (req.status === 'queued' ? 'Подбирается автоматически' : 'Ожидает назначения');
 
+        var aogBadge = req.aog ? '<span class="report-badge" style="background:#fef2f2;color:var(--aero-red);">AOG</span>' : '';
+        var partsBadge = req.waitingParts ? '<span class="report-badge" style="background:#fffbeb;color:#78350f;">ОЖИДАНИЕ ЗАПЧАСТИ</span>' : '';
         html += '<div class="request-item" onclick="openRequestModal(\'' + req.id + '\')">' +
-            '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + '</div>' +
+            '<div><div class="req-title"><i class="fas fa-plane" style="color:var(--aero-blue);font-size:11px;"></i> ' + req.aircraft + ' ' + critIcon + reportIndicator + replacementBadge + aogBadge + partsBadge + '</div>' +
             '<div class="req-detail">' + req.fault + ' • Стоянка ' + req.parking + '</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;">' +
             '<div style="text-align:right;">' +
             '<div style="font-weight:600;font-size:13px;">' + assignedEngineerText + '</div>' +
             '<div class="req-status" style="color:' + statusColor + ';">' + statusText + '</div>' +
+            renderNormBadge(req.id) +
             '</div>' +
             '<button class="req-delete-btn" title="Удалить заявку" onclick="event.stopPropagation(); deleteDispatcherRequest(\'' + req.id + '\')"><i class="fas fa-trash"></i></button>' +
-            '</div></div>';
+            '</div></div>' +
+            (!req.engineerId ? renderRequestRecommendationTable(req.id) : '');
     }
     list.innerHTML = html;
     badge.textContent = state.activeRequests.length;
@@ -4208,17 +4597,29 @@ function openRequestModal(ticketId) {
         '<div class="form-group"><label>Инженер</label><input type="text" value="' + (activeReq ? activeReq.engineer : '—') + '" disabled style="background:#f8fafc;"></div>' +
         '<div class="form-group"><label>Время маршрута</label><input type="text" value="' + routeBreakdown + '" disabled style="background:#f8fafc;font-weight:600;"></div>' +
         reportBlock +
-        '<div class="form-group"><label>Статус</label><select id="statusSelect">' +
+        '<div class="form-group"><label>Статус (этапы работы меняет инженер)</label><select id="statusSelect" disabled style="background:#f8fafc;">' +
         '<option value="assigned" ' + (ticket.status === 'assigned' ? 'selected' : '') + '>Назначен</option>' +
         '<option value="arriving" ' + (ticket.status === 'arriving' ? 'selected' : '') + '>В пути</option>' +
         '<option value="in_progress" ' + (ticket.status === 'in_progress' ? 'selected' : '') + '>В работе</option>' +
+        '<option value="working" ' + (ticket.status === 'working' ? 'selected' : '') + '>В работе (подтверждено)</option>' +
         '</select></div>' +
         '<div class="form-group"><label>Критичность</label><select id="criticalitySelect">' +
         '<option value="low" ' + (ticket.criticality === 'low' ? 'selected' : '') + '>Низкая</option>' +
         '<option value="medium" ' + (ticket.criticality === 'medium' ? 'selected' : '') + '>Средняя</option>' +
-        '<option value="high" ' + (ticket.criticality === 'high' ? 'selected' : '') + '>Высокая</option>' +
+        '<option value="high" ' + (ticket.criticality === 'high' ? 'selected' : '') + '>Высокая / AOG</option>' +
         '</select></div>' +
-        '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + ticket.id + '\')">Сохранить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
+        '<div class="form-group"><label>Переназначить на инженера</label><select id="reassignEngineerSelect">' +
+        '<option value="">— выберите свободного инженера —</option>' +
+        (state.employees || []).filter(function(emp) {
+            return emp.realId !== ticket.engineer_id && emp.isFree && emp.isFree();
+        }).map(function(emp) {
+            return '<option value="' + escapeHtml(emp.realId) + '">' + escapeHtml(emp.name || emp.realId) + ' · ' + escapeHtml(emp.skill || '') + '</option>';
+        }).join('') +
+        '</select></div>' +
+        '<div class="form-group"><label>Причина переназначения</label><input id="reassignReason" type="text" placeholder="Например: ближайший свободный успевает в норматив"></div>' +
+        '<div class="form-group" style="display:flex;gap:8px;align-items:center;font-size:12px;"><input id="reassignSenior" type="checkbox" style="width:auto;"><label for="reassignSenior" style="margin:0;">Подтверждаю как старший смены (обязательно после начала работ)</label></div>' +
+        '<div style="font-size:11px;color:var(--aero-gray);margin-bottom:10px;">AOG: ' + (ticket.aog_since ? 'да' : 'нет') + ' · при ожидании запчасти инженер возвращается в пул и может быть назначен на другую заявку.</div>' +
+        '<div class="modal-actions"><button class="btn btn-success" onclick="saveTicketChanges(\'' + ticket.id + '\')">Сохранить критичность</button><button class="btn btn-primary" onclick="reassignFromModal(\'' + ticket.id + '\')"><i class="fas fa-user-check"></i> Переназначить</button><button class="btn btn-secondary" onclick="closeRequestModal()">Закрыть</button></div>';
     document.getElementById('requestModal').classList.add('show');
 }
 
@@ -4266,6 +4667,127 @@ function saveTicketChanges(ticketId) {
     })
     .then(function() { showToast('Заявка обновлена', 'success'); loadRequestsOnly(); renderAll(); closeRequestModal(); })
     .catch(function() { showToast('Ошибка', 'error'); });
+}
+
+function reassignFromModal(ticketId) {
+    var select = document.getElementById('reassignEngineerSelect');
+    var reasonInput = document.getElementById('reassignReason');
+    var seniorInput = document.getElementById('reassignSenior');
+    var engineerId = select ? select.value : '';
+    var engineerName = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].textContent : 'инженера';
+    var reason = reasonInput ? reasonInput.value.trim() : '';
+    if (!engineerId) { showToast('Выберите инженера для переназначения', 'warning'); return; }
+    if (reason.length < 5) { showToast('Укажите причину переназначения', 'warning'); return; }
+    var senior = !!(seniorInput && seniorInput.checked);
+    if (!confirm('Переназначить заявку на ' + engineerName + '?')) return;
+    fetch(API_URL + '/dispatcher/requests/' + encodeURIComponent(ticketId) + '/reassign', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engineer_id: engineerId, reason: reason, senior_confirmed: senior, actor: 'Старший смены'})
+    })
+    .then(function(r) { return r.json().catch(function(){ return {}; }).then(function(d) { if (!r.ok || !d.success) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
+    .then(function() {
+        showToast('Инженер переназначен', 'success');
+        closeRequestModal();
+        loadRequestsOnly();
+        loadDispatcherPriorityTable();
+        loadDispatchingWarnings();
+    })
+    .catch(function(err) { showToast('Ошибка переназначения: ' + err.message, 'error'); });
+}
+
+var _waypointRouteLayer = null;
+
+function toggleWaypointRoute() {
+    var body = document.getElementById('waypointRouteBody');
+    var btn = document.getElementById('waypointRouteToggle');
+    if (!body) return;
+    var show = body.style.display === 'none';
+    body.style.display = show ? 'block' : 'none';
+    if (btn) btn.innerHTML = show ? '<i class="fas fa-chevron-up"></i> Свернуть' : '<i class="fas fa-chevron-down"></i> Развернуть';
+}
+
+function _parseWpInput(value) {
+    var text = String(value || '').trim();
+    if (!text) return null;
+    var parts = text.split(',');
+    if (parts.length >= 2) {
+        var lat = Number(parts[0].trim());
+        var lng = Number(parts[1].trim());
+        if (isFinite(lat) && isFinite(lng)) return {lat: lat, lng: lng};
+    }
+    return {parking_id: text};
+}
+
+function buildWaypointRoute() {
+    var start = _parseWpInput((document.getElementById('wpStart') || {}).value);
+    var end = _parseWpInput((document.getElementById('wpEnd') || {}).value);
+    var viaText = ((document.getElementById('wpVia') || {}).value || '').trim();
+    if (!start || start.lat == null || !end || end.lat == null) {
+        showToast('Укажите старт и финиш как «широта, долгота»', 'warning');
+        return;
+    }
+    var waypoints = [];
+    if (viaText) {
+        viaText.split(';').forEach(function(chunk) {
+            chunk = chunk.trim();
+            if (!chunk) return;
+            var type = '';
+            var lower = chunk.toLowerCase();
+            if (lower.indexOf('склад') === 0 || lower.indexOf('инструмент') === 0) {
+                type = 'tool';
+                chunk = chunk.replace(/^[^:]+:/, '').trim();
+            } else if (lower.indexOf('транспорт') === 0 || lower.indexOf('парковка') === 0) {
+                type = 'transfer';
+                chunk = chunk.replace(/^[^:]+:/, '').trim();
+            }
+            var point = _parseWpInput(chunk);
+            if (point) {
+                point.type = type;
+                waypoints.push(point);
+            }
+        });
+    }
+    var payload = {
+        start_lat: start.lat, start_lng: start.lng,
+        end_lat: end.lat, end_lng: end.lng,
+        waypoints: waypoints
+    };
+    var carPoint = _parseWpInput((document.getElementById('wpCar') || {}).value);
+    if (carPoint && carPoint.lat != null) {
+        payload.car_lat = carPoint.lat;
+        payload.car_lng = carPoint.lng;
+    }
+    var resultEl = document.getElementById('wpResult');
+    if (resultEl) resultEl.textContent = 'Строю…';
+    fetch(API_URL + '/route', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success || !data.path || data.path.length < 2) {
+            throw new Error(data.error || 'Маршрут не построен');
+        }
+        if (_waypointRouteLayer && map && map.hasLayer(_waypointRouteLayer)) map.removeLayer(_waypointRouteLayer);
+        _waypointRouteLayer = L.polyline(data.path, {color: '#d69e2e', weight: 5, opacity: 0.95}).addTo(map);
+        map.fitBounds(_waypointRouteLayer.getBounds(), {padding: [30, 30]});
+        if (resultEl) resultEl.textContent = 'Точек: ' + data.waypoints +
+            ' · ' + Number(data.distance || 0).toFixed(3) + ' км · ' +
+            Number(data.total_time_min || 0).toFixed(1) + ' мин · ' +
+            data.path.length + ' координат' + (data.fallback ? ' · частично вне графа' : '');
+        showToast('Маршрут через ' + data.waypoints + ' промежуточных точек построен', 'success');
+    })
+    .catch(function(err) {
+        if (resultEl) resultEl.textContent = 'Ошибка: ' + err.message;
+        showToast('Ошибка маршрута: ' + err.message, 'error');
+    });
+}
+
+function clearWaypointRoute() {
+    if (_waypointRouteLayer && map && map.hasLayer(_waypointRouteLayer)) map.removeLayer(_waypointRouteLayer);
+    _waypointRouteLayer = null;
+    var resultEl = document.getElementById('wpResult');
+    if (resultEl) resultEl.textContent = '';
 }
 
 function closeRequestModal() { document.getElementById('requestModal').classList.remove('show'); }

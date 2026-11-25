@@ -7,10 +7,12 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.hardware.GeomagneticField;
 import android.content.SharedPreferences;
+import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.tts.TextToSpeech;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.view.Surface;
@@ -26,6 +28,9 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
 
     private CompassBridge compassBridge;
+    private TextToSpeech textToSpeech;
+    private volatile boolean ttsReady = false;
+    private volatile String pendingSpeech = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -45,6 +50,25 @@ public class MainActivity extends BridgeActivity {
         webView.addJavascriptInterface(new ServerBridge(), "AndroidServer");
         compassBridge = new CompassBridge();
         webView.addJavascriptInterface(compassBridge, "AndroidCompass");
+        webView.addJavascriptInterface(new VoiceBridge(), "AndroidVoice");
+        textToSpeech = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                int result = textToSpeech.setLanguage(new Locale("ru", "RU"));
+                ttsReady = result != TextToSpeech.LANG_MISSING_DATA &&
+                        result != TextToSpeech.LANG_NOT_SUPPORTED;
+                if (ttsReady) {
+                    textToSpeech.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build());
+                }
+                String queued = pendingSpeech;
+                pendingSpeech = null;
+                if (ttsReady && queued != null && !queued.isEmpty()) {
+                    speakNative(queued);
+                }
+            }
+        });
         webView.post(() -> webView.loadUrl(buildStartUrl(serverUrl)));
     }
 
@@ -57,6 +81,11 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         if (compassBridge != null) compassBridge.stop();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+        }
         super.onDestroy();
     }
 
@@ -68,6 +97,40 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         super.onBackPressed();
+    }
+
+    /**
+     * Native Android TTS for turn-by-turn navigation hints.
+     * JavaScript calls AndroidVoice.speak(text); browser speechSynthesis is used
+     * as a fallback when the page runs outside the Android shell.
+     */
+    private void speakNative(String value) {
+        Bundle params = new Bundle();
+        params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
+        textToSpeech.speak(value, TextToSpeech.QUEUE_FLUSH, params, "intravia-nav");
+    }
+
+    private class VoiceBridge {
+        @JavascriptInterface
+        public void speak(String text) {
+            if (text == null) return;
+            final String value = text.trim();
+            if (value.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (ttsReady) {
+                    speakNative(value);
+                } else {
+                    pendingSpeech = value;
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stop() {
+            runOnUiThread(() -> {
+                if (textToSpeech != null) textToSpeech.stop();
+            });
+        }
     }
 
     /**

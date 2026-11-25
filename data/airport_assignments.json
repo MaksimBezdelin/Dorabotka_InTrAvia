@@ -1,0 +1,28 @@
+{
+  "engineers": {
+    "eng_1": "svo",
+    "eng_2": "svo",
+    "eng_3": "svo",
+    "eng_4": "svo",
+    "eng_5": "svo",
+    "eng_6": "svo",
+    "eng_7": "vdnh",
+    "eng_8": "vdnh",
+    "eng_9": "vdnh",
+    "eng_10": "vdnh",
+    "eng_11": "vdnh",
+    "eng_12": "vdnh",
+    "eng_13": "vdnh"
+  },
+  "transport": {
+    "1": "svo",
+    "2": "svo",
+    "3": "svo",
+    "4": "svo",
+    "5": "svo",
+    "6": "svo",
+    "7": "vdnh",
+    "8": "vdnh",
+    "9": "vdnh"
+  }
+}

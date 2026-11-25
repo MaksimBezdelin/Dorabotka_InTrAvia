@@ -3,10 +3,13 @@ import re
 import math
 import time
 import json
+import csv
+import io
 import base64
 import sqlite3
 import tempfile
 import hashlib
+import uuid
 import subprocess
 import threading
 import networkx as nx
@@ -27,10 +30,11 @@ except ImportError:
 # ------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'database.db')
+MOBILE_SESSIONS_DB = os.path.join(BASE_DIR, 'mobile_sessions.db')
+MOBILE_SESSION_TTL_SECONDS = 300
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 MOBILE_DIR = os.path.join(BASE_DIR, 'mobile', 'www')
-REGULATION_MINUTES = 15
 WALK_SPEED_KMH = 5.0
 RECHECK_DELAY_SEC = 10
 
@@ -54,7 +58,514 @@ AIRPORTS = {
     'vdnh': 'ВДНХ',
 }
 DEFAULT_AIRPORT = 'svo'
+AIRPORT_CENTERS = {
+    'svo': (55.975, 37.410),
+    'vdnh': (55.8317, 37.6300),
+}
 SYSTEM_SETTINGS_PATH = os.path.join(BASE_DIR, 'data', 'system_settings.json')
+AIRPORT_ASSIGNMENTS_PATH = os.path.join(BASE_DIR, 'data', 'airport_assignments.json')
+EVENT_LOG_PATH = os.path.join(BASE_DIR, 'data', 'event_log.jsonl')
+DEFECT_CATALOG_PATH = os.path.join(BASE_DIR, 'data', 'defect_catalog.json')
+ENGINEER_TOOLS_PATH = os.path.join(BASE_DIR, 'data', 'engineer_tools.json')
+TRACK_OBJECTS_PATH = os.path.join(BASE_DIR, 'data', 'track_objects.json')
+
+# Финальный этап: неизменяемый журнал событий и служебное состояние.
+_EVENT_LOG_LOCK = threading.Lock()
+_TOOL_STATUS_LOCK = threading.Lock()
+_ROUTE_RECALC_STATE = {}
+_RISK_WARNING_STATE = {}
+_RISK_WARNINGS = {}
+_AIRCRAFT_ARRIVAL_STATE = {}
+_DATA_WARNING_STATE = {}
+_CANDIDATE_LOG_STATE = {}
+TRACK_BOARD_DELAY_MIN = 10.0 / 60.0   # 10 секунд на посадку в спецтранспорт
+TOOL_PICKUP_DELAY_MIN = 30.0 / 60.0   # 30 секунд на получение инструмента
+NORM_LIMIT_MINUTES = 15.0
+
+
+def _iso_ms(value=None):
+    """ISO-8601 UTC с точностью до миллисекунд, как требует положение."""
+    if isinstance(value, datetime):
+        dt = value
+    elif value:
+        try:
+            dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            dt = datetime.now(timezone.utc)
+    else:
+        dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+def _log_event(event_type, actor='', request_id='', details=None, at=None):
+    """Append-only журнал: одна строка JSONL на событие, без изменения старых строк."""
+    entry = {
+        't': _iso_ms(at),
+        'type': str(event_type or 'event'),
+        'actor': str(actor or ''),
+        'request_id': str(request_id or ''),
+        'details': details if isinstance(details, dict) else {'value': details},
+    }
+    try:
+        os.makedirs(os.path.dirname(EVENT_LOG_PATH), exist_ok=True)
+        with _EVENT_LOG_LOCK:
+            with open(EVENT_LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    except Exception as exc:
+        print(f'[EVENT LOG] {exc}')
+    return entry
+
+
+def load_engineer_tools():
+    try:
+        with open(ENGINEER_TOOLS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_engineer_tools(data):
+    os.makedirs(os.path.dirname(ENGINEER_TOOLS_PATH), exist_ok=True)
+    tmp = ENGINEER_TOOLS_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, ENGINEER_TOOLS_PATH)
+
+
+def set_engineer_tool_status(engineer_id, status, comment=''):
+    status = str(status or '').strip().lower()
+    if status not in ('on_hand', 'at_site', 'warehouse', 'none', 'unknown'):
+        raise ValueError('Недопустимый статус инструмента')
+    with _TOOL_STATUS_LOCK:
+        data = load_engineer_tools()
+        data[str(engineer_id)] = {
+            'status': status,
+            'comment': str(comment or '')[:300],
+            'updated_at': _iso_ms(),
+        }
+        save_engineer_tools(data)
+    _log_event('tool_status', 'Инженер', '', {
+        'engineer_id': str(engineer_id), 'status': status, 'comment': str(comment or '')[:300],
+    })
+    return data[str(engineer_id)]
+
+
+def get_engineer_tool_status(engineer_id):
+    item = load_engineer_tools().get(str(engineer_id)) or {}
+    return str(item.get('status') or 'unknown'), item
+
+
+def _request_needs_tools(request_row):
+    """Tool pickup is required unless the engineer already has the tool at site."""
+    def row_get(key):
+        try:
+            return request_row[key]
+        except (KeyError, IndexError, TypeError):
+            return ''
+    fault = str(row_get('fault_type') or '').lower()
+    text = (str(row_get('description') or '') + ' ' + str(row_get('comment') or '')).lower()
+    if fault in ('avionics_nav', 'avionics_radio', 'avionics_autopilot', 'avionics_display', 'avionics_gps',
+                 'avionics_transponder', 'electrical', 'electrical_generator', 'electrical_battery',
+                 'electrical_short', 'electrical_lighting', 'pilot_voice'):
+        return False
+    tool_words = ('инструмент', 'tool', 'ключ', 'набор', 'склад', 'замен', 'ремонт', 'разбор', 'диагност')
+    return any(word in text for word in tool_words) or fault not in ('other', '')
+
+
+def _norm_tool_delay_min(engineer_id, request_row):
+    if not _request_needs_tools(request_row):
+        return 0.0
+    status, _item = get_engineer_tool_status(engineer_id)
+    if status in ('on_hand', 'at_site', 'none'):
+        return 0.0
+    return TOOL_PICKUP_DELAY_MIN
+
+
+ATA_CHAPTERS = {
+    '00': 'Общие положения', '05': 'Периодические проверки', '10': 'Кабина и её оборудование',
+    '11': 'Плакаты и маркировка', '12': 'Электропитание', '20': 'Стандартная практика',
+    '21': 'Кондиционирование и вентиляция', '22': 'Автопилот', '23': 'Связь',
+    '24': 'Электросистема', '25': 'Оборудование салона', '26': 'Пожарная система',
+    '27': 'Системы управления полётом', '28': 'Топливная система', '29': 'Гидравлическая система',
+    '30': 'Противообледенительная система', '31': 'Индикация и регистрация',
+    '32': 'Шасси', '33': 'Освещение', '34': 'Навигация', '35': 'Кислородное оборудование',
+    '36': 'Пневматическая система', '38': 'Водоснабжение и отходы', '41': 'Колесо водяного балласта',
+    '42': 'Интегрированная модульная авионика', '44': 'Бортовые развлекательные системы',
+    '45': 'Централизованная диагностика', '46': 'Информационные системы', '47': 'Инертные газы',
+    '49': 'Бортовые вспомогательные силовые установки', '51': 'Стандартная практика и конструкции',
+    '52': 'Двери', '53': 'Фюзеляж', '54': 'Гондолы и пилоны', '55': 'Стабилизаторы',
+    '56': 'Окна', '57': 'Крыло', '60': 'Стандартная практика (винтокрылые)',
+    '61': 'Несущий винт', '62': 'Ротор', '63': 'Трансмиссия', '64': 'Хвостовой винт',
+    '65': 'Приводы', '66': 'Складывающиеся лопасти', '67': 'Регулирование ротора',
+    '70': 'Стандартная практика (двигатель)', '71': 'Силовая установка',
+    '72': 'Двигатель', '73': 'Топливная система двигателя', '74': 'Зажигание',
+    '75': 'Воздушный запуск', '76': 'Управление двигателем', '77': 'Индикация работы двигателя',
+    '78': 'Выхлоп', '79': 'Масляная система', '80': 'Запуск двигателя',
+    '81': 'Турбина', '82': 'Водяной впрыск', '83': 'Реверс тяги', '84': 'Топливная форсунка',
+}
+
+ATA_SKILL = [
+    (('21', '35', '36', '38'), 'general'),
+    (('22', '23', '31', '34', '42', '45', '46'), 'avionics'),
+    (('24', '33'), 'electrical'),
+    (('27', '29', '32', '52', '55', '57'), 'mechanical'),
+    (('28', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84'), 'engine'),
+    (('25', '26', '30', '49', '51', '53', '54', '56', '60', '61', '62', '63', '64', '65', '66', '67'), 'mechanical'),
+]
+
+FAULT_ATA = {
+    'engine_failure': '72', 'engine_oil': '79', 'engine_overheat': '79', 'engine_vibration': '72',
+    'engine_start': '80', 'fuel_leak': '28', 'fuel_system': '28', 'avionics_nav': '34',
+    'avionics_radio': '23', 'avionics_autopilot': '22', 'avionics_transponder': '23',
+    'avionics_display': '31', 'avionics_gps': '34', 'hydraulic': '29', 'hydraulic_leak': '29',
+    'hydraulic_pressure': '29', 'electrical': '24', 'electrical_generator': '24',
+    'electrical_battery': '24', 'electrical_short': '24', 'electrical_lighting': '33',
+    'landing_gear': '32', 'pneumatic': '36', 'brake_system': '32', 'flap_issue': '27',
+    'aileron_issue': '27', 'rudder_issue': '27', 'wing_damage': '57', 'fuselage_damage': '53',
+    'door_issue': '52', 'air_condition': '21', 'pressurization': '21', 'oxygen_system': '35',
+    'fire_system': '26', 'deicing_system': '30', 'pilot_voice': '00', 'other': '00',
+}
+
+DEFECT_CATEGORIES = [
+    {'code': 'engine', 'name': 'Двигатель', 'skill': 'engine'},
+    {'code': 'avionics', 'name': 'Авионика и связь', 'skill': 'avionics'},
+    {'code': 'hydraulics', 'name': 'Гидравлика', 'skill': 'hydraulics'},
+    {'code': 'electrical', 'name': 'Электрика', 'skill': 'electrical'},
+    {'code': 'mechanical', 'name': 'Механика и планер', 'skill': 'mechanical'},
+    {'code': 'general', 'name': 'Общесистемное оборудование', 'skill': 'general'},
+    {'code': 'other', 'name': 'Прочее / свободный текст', 'skill': 'general'},
+]
+
+DEFAULT_DEFECTS = [
+    {'text': 'Заклинило клапан ПОС', 'synonyms': ['клапан пос', 'заклинило клапан', 'пос', 'обледенение'],
+     'ata': '30', 'category': 'mechanical', 'skill': 'mechanical'},
+    {'text': 'Течь гидравлической жидкости', 'synonyms': ['течь гидравлики', 'утечка гидравлики', 'гидравлика'],
+     'ata': '29', 'category': 'hydraulics', 'skill': 'hydraulics'},
+    {'text': 'Отказ генератора', 'synonyms': ['генератор', 'нет генерации', 'электропитание'],
+     'ata': '24', 'category': 'electrical', 'skill': 'electrical'},
+    {'text': 'Неисправность автопилота', 'synonyms': ['автопилот', 'отключение автопилота'],
+     'ata': '22', 'category': 'avionics', 'skill': 'avionics'},
+    {'text': 'Повреждение шасси', 'synonyms': ['шасси', 'стойка шасси', 'колесо'],
+     'ata': '32', 'category': 'mechanical', 'skill': 'mechanical'},
+    {'text': 'Разгерметизация кабины', 'synonyms': ['разгерметизация', 'падение давления', 'герметичность'],
+     'ata': '21', 'category': 'general', 'skill': 'general'},
+    {'text': 'Отказ двигателя', 'synonyms': ['двигатель', 'помпаж', 'самовыключение'],
+     'ata': '72', 'category': 'engine', 'skill': 'engine'},
+    {'text': 'Утечка топлива', 'synonyms': ['топливо', 'течь топлива', 'fuel leak'],
+     'ata': '28', 'category': 'engine', 'skill': 'engine'},
+    {'text': 'Неисправность двери', 'synonyms': ['дверь', 'люк', 'трап'],
+     'ata': '52', 'category': 'mechanical', 'skill': 'mechanical'},
+    {'text': 'Отказ навигационного оборудования', 'synonyms': ['навигация', 'gps', 'курс'],
+     'ata': '34', 'category': 'avionics', 'skill': 'avionics'},
+    {'text': 'Не работает освещение', 'synonyms': ['освещение', 'фара', 'свет'],
+     'ata': '33', 'category': 'electrical', 'skill': 'electrical'},
+    {'text': 'Неисправность кондиционирования', 'synonyms': ['кондиционер', 'климат', 'вентиляция'],
+     'ata': '21', 'category': 'general', 'skill': 'general'},
+]
+
+
+def _ata_skill(ata):
+    ata = str(ata or '').strip()
+    for codes, skill in ATA_SKILL:
+        if ata in codes:
+            return skill
+    return 'general'
+
+
+def _normalize_defect_text(text):
+    text = str(text or '').strip().lower().replace('ё', 'е')
+    text = re.sub(r'[^a-zа-я0-9]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _default_defect_catalog():
+    now = _iso_ms()
+    defects = []
+    for item in DEFAULT_DEFECTS:
+        text = item['text']
+        defects.append({
+            'id': 'def_' + hashlib.sha1(_normalize_defect_text(text).encode('utf-8')).hexdigest()[:10],
+            'text': text,
+            'normalized': _normalize_defect_text(text),
+            'synonyms': item.get('synonyms') or [],
+            'ata': item['ata'],
+            'category': item['category'],
+            'skill': item['skill'],
+            'source': 'seed',
+            'created_at': now,
+        })
+    return {
+        'version': 1,
+        'categories': DEFECT_CATEGORIES,
+        'ata_chapters': ATA_CHAPTERS,
+        'defects': defects,
+    }
+
+
+def load_defect_catalog():
+    try:
+        with open(DEFECT_CATALOG_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get('defects'), list):
+            data.setdefault('categories', DEFECT_CATEGORIES)
+            data.setdefault('ata_chapters', ATA_CHAPTERS)
+            return data
+    except (OSError, ValueError):
+        pass
+    data = _default_defect_catalog()
+    try:
+        os.makedirs(os.path.dirname(DEFECT_CATALOG_PATH), exist_ok=True)
+        with open(DEFECT_CATALOG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except OSError as exc:
+        print(f'[DEFECT CATALOG] {exc}')
+    return data
+
+
+def save_defect_catalog(data):
+    os.makedirs(os.path.dirname(DEFECT_CATALOG_PATH), exist_ok=True)
+    tmp = DEFECT_CATALOG_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, DEFECT_CATALOG_PATH)
+
+
+def search_defect_catalog(query='', ata='', category='', limit=20):
+    catalog = load_defect_catalog()
+    q = _normalize_defect_text(query)
+    q_tokens = {t for t in q.split() if len(t) >= 3}
+    ata = str(ata or '').strip()
+    category = str(category or '').strip()
+    scored = []
+    for item in catalog.get('defects') or []:
+        if not isinstance(item, dict):
+            continue
+        if ata and str(item.get('ata') or '') != ata:
+            continue
+        if category and str(item.get('category') or '') != category:
+            continue
+        score = 0
+        text_norm = item.get('normalized') or _normalize_defect_text(item.get('text'))
+        if q:
+            if q == text_norm:
+                score = 100
+            elif q in text_norm or text_norm in q:
+                score = 70
+            else:
+                for syn in item.get('synonyms') or []:
+                    syn_norm = _normalize_defect_text(syn)
+                    if syn_norm and (syn_norm in q or q in syn_norm):
+                        score = max(score, 60)
+                        break
+                if score == 0 and q_tokens:
+                    item_tokens = set(text_norm.split()) | {
+                        t for syn in (item.get('synonyms') or []) for t in _normalize_defect_text(syn).split()
+                    }
+                    overlap = len(q_tokens & item_tokens)
+                    if overlap:
+                        score = 30 + overlap
+        else:
+            score = 1
+        if score:
+            scored.append((score, item))
+    scored.sort(key=lambda x: (-x[0], str(x[1].get('text') or '').lower()))
+    return [dict(item, score=score) for score, item in scored[:max(1, int(limit))]]
+
+
+def classify_defect(text, ata='', category=''):
+    """Open classifier: free text + ATA + category, no code changes for new defects."""
+    catalog = load_defect_catalog()
+    raw_text = str(text or '').strip()
+    norm = _normalize_defect_text(raw_text)
+    ata = str(ata or '').strip()
+    category = str(category or '').strip()
+    categories = {c.get('code'): c for c in (catalog.get('categories') or []) if isinstance(c, dict)}
+
+    matched = None
+    if norm or ata:
+        candidates = search_defect_catalog(norm, ata, category, limit=1)
+        if candidates and int(candidates[0].get('score') or 0) >= 30:
+            matched = candidates[0]
+
+    if matched:
+        resolved_ata = str(matched.get('ata') or ata or '00')
+        resolved_category = str(matched.get('category') or category or 'other')
+        skill = str(matched.get('skill') or _ata_skill(resolved_ata))
+        return {
+            'text': raw_text or matched.get('text'),
+            'matched_text': matched.get('text'),
+            'defect_id': matched.get('id'),
+            'ata': resolved_ata,
+            'ata_name': ATA_CHAPTERS.get(resolved_ata, ''),
+            'category': resolved_category,
+            'category_name': (categories.get(resolved_category) or {}).get('name', resolved_category),
+            'skill': skill,
+            'method': 'catalog',
+            'confidence': min(1.0, round(int(matched.get('score') or 0) / 100.0, 2)),
+        }
+
+    resolved_ata = ata if ata in ATA_CHAPTERS else ''
+    if not resolved_ata:
+        for keyword, chapter in (
+            ('пос', '30'), ('обледен', '30'), ('противообледен', '30'),
+            ('гидравл', '29'), ('шасси', '32'), ('тормоз', '32'), ('колес', '32'),
+            ('двигател', '72'), ('масл', '79'), ('топлив', '28'), ('генератор', '24'),
+            ('электр', '24'), ('освещ', '33'), ('свет', '33'), ('автопилот', '22'),
+            ('навигац', '34'), ('gps', '34'), ('связ', '23'), ('радио', '23'),
+            ('двер', '52'), ('люк', '52'), ('фюзеляж', '53'), ('крыл', '57'),
+            ('кондиционер', '21'), ('герметич', '21'), ('кислород', '35'), ('пожар', '26'),
+        ):
+            if keyword in norm:
+                resolved_ata = chapter
+                break
+    resolved_ata = resolved_ata or '00'
+    resolved_category = category if category in categories else None
+    if not resolved_category:
+        skill_guess = _ata_skill(resolved_ata)
+        resolved_category = next((c.get('code') for c in categories.values()
+                                  if c.get('skill') == skill_guess), 'other')
+    skill = (categories.get(resolved_category) or {}).get('skill') or _ata_skill(resolved_ata)
+    return {
+        'text': raw_text,
+        'matched_text': None,
+        'defect_id': None,
+        'ata': resolved_ata,
+        'ata_name': ATA_CHAPTERS.get(resolved_ata, ''),
+        'category': resolved_category,
+        'category_name': (categories.get(resolved_category) or {}).get('name', resolved_category),
+        'skill': skill,
+        'method': 'keywords' if resolved_ata != '00' else 'free_text',
+        'confidence': 0.4 if resolved_ata != '00' else 0.2,
+    }
+
+
+def add_defect_to_catalog(text, ata='', category='', skill='', synonyms=None):
+    text = str(text or '').strip()
+    if len(text) < 2:
+        raise ValueError('Опишите неисправность')
+    classification = classify_defect(text, ata, category)
+    norm = _normalize_defect_text(text)
+    catalog = load_defect_catalog()
+    for item in catalog.get('defects') or []:
+        if _normalize_defect_text(item.get('text')) == norm:
+            item.update({
+                'ata': classification['ata'], 'category': classification['category'],
+                'skill': skill or classification['skill'],
+                'synonyms': sorted(set([str(s) for s in (item.get('synonyms') or [])] +
+                                       [str(s) for s in (synonyms or [])])),
+            })
+            save_defect_catalog(catalog)
+            return item, False
+    item = {
+        'id': 'def_' + hashlib.sha1((norm + '|' + classification['ata']).encode('utf-8')).hexdigest()[:10],
+        'text': text,
+        'normalized': norm,
+        'synonyms': [str(s) for s in (synonyms or []) if str(s).strip()],
+        'ata': classification['ata'],
+        'category': classification['category'],
+        'skill': skill or classification['skill'],
+        'source': 'user',
+        'created_at': _iso_ms(),
+    }
+    catalog.setdefault('defects', []).append(item)
+    save_defect_catalog(catalog)
+    _log_event('defect_added', 'Пользователь', '', {
+        'defect_id': item['id'], 'text': text, 'ata': item['ata'], 'category': item['category'],
+    })
+    return item, True
+
+
+def _request_classification(request_row):
+    def row_get(key):
+        try:
+            return request_row[key]
+        except (KeyError, IndexError, TypeError):
+            return ''
+    description = str(row_get('description') or '')
+    fault = str(row_get('fault_type') or 'other')
+    ata = str(row_get('mcc_ata') or '')
+    if not description and not ata:
+        description = fault
+    result = classify_defect(description or fault, ata=ata)
+    if result['method'] == 'free_text':
+        guessed_ata = FAULT_ATA.get(fault, '00')
+        if guessed_ata != '00':
+            result = classify_defect(description or fault, ata=guessed_ata)
+    result['fault_type'] = fault
+    return result
+
+
+def _read_event_log():
+    events = []
+    try:
+        with open(EVENT_LOG_PATH, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                    if isinstance(item, dict):
+                        events.append(item)
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        pass
+    events.sort(key=lambda item: str(item.get('t') or ''))
+    return events
+
+
+def load_airport_assignments():
+    try:
+        with open(AIRPORT_ASSIGNMENTS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {'engineers': {}, 'transport': {}}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {'engineers': {}, 'transport': {}}
+
+
+def save_airport_assignments(data):
+    os.makedirs(os.path.dirname(AIRPORT_ASSIGNMENTS_PATH), exist_ok=True)
+    tmp = AIRPORT_ASSIGNMENTS_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, AIRPORT_ASSIGNMENTS_PATH)
+
+
+def assigned_airport(kind, object_id, assignments=None):
+    assignments = assignments if assignments is not None else load_airport_assignments()
+    code = (assignments.get(kind, {}).get(str(object_id)) or DEFAULT_AIRPORT).lower()
+    return code if code in AIRPORTS else DEFAULT_AIRPORT
+
+
+def set_assigned_airport(kind, object_id, code):
+    code = str(code or DEFAULT_AIRPORT).lower()
+    if code not in AIRPORTS:
+        raise ValueError('Неизвестный аэропорт')
+    assignments = load_airport_assignments()
+    assignments.setdefault(kind, {})[str(object_id)] = code
+    save_airport_assignments(assignments)
+    return code
+
+
+def object_belongs_to_airport(kind, object_id, airport=None, assignments=None):
+    airport = airport or current_airport_payload()['airport']
+    return assigned_airport(kind, object_id, assignments) == airport
+
+
+def filter_objects_by_airport(kind, rows, airport=None, assignments=None):
+    airport = airport or current_airport_payload()['airport']
+    assignments = assignments if assignments is not None else load_airport_assignments()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item['airport'] = assigned_airport(kind, item['id'], assignments)
+        if item['airport'] == airport:
+            result.append(item)
+    return result
 
 
 def load_system_settings():
@@ -138,6 +649,53 @@ if OpenAI is not None and LLM_ENABLED:
 PARKING_COORDS = {}
 PARKING_META = {}
 MAP_OBJECTS = []
+
+
+def _vdnh_service_zone_center(zone_id):
+    """Return the official stand center for a VDNH service zone."""
+    try:
+        with open(os.path.join(STATIC_DIR, 'vdnh', 'stands.json'), 'r', encoding='utf-8') as f:
+            stands = json.load(f)
+        for stand in stands if isinstance(stands, list) else []:
+            if str(stand.get('zone_num')) == str(zone_id):
+                return float(stand['lat']), float(stand['lon'])
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    path = os.path.join(STATIC_DIR, 'vdnh', 'service_zones.geojson')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            features = json.load(f).get('features', [])
+        for feature in features:
+            props = feature.get('properties') or {}
+            if str(props.get('id')) != str(zone_id):
+                continue
+            geom = feature.get('geometry') or {}
+            coords = geom.get('coordinates') or []
+            polygons = coords if geom.get('type') == 'MultiPolygon' else [coords]
+            points = []
+            for polygon in polygons:
+                if not polygon:
+                    continue
+                # Use only the outer ring; holes must not shift the zone center.
+                for point in (polygon[0] or []):
+                    if isinstance(point, (list, tuple)) and len(point) >= 2:
+                        points.append((float(point[1]), float(point[0])))
+            if points:
+                return (sum(x[0] for x in points) / len(points),
+                        sum(x[1] for x in points) / len(points))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(f'[VDNH] service zone {zone_id} read error: {exc}')
+    return None
+
+
+def _request_target_coords(parking_id, source=None):
+    # На ВДНХ parking_id — это идентификатор сервисной зоны (1..10),
+    # а не стоянка из набора Шереметьево. Иначе маршрут уходил в SVO.
+    if current_airport_payload().get('airport') == 'vdnh':
+        zone = _vdnh_service_zone_center(parking_id)
+        if zone is not None:
+            return zone
+    return PARKING_COORDS.get(str(parking_id or ''))
 
 # Динамические зоны безопасности самолётов на рулении (без изменения схемы БД).
 # Координаты обновляются диспетчерской картой и используются для блокировки
@@ -447,6 +1005,585 @@ def load_svo_geojson():
 # Дорожный граф
 # ============================================================
 road_graph_vehicle = nx.Graph()
+vdnh_main_graph = nx.Graph()
+vdnh_road_graph = nx.Graph()
+vdnh_transport_graph = nx.Graph()
+osm_road_graphs = {'svo': nx.Graph(), 'vdnh': nx.Graph()}
+
+
+def _load_osm_geojson_graph(filepath, default_speed=8.0):
+    """Load a hidden routing graph from OSM-derived GeoJSON. No road layer is added to the map."""
+    graph = nx.Graph()
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return graph
+    speed_defaults = {
+        'motorway': 60, 'trunk': 45, 'primary': 35, 'secondary': 30,
+        'tertiary': 25, 'unclassified': 20, 'residential': 15,
+        'service': 10, 'living_street': 8, 'pedestrian': 5, 'footway': 5,
+        'path': 5, 'track': 8
+    }
+    # Main-road preference is a small route-cost bias; ETA still uses real speed limits.
+    preference = {
+        'motorway': 0.82, 'trunk': 0.86, 'primary': 0.90, 'secondary': 0.94,
+        'tertiary': 0.97, 'unclassified': 1.0, 'residential': 1.02,
+        'service': 1.08, 'living_street': 1.10, 'pedestrian': 1.12,
+        'footway': 1.12, 'path': 1.15, 'track': 1.08
+    }
+    for feature in data.get('features', []):
+        geom = feature.get('geometry') or {}
+        props = feature.get('properties') or {}
+        if geom.get('type') not in ('LineString', 'MultiLineString'):
+            continue
+        raw_highway = props.get('highway')
+        raw_type = str(props.get('type') or '').lower()
+        category = str(props.get('category') or '').lower()
+        # В локальном наборе Шереметьево дороги размечены category=vehicle,
+        # а у ВДНХ часть проездов обозначена type=taxi. Это дорожные рёбра,
+        # в отличие от runway/taxiway для воздушных судов.
+        if not raw_highway and category == 'vehicle':
+            raw_type = 'service'
+        if not raw_highway and raw_type == 'taxi':
+            raw_type = 'service'
+        if not raw_highway and raw_type and raw_type not in ('service', 'pedestrian'):
+            continue  # Не прокладываем путь по ВПП и прочим недорожным объектам.
+        highway = raw_highway or raw_type or 'service'
+        if isinstance(highway, list): highway = highway[0] if highway else 'service'
+        highway = str(highway).lower()
+        lines = geom.get('coordinates') or []
+        if geom.get('type') == 'LineString': lines = [lines]
+        raw_speed = props.get('spd_kmh') or props.get('maxspeed_kmh') or props.get('maxspeed')
+        try:
+            if isinstance(raw_speed, str):
+                import re
+                match = re.search(r'\d+(?:[.,]\d+)?', raw_speed)
+                raw_speed = match.group(0).replace(',', '.') if match else None
+            speed = float(raw_speed or speed_defaults.get(highway, default_speed))
+        except (TypeError, ValueError):
+            speed = speed_defaults.get(highway, default_speed)
+        speed = max(3.0, min(speed, 80.0))
+        for line in lines:
+            for a, b in zip(line, line[1:]):
+                try:
+                    n1, n2 = (float(a[1]), float(a[0])), (float(b[1]), float(b[0]))
+                except (TypeError, ValueError, IndexError):
+                    continue
+                dist = distance_km(n1[0], n1[1], n2[0], n2[1])
+                if dist <= 0: continue
+                minutes = dist / speed * 60.0
+                cost = minutes * preference.get(highway, 1.05)
+                if graph.has_edge(n1, n2) and graph[n1][n2]['route_cost'] <= cost:
+                    continue
+                graph.add_edge(n1, n2, weight=cost, route_cost=cost,
+                               time_min=minutes, distance_km=dist,
+                               speed_kmh=speed, highway=highway)
+    return graph
+
+
+def load_osm_road_graphs():
+    """Prefer OSM GeoJSON exports when supplied; otherwise use bundled airport road data."""
+    global osm_road_graphs
+    base = STATIC_DIR
+    sources = {
+        'svo': [os.path.join(base, 'osm', 'svo_roads.geojson'), os.path.join(base, 'svo_osm_roads.geojson')],
+        'vdnh': [os.path.join(base, 'osm', 'vdnh_roads.geojson'), os.path.join(base, 'vdnh', 'osm_roads.geojson')],
+    }
+    fallback = {'svo': os.path.join(base, 'roads.geojson'), 'vdnh': os.path.join(base, 'vdnh', 'roads.geojson')}
+    built = {}
+    for airport, candidates in sources.items():
+        source = next((x for x in candidates if os.path.exists(x)), fallback[airport])
+        built[airport] = _load_osm_geojson_graph(source, 8.0)
+        print(f'[ROUTING GRAPH] {airport}: {built[airport].number_of_nodes()} узлов, источник={os.path.relpath(source, base)}')
+    osm_road_graphs = built
+
+
+def get_airport_road_path(airport, start_lat, start_lng, end_lat, end_lng):
+    airport_key = str(airport or '').lower()
+    if airport_key == 'vdnh':
+        # Для ВДНХ главный граф — оранжевые taxi-дороги; OSM-граф не используем.
+        return get_vdnh_main_path(start_lat, start_lng, end_lat, end_lng)
+    graph = osm_road_graphs.get(airport_key)
+    if graph is not None and graph.number_of_edges():
+        start = find_nearest_node(graph, start_lat, start_lng)
+        end = find_nearest_node(graph, end_lat, end_lng)
+        if start is not None and end is not None:
+            try:
+                nodes = nx.shortest_path(graph, start, end, weight='route_cost')
+                path = [[start_lat, start_lng]] + [[n[0], n[1]] for n in nodes] + [[end_lat, end_lng]]
+                distance = minutes = 0.0
+                for a, b in zip(path, path[1:]):
+                    d = distance_km(a[0], a[1], b[0], b[1]); distance += d
+                    edge = graph.get_edge_data(tuple(a), tuple(b)) if tuple(a) in graph and tuple(b) in graph else None
+                    minutes += float(edge.get('time_min')) if edge else d / WALK_SPEED_KMH * 60
+                return path, distance, minutes
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                pass
+    # Если связного дорожного графа нет, маршрут недоступен.
+    return None, 0.0, 0.0
+
+
+def _engineer_graph_add_edges(graph, features, allowed_types):
+    """Build a 5 km/h engineer graph; route cost is distance, not road speed."""
+    for feature in features:
+        geom = feature.get('geometry') or {}
+        props = feature.get('properties') or {}
+        road_type = str(props.get('type') or '').lower()
+        if road_type not in allowed_types or geom.get('type') != 'LineString':
+            continue
+        coords = geom.get('coordinates') or []
+        for a, b in zip(coords, coords[1:]):
+            try:
+                n1 = (float(a[1]), float(a[0]))
+                n2 = (float(b[1]), float(b[0]))
+            except (TypeError, ValueError, IndexError):
+                continue
+            dist = distance_km(n1[0], n1[1], n2[0], n2[1])
+            if dist <= 0:
+                continue
+            if graph.has_edge(n1, n2) and graph[n1][n2].get('distance_km', float('inf')) <= dist:
+                continue
+            graph.add_edge(n1, n2, weight=dist, distance_km=dist,
+                           time_min=dist / WALK_SPEED_KMH * 60.0,
+                           speed_kmh=WALK_SPEED_KMH, road_type=road_type)
+
+
+def _bridge_engineer_components(graph):
+    components = [set(c) for c in nx.connected_components(graph)]
+    if len(components) <= 1:
+        return
+    bridges = []
+    for i in range(len(components)):
+        for j in range(i + 1, len(components)):
+            best_d, best_pair = float('inf'), None
+            for a in components[i]:
+                for b in components[j]:
+                    d = distance_km(a[0], a[1], b[0], b[1]) * 1000.0
+                    if d < best_d:
+                        best_d, best_pair = d, (a, b)
+            if best_pair and best_d <= 12.0:
+                bridges.append((best_d, best_pair))
+    for metres, (a, b) in sorted(bridges, key=lambda x: x[0]):
+        if graph.has_edge(a, b):
+            continue
+        dist_km = metres / 1000.0
+        graph.add_edge(a, b, weight=dist_km, distance_km=dist_km,
+                       time_min=dist_km / WALK_SPEED_KMH * 60.0,
+                       speed_kmh=WALK_SPEED_KMH, highway='connector')
+
+
+def _vdnh_road_allows(feature, agent):
+    """Read road access from the GeoJSON commentary.
+    Old VDNKh data explicitly says:
+      service     — «Спецтранспорт и инженер пешком»
+      pedestrian  — «Инженер пешком»
+      taxi/runway — «Воздушное судно»
+    If commentary is absent, fall back to the type field.
+    """
+    props = feature.get('properties') or {}
+    road_type = str(props.get('type') or '').lower()
+    comment = str(props.get('commentary') or '').lower()
+    if agent == 'engineer':
+        if 'инженер' in comment:
+            return True
+        if 'воздушное судно' in comment and 'инженер' not in comment:
+            return False
+        return road_type in ('service', 'pedestrian')
+    if agent == 'transport':
+        if 'спецтранспорт' in comment:
+            return True
+        if 'инженер' in comment and 'спецтранспорт' not in comment:
+            return False
+        return road_type == 'service'
+    return False
+
+
+def _load_vdnh_official_graphs():
+    """Build engineer/transport graphs from the official simulator network
+    (nodes.json + edges.json). Access is taken from each edge's access/access_mode,
+    exactly as the organizer simulator does.
+    """
+    nodes_path = os.path.join(STATIC_DIR, 'vdnh', 'nodes.json')
+    edges_path = os.path.join(STATIC_DIR, 'vdnh', 'edges.json')
+    try:
+        with open(nodes_path, 'r', encoding='utf-8') as f:
+            nodes_raw = json.load(f)
+        with open(edges_path, 'r', encoding='utf-8') as f:
+            edges_raw = json.load(f)
+    except (OSError, ValueError):
+        return None
+    nodes = {}
+    for node in nodes_raw if isinstance(nodes_raw, list) else []:
+        try:
+            nodes[str(node.get('node_id'))] = (float(node['lat']), float(node['lon']))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not nodes or not edges_raw:
+        return None
+    engineer = nx.Graph()
+    pedestrian = nx.Graph()
+    transport = nx.Graph()
+
+    def add_polyline(graph, coords, edge_distance_km, speed_kmh, road_type, network, edge_id):
+        time_min = edge_distance_km / max(speed_kmh, 1.0) * 60.0
+        for a, b in zip(coords, coords[1:]):
+            seg = distance_km(a[0], a[1], b[0], b[1])
+            if seg <= 0:
+                continue
+            seg_time = seg / max(speed_kmh, 1.0) * 60.0
+            if graph.has_edge(a, b) and graph[a][b].get('distance_km', 1e9) <= seg:
+                continue
+            graph.add_edge(a, b, weight=seg_time if graph is transport else seg,
+                           distance_km=seg, time_min=seg_time, speed_kmh=speed_kmh,
+                           road_type=road_type, network=network, edge_id=edge_id)
+        return time_min
+
+    for edge in edges_raw if isinstance(edges_raw, list) else []:
+        network = str(edge.get('network') or '').lower()
+        if network == 'runway':
+            continue
+        access = {str(x).lower() for x in (edge.get('access') or [])}
+        mode = str(edge.get('access_mode') or '').lower()
+        engineer_ok = mode == 'foot' or 'pedestrian' in access
+        transport_ok = mode == 'car'
+        geom = edge.get('geometry') or {}
+        raw_coords = geom.get('coordinates') or []
+        coords = []
+        for point in raw_coords:
+            try:
+                coords.append((float(point[1]), float(point[0])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if len(coords) < 2:
+            continue
+        # Snap endpoints to the shared official node coordinates so edges meet.
+        from_node = nodes.get(str(edge.get('from_node')))
+        to_node = nodes.get(str(edge.get('to_node')))
+        if from_node:
+            coords[0] = from_node
+        if to_node:
+            coords[-1] = to_node
+        try:
+            distance = float(edge.get('length_m') or 0) / 1000.0
+        except (TypeError, ValueError):
+            distance = 0.0
+        if distance <= 0:
+            distance = sum(distance_km(a[0], a[1], b[0], b[1]) for a, b in zip(coords, coords[1:]))
+        try:
+            speed = float(edge.get('spd_kmh') or (5.0 if mode == 'foot' else 10.0))
+        except (TypeError, ValueError):
+            speed = 10.0
+        edge_id = edge.get('edge_id') or ''
+        if engineer_ok:
+            add_polyline(engineer, coords, distance, WALK_SPEED_KMH, network, network, edge_id)
+            if network == 'pedestrian':
+                add_polyline(pedestrian, coords, distance, WALK_SPEED_KMH, network, network, edge_id)
+        if transport_ok:
+            add_polyline(transport, coords, distance, speed, network, network, edge_id)
+    if engineer.number_of_edges() == 0:
+        return None
+    return engineer, pedestrian, transport
+
+
+def load_vdnh_road_graph():
+    """Build VDNKh graphs from explicit road access comments.
+    Engineer speed is exactly WALK_SPEED_KMH (5 km/h) on every edge.
+    The transport graph uses service-road speed attributes (5/8/10/20 km/h).
+    """
+    global vdnh_main_graph, vdnh_road_graph, vdnh_transport_graph
+    official = _load_vdnh_official_graphs()
+    if official:
+        vdnh_main_graph, vdnh_road_graph, vdnh_transport_graph = official
+        print(f'[VDNH OFFICIAL GRAPH] engineer {vdnh_main_graph.number_of_nodes()} узлов / '
+              f'{vdnh_main_graph.number_of_edges()} рёбер; transport '
+              f'{vdnh_transport_graph.number_of_nodes()} / {vdnh_transport_graph.number_of_edges()}')
+        return
+    main = nx.Graph()
+    fallback = nx.Graph()
+    transport = nx.Graph()
+    filepath = os.path.join(STATIC_DIR, 'vdnh', 'roads.geojson')
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            features = (json.load(f).get('features') or [])
+    except (OSError, ValueError) as exc:
+        print(f'[VDNH GRAPH] Не удалось загрузить roads.geojson: {exc}')
+        vdnh_main_graph = main
+        vdnh_road_graph = fallback
+        vdnh_transport_graph = transport
+        return
+
+    engineer_features = [f for f in features if _vdnh_road_allows(f, 'engineer')]
+    pedestrian_features = [f for f in engineer_features
+                           if str((f.get('properties') or {}).get('type') or '').lower() == 'pedestrian']
+    _engineer_graph_add_edges(main, engineer_features, {'taxi', 'service', 'pedestrian'})
+    _engineer_graph_add_edges(fallback, pedestrian_features, {'pedestrian'})
+    _vdnh_transport_graph_add_edges(transport, features)
+    _bridge_engineer_components(main)
+    _bridge_engineer_components(fallback)
+    _bridge_transport_components(transport)
+    vdnh_main_graph = main
+    vdnh_road_graph = fallback
+    vdnh_transport_graph = transport
+    print(f'[VDNH MAIN GRAPH] {len(main.nodes)} узлов, {len(main.edges)} рёбер '
+          f'(по комментариям roads.geojson: инженер, {WALK_SPEED_KMH:g} км/ч)')
+    print(f'[VDNH FALLBACK GRAPH] {len(fallback.nodes)} узлов, {len(fallback.edges)} рёбер')
+    print(f'[VDNH TRANSPORT GRAPH] {len(transport.nodes)} узлов, {len(transport.edges)} рёбер '
+          f'(service 5/8/10/20 км/ч)')
+
+
+def _vdnh_transport_graph_add_edges(graph, features):
+    """Service-road graph for special transport. Edge weight is real travel time."""
+    for feature in features:
+        geom = feature.get('geometry') or {}
+        props = feature.get('properties') or {}
+        road_type = str(props.get('type') or '').lower()
+        if road_type != 'service' or geom.get('type') != 'LineString':
+            continue
+        if not _vdnh_road_allows(feature, 'transport'):
+            continue
+        try:
+            speed = float(props.get('spd_kmh') or 10.0)
+        except (TypeError, ValueError):
+            speed = 10.0
+        if speed <= 0:
+            speed = 10.0
+        coords = geom.get('coordinates') or []
+        for a, b in zip(coords, coords[1:]):
+            try:
+                n1 = (float(a[1]), float(a[0]))
+                n2 = (float(b[1]), float(b[0]))
+            except (TypeError, ValueError, IndexError):
+                continue
+            dist = distance_km(n1[0], n1[1], n2[0], n2[1])
+            if dist <= 0:
+                continue
+            time_min = dist / speed * 60.0
+            if graph.has_edge(n1, n2) and graph[n1][n2].get('time_min', float('inf')) <= time_min:
+                continue
+            graph.add_edge(n1, n2, weight=time_min, time_min=time_min,
+                           distance_km=dist, speed_kmh=speed, road_type=road_type)
+
+
+def _bridge_transport_components(graph):
+    """Connect isolated service-road fragments with short connectors at 20 km/h."""
+    components = [set(c) for c in nx.connected_components(graph)]
+    if len(components) <= 1:
+        return
+    bridges = []
+    for i in range(len(components)):
+        for j in range(i + 1, len(components)):
+            best_d, best_pair = float('inf'), None
+            for a in components[i]:
+                for b in components[j]:
+                    d = distance_km(a[0], a[1], b[0], b[1]) * 1000.0
+                    if d < best_d:
+                        best_d, best_pair = d, (a, b)
+            if best_pair and best_d <= 12.0:
+                bridges.append((best_d, best_pair))
+    for metres, (a, b) in sorted(bridges, key=lambda x: x[0]):
+        if graph.has_edge(a, b):
+            continue
+        dist_km = metres / 1000.0
+        time_min = dist_km / 20.0 * 60.0
+        graph.add_edge(a, b, weight=time_min, time_min=time_min,
+                       distance_km=dist_km, speed_kmh=20.0, highway='connector')
+
+
+def _project_point_on_graph(graph, lat, lng):
+    """Closest point on any graph edge, not just the closest node.
+    This makes the engineer first reach the nearest road from roads.geojson
+    and only then follow the road network.
+    """
+    if graph is None or graph.number_of_edges() == 0:
+        return None
+    cos_lat = math.cos(math.radians(lat))
+    scale_x = 111320.0 * cos_lat
+    scale_y = 110540.0
+    best = None
+    for u, v, edge_data in graph.edges(data=True):
+        ax = (u[1] - lng) * scale_x
+        ay = (u[0] - lat) * scale_y
+        bx = (v[1] - lng) * scale_x
+        by = (v[0] - lat) * scale_y
+        dx, dy = bx - ax, by - ay
+        denom = dx * dx + dy * dy
+        if denom <= 1e-9:
+            t = 0.0
+        else:
+            t = max(0.0, min(1.0, -(ax * dx + ay * dy) / denom))
+        px = ax + t * dx
+        py = ay + t * dy
+        dist_m = math.hypot(px, py)
+        if best is not None and dist_m >= best['distance_m']:
+            continue
+        if t <= 1e-7:
+            point = (u[0], u[1])
+        elif t >= 1.0 - 1e-7:
+            point = (v[0], v[1])
+        else:
+            point = (lat + py / scale_y, lng + px / scale_x)
+        best = {
+            'edge': (u, v), 't': t, 'point': point,
+            'distance_m': dist_m, 'edge_data': edge_data,
+        }
+    return best
+
+
+def _dedupe_route_points(points):
+    result = []
+    for point in points:
+        point = [float(point[0]), float(point[1])]
+        if result and distance_km(result[-1][0], result[-1][1], point[0], point[1]) < 0.0005:
+            continue
+        result.append(point)
+    return result
+
+
+def _route_over_projected_graph(graph, start_lat, start_lng, end_lat, end_lng,
+                                weight='distance_km', choose_time=False):
+    """Route via the nearest road edges. Only two short access connectors
+    (engineer→road and road→parking) may be off-road; everything between
+    the projections follows graph edges from roads.geojson.
+    """
+    if graph is None or graph.number_of_nodes() == 0:
+        return None
+    start_proj = _project_point_on_graph(graph, start_lat, start_lng)
+    end_proj = _project_point_on_graph(graph, end_lat, end_lng)
+    if not start_proj or not end_proj:
+        return None
+
+    best = None
+    for start_node in start_proj['edge']:
+        for end_node in end_proj['edge']:
+            try:
+                nodes = nx.shortest_path(graph, start_node, end_node, weight=weight)
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                continue
+            coords = _dedupe_route_points(
+                [[start_lat, start_lng], list(start_proj['point'])] +
+                [[n[0], n[1]] for n in nodes] +
+                [list(end_proj['point']), [end_lat, end_lng]]
+            )
+            distance = 0.0
+            for a, b in zip(coords, coords[1:]):
+                distance += distance_km(a[0], a[1], b[0], b[1])
+
+            start_speed = float(start_proj['edge_data'].get('speed_kmh') or WALK_SPEED_KMH)
+            end_speed = float(end_proj['edge_data'].get('speed_kmh') or WALK_SPEED_KMH)
+            total_min = (distance_km(start_lat, start_lng,
+                                     start_proj['point'][0], start_proj['point'][1])
+                         / WALK_SPEED_KMH * 60.0)
+            total_min += (distance_km(start_proj['point'][0], start_proj['point'][1],
+                                      start_node[0], start_node[1])
+                          / max(start_speed, 1.0) * 60.0)
+            for a, b in zip(nodes, nodes[1:]):
+                edge = graph.get_edge_data(a, b) or {}
+                seg_km = float(edge.get('distance_km') or
+                               distance_km(a[0], a[1], b[0], b[1]))
+                speed = float(edge.get('speed_kmh') or WALK_SPEED_KMH)
+                total_min += float(edge.get('time_min') or (seg_km / max(speed, 1.0) * 60.0))
+            total_min += (distance_km(end_node[0], end_node[1],
+                                      end_proj['point'][0], end_proj['point'][1])
+                          / max(end_speed, 1.0) * 60.0)
+            total_min += (distance_km(end_proj['point'][0], end_proj['point'][1],
+                                      end_lat, end_lng)
+                          / WALK_SPEED_KMH * 60.0)
+            key = total_min if choose_time else distance
+            if best is None or key < best[0]:
+                best = (key, coords, distance, total_min,
+                        start_proj, end_proj, nodes)
+
+    if not best:
+        return None
+    _key, coords, distance, total_min, start_proj, end_proj, nodes = best
+
+    legs = []
+    if distance_km(start_lat, start_lng, start_proj['point'][0], start_proj['point'][1]) > 0.001:
+        acc_km = distance_km(start_lat, start_lng, start_proj['point'][0], start_proj['point'][1])
+        legs.append({'from': [start_lat, start_lng], 'to': list(start_proj['point']),
+                     'distance_km': round(acc_km, 4), 'speed_kmh': WALK_SPEED_KMH,
+                     'time_min': round(acc_km / WALK_SPEED_KMH * 60.0, 3),
+                     'mode': 'walk_access'})
+    for a, b in zip(nodes, nodes[1:]):
+        edge = graph.get_edge_data(a, b) or {}
+        seg_km = float(edge.get('distance_km') or distance_km(a[0], a[1], b[0], b[1]))
+        speed = float(edge.get('speed_kmh') or WALK_SPEED_KMH)
+        legs.append({'from': [a[0], a[1]], 'to': [b[0], b[1]],
+                     'distance_km': round(seg_km, 4), 'speed_kmh': speed,
+                     'time_min': round(float(edge.get('time_min') or
+                                             seg_km / max(speed, 1.0) * 60.0), 3),
+                     'mode': 'connector' if edge.get('highway') == 'connector' else 'road'})
+    if distance_km(end_proj['point'][0], end_proj['point'][1], end_lat, end_lng) > 0.001:
+        egr_km = distance_km(end_proj['point'][0], end_proj['point'][1], end_lat, end_lng)
+        legs.append({'from': list(end_proj['point']), 'to': [end_lat, end_lng],
+                     'distance_km': round(egr_km, 4), 'speed_kmh': WALK_SPEED_KMH,
+                     'time_min': round(egr_km / WALK_SPEED_KMH * 60.0, 3),
+                     'mode': 'walk_egress'})
+    return coords, distance, total_min, legs
+
+
+def _route_on_engineer_graph(graph, start_lat, start_lng, end_lat, end_lng):
+    result = _route_over_projected_graph(graph, start_lat, start_lng, end_lat, end_lng,
+                                         weight='distance_km', choose_time=False)
+    if not result:
+        return None
+    coords, distance, _total_min, _legs = result
+    return coords, distance, distance / WALK_SPEED_KMH * 60.0
+
+
+def get_vdnh_main_path(start_lat, start_lng, end_lat, end_lng):
+    """Service-road graph first; pedestrian fallback. Taxiways/runway excluded."""
+    result = _route_on_engineer_graph(vdnh_main_graph, start_lat, start_lng, end_lat, end_lng)
+    if result:
+        return result
+    result = _route_on_engineer_graph(vdnh_road_graph, start_lat, start_lng, end_lat, end_lng)
+    if result:
+        print('[VDNH ROUTE] Сервисный граф недоступен, использован пешеходный запасной')
+        return result
+    print('[VDNH ROUTE] Связный граф roads.geojson не найден; прямая линия запрещена')
+    return None
+
+
+def _route_on_transport_graph(graph, start_lat, start_lng, end_lat, end_lng):
+    """Shortest travel-time path over service roads with per-edge speed limits.
+    The vehicle first reaches the nearest service-road edge; only the short
+    access/egress connectors are made at walking speed.
+    """
+    return _route_over_projected_graph(graph, start_lat, start_lng, end_lat, end_lng,
+                                       weight='time_min', choose_time=True)
+
+
+def get_airport_transport_path(airport, start_lat, start_lng, end_lat, end_lng):
+    """Special-transport path with speed-limit-aware ETA."""
+    airport_key = str(airport or '').lower()
+    if airport_key == 'vdnh':
+        result = _route_on_transport_graph(vdnh_transport_graph,
+                                           start_lat, start_lng, end_lat, end_lng)
+        if result:
+            return result
+        # A service-road fragment may be disconnected. Keep the trip possible and
+        # explicitly mark the fallback in route data.
+        print('[VDNH TRANSPORT] Связный сервисный граф не найден; прямая линия запрещена')
+        return None
+    graph = osm_road_graphs.get(airport_key)
+    if graph is not None and graph.number_of_edges():
+        start = find_nearest_node(graph, start_lat, start_lng)
+        end = find_nearest_node(graph, end_lat, end_lng)
+        if start is not None and end is not None:
+            try:
+                nodes = nx.shortest_path(graph, start, end, weight='route_cost')
+                path = [[start_lat, start_lng]] + [[n[0], n[1]] for n in nodes] + [[end_lat, end_lng]]
+                distance = minutes = 0.0
+                for a, b in zip(path, path[1:]):
+                    d = distance_km(a[0], a[1], b[0], b[1])
+                    distance += d
+                    edge = graph.get_edge_data(tuple(a), tuple(b)) if tuple(a) in graph and tuple(b) in graph else None
+                    minutes += float(edge.get('time_min')) if edge else d / 10.0 * 60
+                return path, distance, minutes, []
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                pass
+    return None
 
 
 def load_road_graph():
@@ -788,9 +1925,20 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
     required_skill = required_skill_override or required_skill_map.get(fault_type, 'general')
 
     cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, specialization, coords_lat, coords_lng
-                   FROM engineers WHERE status='free'""")
+    cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization,
+                          COALESCE(gps.lat, p.lat, e.coords_lat) AS coords_lat,
+                          COALESCE(gps.lng, p.lng, e.coords_lng) AS coords_lng
+                   FROM engineers e
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
+                   WHERE e.status='free'""")
     all_free = [dict(r) for r in cur.fetchall()]
+    assignments = load_airport_assignments()
+    selected_airport = current_airport_payload()['airport']
+    all_free = [e for e in all_free
+                if assigned_airport('engineers', e['id'], assignments) == selected_airport]
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
                    WHERE routing_stage='technician'
@@ -811,15 +1959,23 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
                          'path_coords': None}
 
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(r) for r in cur.fetchall()]
+    cars = [] if selected_airport == 'vdnh' else filter_objects_by_airport('transport', cur.fetchall(), selected_airport)
 
     feasible = []
     for e in pool:
-        e_lat = e['coords_lat'] or 55.975
-        e_lng = e['coords_lng'] or 37.410
-        walk_dist = distance_km(e_lat, e_lng, target_lat, target_lng)
-        walk_time = walk_dist / WALK_SPEED_KMH * 60
-        walk_path = [[e_lat, e_lng], [target_lat, target_lng]]
+        if e['coords_lat'] is None or e['coords_lng'] is None:
+            continue
+        e_lat = float(e['coords_lat'])
+        e_lng = float(e['coords_lng'])
+        walk_path, walk_dist, walk_time = get_airport_road_path(
+            selected_airport, e_lat, e_lng, target_lat, target_lng
+        )
+        if not walk_path:
+            walk_dist = distance_km(e_lat, e_lng, target_lat, target_lng)
+            walk_time = walk_dist / WALK_SPEED_KMH * 60
+            walk_path = [[e_lat, e_lng], [target_lat, target_lng]]
+        tool_delay = TOOL_PICKUP_DELAY_MIN if get_engineer_tool_status(e['id'])[0] not in ('on_hand', 'at_site', 'none') else 0.0
+        walk_time += tool_delay
         best_car = None
         best_time = walk_time
         best_car_time = 0
@@ -827,17 +1983,42 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
         best_combined_path = walk_path
 
         for car in cars:
-            seg1_dist = distance_km(e_lat, e_lng, car['lat'], car['lng'])
-            wtc = seg1_dist / WALK_SPEED_KMH * 60
-            seg1_path = [[e_lat, e_lng], [car['lat'], car['lng']]]
-            seg2_path, seg2_dist = get_shortest_path(
-                road_graph_vehicle, car['lat'], car['lng'], target_lat, target_lng
+            car_lat = float(car.get('lat') or 0)
+            car_lng = float(car.get('lng') or 0)
+            if not car_lat or not car_lng:
+                continue
+            seg1_path, seg1_dist, _seg1_time = get_airport_road_path(
+                selected_airport, e_lat, e_lng, car_lat, car_lng
             )
-            if seg2_dist == 0:
-                seg2_dist = distance_km(car['lat'], car['lng'], target_lat, target_lng)
-                seg2_path = [[car['lat'], car['lng']], [target_lat, target_lng]]
-            sp = car['speed'] or 30
-            dt = seg2_dist / sp * 60
+            if not seg1_path:
+                seg1_dist = distance_km(e_lat, e_lng, car_lat, car_lng)
+                seg1_path = [[e_lat, e_lng], [car_lat, car_lng]]
+            else:
+                seg1_path = [list(p) for p in seg1_path]
+                seg1_path[0] = [e_lat, e_lng]
+                seg1_path[-1] = [car_lat, car_lng]
+            wtc = seg1_dist / WALK_SPEED_KMH * 60
+            if selected_airport == 'vdnh':
+                result = get_airport_transport_path('vdnh', car_lat, car_lng, target_lat, target_lng)
+                if not result:
+                    continue
+                seg2_path, seg2_dist, road_time, _legs = result
+            else:
+                seg2_path, seg2_dist, road_time = get_airport_road_path(
+                    selected_airport, car_lat, car_lng, target_lat, target_lng
+                )
+                if not seg2_path:
+                    seg2_dist = distance_km(car_lat, car_lng, target_lat, target_lng)
+                    road_time = seg2_dist / max(float(car.get('speed') or 30), 1.0) * 60
+                    seg2_path = [[car_lat, car_lng], [target_lat, target_lng]]
+                road_time = max(float(road_time or 0),
+                                seg2_dist / max(float(car.get('speed') or 30), 1.0) * 60)
+            seg2_path = list(seg2_path or [])
+            if len(seg2_path) < 2:
+                seg2_path = [[car_lat, car_lng], [target_lat, target_lng]]
+            seg2_path[0] = [car_lat, car_lng]
+            seg2_path[-1] = [target_lat, target_lng]
+            dt = float(road_time or 0) + TRACK_BOARD_DELAY_MIN + tool_delay
             t = wtc + dt
             if t < best_time:
                 best_time = t
@@ -845,9 +2026,6 @@ def get_free_engineer_for(conn, fault_type, required_skill_map,
                 best_car_time = dt
                 best_walk_to_car = wtc
                 best_combined_path = seg1_path + seg2_path[1:]
-
-        if best_time > REGULATION_MINUTES:
-            continue
 
         feasible.append({
             'engineer': e,
@@ -876,8 +2054,11 @@ def try_reassign_queued():
                      AND engineer_id IS NOT NULL""")
     busy = {str(r['engineer_id']) for r in cur.fetchall()}
 
-    cur.execute("""SELECT id, aircraft, fault_type, parking_id, rejected_by
-                   FROM requests WHERE status='queued' ORDER BY created_at ASC""")
+    cur.execute("""SELECT id, aircraft, fault_type, parking_id, source, rejected_by
+                   FROM requests
+                   WHERE status='queued'
+                     AND (delay_started_at IS NOT NULL OR all_rejected=1 OR delay_reason LIKE 'Ожидание%')
+                   ORDER BY created_at ASC""")
     queued = [dict(r) for r in cur.fetchall()]
     if not queued:
         conn.close()
@@ -887,7 +2068,7 @@ def try_reassign_queued():
     for q in queued:
         rejected = {x.strip() for x in str(q['rejected_by']).split(',') if x.strip()}
         exclude = rejected | busy
-        target = PARKING_COORDS.get(str(q['parking_id'] or ''), (55.975, 37.410))
+        target = _request_target_coords(q['parking_id'], q['source']) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
         eng, route = get_free_engineer_for(conn, q['fault_type'] or 'engine_failure',
                                             FAULT_SKILL, target[0], target[1],
                                             exclude_ids=exclude)
@@ -910,46 +2091,159 @@ def try_reassign_queued():
 
     # Для автоматически назначенных заявок сразу готовим маршрут-превью.
     for assigned_rid in assigned:
+        _log_event('assignment', 'Система', assigned_rid, {
+            'mode': 'auto_from_queue', 'reason': 'Освободился подходящий инженер',
+        })
+        _log_event('status_change', 'Система', assigned_rid, {
+            'from': 'queued', 'to': 'assigned', 'reason': 'Автоназначение из очереди',
+        })
         _recalc_route_for_request_id(assigned_rid, force=True)
 
 # ============================================================
 # Пересчёт ROUTE
 # ============================================================
+def _engineer_route_start(conn, engineer_id):
+    """Живой GPS мобильного инженера приоритетнее координат симуляции."""
+    cur = conn.cursor()
+    cur.execute("""SELECT COALESCE(gps.lat, p.lat, e.coords_lat) AS lat,
+                          COALESCE(gps.lng, p.lng, e.coords_lng) AS lng
+                   FROM engineers e
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
+                   WHERE e.id=?""", (str(engineer_id),))
+    row = cur.fetchone()
+    if row and row['lat'] is not None and row['lng'] is not None:
+        return float(row['lat']), float(row['lng'])
+    return None
+
+
+_VDNH_WAREHOUSE_CACHE = None
+
+
+def _vdnh_warehouses():
+    """Warehouses from the open VDNKh objects layer (Склад №1/№2)."""
+    global _VDNH_WAREHOUSE_CACHE
+    if _VDNH_WAREHOUSE_CACHE is not None:
+        return _VDNH_WAREHOUSE_CACHE
+    warehouses = []
+    try:
+        with open(os.path.join(STATIC_DIR, 'vdnh', 'facilities.json'), 'r', encoding='utf-8') as f:
+            facilities = json.load(f)
+        for facility in facilities if isinstance(facilities, list) else []:
+            if str(facility.get('kind') or '').lower() == 'warehouse':
+                warehouses.append({
+                    'name': facility.get('name') or 'Склад',
+                    'lat': float(facility['lat']),
+                    'lng': float(facility['lon']),
+                })
+        if warehouses:
+            _VDNH_WAREHOUSE_CACHE = warehouses
+            return warehouses
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    path = os.path.join(STATIC_DIR, 'vdnh', 'objects.geojson')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            features = json.load(f).get('features') or []
+        for feature in features:
+            props = feature.get('properties') or {}
+            name = str(props.get('name') or props.get('NAME') or '').strip()
+            if 'склад' not in name.lower():
+                continue
+            geom = feature.get('geometry') or {}
+            coords = geom.get('coordinates') or []
+            polygons = coords if geom.get('type') == 'MultiPolygon' else [coords]
+            points = []
+            for polygon in polygons:
+                if not polygon:
+                    continue
+                for point in (polygon[0] or []):
+                    if isinstance(point, (list, tuple)) and len(point) >= 2:
+                        points.append((float(point[1]), float(point[0])))
+            if points:
+                warehouses.append({
+                    'name': name,
+                    'lat': sum(p[0] for p in points) / len(points),
+                    'lng': sum(p[1] for p in points) / len(points),
+                })
+    except (OSError, ValueError, TypeError) as exc:
+        print(f'[VDNH WAREHOUSE] {exc}')
+    _VDNH_WAREHOUSE_CACHE = warehouses
+    return warehouses
+
+
+def _warehouse_route(airport, start_lat, start_lng, end_lat, end_lng):
+    """Shortest allowed-road route start → nearest warehouse → destination."""
+    if str(airport or '').lower() != 'vdnh':
+        return None
+    best = None
+    warehouses = sorted(
+        _vdnh_warehouses(),
+        key=lambda w: distance_km(start_lat, start_lng, w['lat'], w['lng'])
+    )
+    for warehouse in warehouses:
+        p1, d1, _ = get_airport_road_path(airport, start_lat, start_lng,
+                                          warehouse['lat'], warehouse['lng'])
+        p2, d2, _ = get_airport_road_path(airport, warehouse['lat'], warehouse['lng'],
+                                          end_lat, end_lng)
+        if not p1 or not p2:
+            continue
+        combined = _dedupe_route_points(list(p1) + list(p2)[1:])
+        total = float(d1 or 0) + float(d2 or 0)
+        # First reachable warehouse in nearest-distance order.
+        best = {
+            'path': combined,
+            'distance': total,
+            'warehouse': warehouse,
+        }
+        break
+    return best
+
+
+def _needs_warehouse_visit(engineer_id, request_row):
+    if not _request_needs_tools(request_row):
+        return False
+    status, _item = get_engineer_tool_status(engineer_id)
+    return status not in ('on_hand', 'at_site', 'none')
+
+
 def _recompute_route_for_request(request_row):
     eng_id = request_row['engineer_id']
     parking = str(request_row['parking_id'] or '')
     if not eng_id or not parking:
         return None
 
-    target = PARKING_COORDS.get(parking)
+    target = _request_target_coords(parking, request_row['source'] if 'source' in request_row.keys() else None)
     if target is None:
         return None
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, coords_lat, coords_lng FROM engineers WHERE id=?", (eng_id,))
-    eng = cur.fetchone()
-    if not eng:
+    cur.execute("SELECT id FROM engineers WHERE id=?", (eng_id,))
+    if not cur.fetchone():
         conn.close()
         return None
 
-    # Маршрут нельзя строить от условной точки: обе координаты должны
-    # существовать в БД и соответствовать реальной метке инженера.
-    if eng['coords_lat'] is None or eng['coords_lng'] is None:
+    # Живой GPS мобильного инженера (engineer_gps) важнее координат
+    # симуляции: на ВДНХ именно он находится внутри территории.
+    start = _engineer_route_start(conn, eng_id)
+    if start is None:
         conn.close()
         return None
-    e_lat = float(eng['coords_lat'])
-    e_lng = float(eng['coords_lng'])
+    e_lat, e_lng = start
 
-    walk_path, walk_dist = get_shortest_path(
-        road_graph_vehicle, e_lat, e_lng, target[0], target[1]
+    engineer_airport = assigned_airport('engineers', eng_id)
+    is_vdnh_route = engineer_airport == 'vdnh'
+    walk_path, walk_dist, walk_time = get_airport_road_path(
+        engineer_airport, e_lat, e_lng, target[0], target[1]
     )
+
     if walk_path is None:
-        walk_path = [[e_lat, e_lng], [target[0], target[1]]]
-        walk_dist = distance_km(e_lat, e_lng, target[0], target[1])
+        conn.close()
+        return None
     else:
-        # Гарантируем, что линия начинается ровно в координате метки инженера,
-        # а не в ближайшей вершине дорожного графа.
         walk_path = list(walk_path)
         if not walk_path:
             walk_path = [[e_lat, e_lng], [target[0], target[1]]]
@@ -959,73 +2253,129 @@ def _recompute_route_for_request(request_row):
                 walk_path.append([target[0], target[1]])
             else:
                 walk_path[-1] = [target[0], target[1]]
-    walk_time = walk_dist / WALK_SPEED_KMH * 60
 
-    cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to=?",
-                (request_row['id'],))
-    assigned_car = cur.fetchone()
+    warehouse_info = None
+    if is_vdnh_route and _needs_warehouse_visit(eng_id, request_row):
+        warehouse_result = _warehouse_route(engineer_airport, e_lat, e_lng,
+                                            target[0], target[1])
+        if warehouse_result:
+            walk_path = warehouse_result['path']
+            walk_dist = warehouse_result['distance']
+            warehouse_info = warehouse_result['warehouse']
+
+    # Инженер идёт ровно 5 км/ч. Получение инструмента со склада добавляет 30 с,
+    # если инструмент ещё не у инженера/на точке.
+    walk_travel_time = walk_dist / WALK_SPEED_KMH * 60.0
+    tool_delay = _norm_tool_delay_min(eng_id, request_row)
+    board_delay = TRACK_BOARD_DELAY_MIN
+    walk_time = walk_travel_time + tool_delay
+
+    assigned_car = None
+    if not is_vdnh_route:
+        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to=?",
+                    (request_row['id'],))
+        assigned_car = cur.fetchone()
+        if assigned_car and not object_belongs_to_airport('transport', assigned_car['id']):
+            assigned_car = None
 
     best_time = walk_time
     best_car = None
-    best_car_time = 0
-    best_walk_to_car = 0
+    best_car_time = 0.0
+    best_walk_to_car = 0.0
     best_path = walk_path
+    best_legs = []
+    best_mode = 'walk'
 
-    if assigned_car:
-        seg1_dist = distance_km(e_lat, e_lng, assigned_car['lat'], assigned_car['lng'])
-        wtc = seg1_dist / WALK_SPEED_KMH * 60
-        car_path, car_dist = get_shortest_path(
-            road_graph_vehicle, assigned_car['lat'], assigned_car['lng'],
-            target[0], target[1]
+    def _car_option(car):
+        """Return option for a car or None. Times include boarding and tool delay."""
+        try:
+            car_lat = float(car['lat'])
+            car_lng = float(car['lng'])
+        except (TypeError, ValueError):
+            return None
+        to_car_path, to_car_dist, _to_car_time = get_airport_road_path(
+            engineer_airport, e_lat, e_lng, car_lat, car_lng
         )
-        if car_path is None:
-            car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
-            car_dist = distance_km(assigned_car['lat'], assigned_car['lng'], target[0], target[1])
+        if not to_car_path:
+            to_car_path = [[e_lat, e_lng], [car_lat, car_lng]]
+            to_car_dist = distance_km(e_lat, e_lng, car_lat, car_lng)
+        to_car_path = [list(p) for p in to_car_path]
+        to_car_path[0] = [e_lat, e_lng]
+        to_car_path[-1] = [car_lat, car_lng]
+        wtc = to_car_dist / WALK_SPEED_KMH * 60.0
+        if is_vdnh_route:
+            result = get_airport_transport_path('vdnh', car_lat, car_lng, target[0], target[1])
+            if not result:
+                return None
+            car_path, car_dist, road_time, legs = result
         else:
-            car_path = list(car_path)
-            if len(car_path) < 2:
-                car_path = [[assigned_car['lat'], assigned_car['lng']], [target[0], target[1]]]
-            else:
-                car_path[0] = [assigned_car['lat'], assigned_car['lng']]
-                car_path[-1] = [target[0], target[1]]
-        sp = assigned_car['speed'] or 30
-        dt = car_dist / sp * 60
-        best_time = wtc + dt
-        best_car = assigned_car
-        best_car_time = dt
-        best_walk_to_car = wtc
-        best_path = [[e_lat, e_lng]] + car_path
-    else:
-        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-        for car in cur.fetchall():
-            seg1_dist = distance_km(e_lat, e_lng, car['lat'], car['lng'])
-            wtc = seg1_dist / WALK_SPEED_KMH * 60
-            car_path, car_dist = get_shortest_path(
-                road_graph_vehicle, car['lat'], car['lng'], target[0], target[1]
+            car_path, car_dist, road_time = get_airport_road_path(
+                engineer_airport, car_lat, car_lng, target[0], target[1]
             )
             if car_path is None:
-                car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
-                car_dist = distance_km(car['lat'], car['lng'], target[0], target[1])
-            else:
-                car_path = list(car_path)
-                if len(car_path) < 2:
-                    car_path = [[car['lat'], car['lng']], [target[0], target[1]]]
-                else:
-                    car_path[0] = [car['lat'], car['lng']]
-                    car_path[-1] = [target[0], target[1]]
-            sp = car['speed'] or 30
-            dt = car_dist / sp * 60
-            total = wtc + dt
-            if total < best_time:
-                best_time = total
+                return None
+            legs = []
+            sp = float(car['speed'] or 30)
+            # Speed limit of an edge is an upper bound even for a fast vehicle.
+            road_time = max(float(road_time or 0), car_dist / max(sp, 1.0) * 60.0)
+        car_path = list(car_path or [])
+        if len(car_path) < 2:
+            car_path = [[car_lat, car_lng], [target[0], target[1]]]
+        else:
+            car_path[0] = [car_lat, car_lng]
+            car_path[-1] = [target[0], target[1]]
+        car_time = float(road_time or 0) + board_delay + tool_delay
+        total = wtc + car_time
+        path = to_car_path + car_path[1:]
+        return {
+            'car': car, 'total': total, 'car_time': car_time,
+            'walk_to_car': wtc, 'path': path, 'legs': legs,
+            'board_delay': board_delay, 'tool_delay': tool_delay,
+        }
+
+    if assigned_car is not None:
+        option = _car_option(assigned_car)
+        if option and option['total'] <= walk_time:
+            best_time = option['total']
+            best_car = assigned_car
+            best_car_time = option['car_time']
+            best_walk_to_car = option['walk_to_car']
+            best_path = option['path']
+            best_legs = option['legs']
+            best_mode = 'transport'
+    elif not is_vdnh_route:
+        cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
+        cars = filter_objects_by_airport('transport', cur.fetchall(), engineer_airport)
+        for car in cars:
+            option = _car_option(car)
+            if option and option['total'] < best_time:
+                best_time = option['total']
                 best_car = car
-                best_car_time = dt
-                best_walk_to_car = wtc
-                best_path = [[e_lat, e_lng]] + car_path
+                best_car_time = option['car_time']
+                best_walk_to_car = option['walk_to_car']
+                best_path = option['path']
+                best_legs = option['legs']
+                best_mode = 'transport'
 
     conn.close()
 
+    best_path = _dedupe_route_points(best_path)
     rounded = [[round(p[0], 6), round(p[1], 6)] for p in best_path]
+    snap_start_m = 0.0
+    snap_end_m = 0.0
+    if len(best_path) >= 2:
+        snap_start_m = distance_km(e_lat, e_lng, best_path[1][0], best_path[1][1]) * 1000.0
+        snap_end_m = distance_km(best_path[-2][0], best_path[-2][1], target[0], target[1]) * 1000.0
+    legs_json = []
+    for leg in (best_legs or []):
+        legs_json.append({
+            'from': [round(leg['from'][0], 6), round(leg['from'][1], 6)],
+            'to': [round(leg['to'][0], 6), round(leg['to'][1], 6)],
+            'distance_km': leg.get('distance_km'),
+            'speed_kmh': leg.get('speed_kmh'),
+            'time_min': leg.get('time_min'),
+            'mode': leg.get('mode'),
+        })
 
     route_json = {
         'flat': round(e_lat, 6), 'flng': round(e_lng, 6),
@@ -1036,10 +2386,26 @@ def _recompute_route_for_request(request_row):
         'ct': round(best_car_time, 1),
         'wc_exact': round(best_walk_to_car, 3),
         'ct_exact': round(best_car_time, 3),
-        'bclat': round(best_car['lat'], 6) if best_car else None,
-        'bclng': round(best_car['lng'], 6) if best_car else None,
+        'bclat': round(float(best_car['lat']), 6) if best_car else None,
+        'bclng': round(float(best_car['lng']), 6) if best_car else None,
         'bc': best_car['device_id'] if best_car else None,
         'pid': parking,
+        'mode': best_mode,
+        'graph': 'vdnh_official_network' if is_vdnh_route else 'osm',
+        'snap_start_m': round(snap_start_m, 1),
+        'snap_end_m': round(snap_end_m, 1),
+        'walk_travel_min': round(walk_travel_time, 1),
+        'tool_delay_min': round(tool_delay, 2),
+        'via_label': warehouse_info['name'] if warehouse_info else '',
+        'warehouse': ({'name': warehouse_info['name'],
+                       'lat': round(warehouse_info['lat'], 6),
+                       'lng': round(warehouse_info['lng'], 6)}
+                      if warehouse_info else None),
+        'board_delay_min': round(board_delay, 2) if best_car else 0,
+        'legs': legs_json,
+        'destination_label': (('Сервисная зона ' + parking)
+                              if is_vdnh_route and _vdnh_service_zone_center(parking) is not None
+                              else ('Стоянка ' + parking)),
         'path': rounded,
     }
     fields = {
@@ -1117,18 +2483,23 @@ def _recalc_route_for_request_id(request_id, force=False):
         return
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment, r.status,
+    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.source, r.engineer_comment, r.status,
+                          r.fault_type, r.description, r.criticality,
                           r.routing_stage, e.task_step AS engineer_task_step, e.status AS engineer_status,
-                          e.coords_lat AS engineer_lat, e.coords_lng AS engineer_lng
-                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                          COALESCE(gps.lat, p.lat, e.coords_lat) AS engineer_lat,
+                          COALESCE(gps.lng, p.lng, e.coords_lng) AS engineer_lng
+                   FROM requests r
+                   LEFT JOIN engineers e ON e.id=r.engineer_id
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
                    WHERE r.id=?""", (request_id,))
     req = cur.fetchone()
     if not req:
         conn.close()
         return
-    # Маршрут-превью создаётся сразу после назначения (pending).
-    # До принятия он только отображается и не запускает движение/таймер.
-    # После принятия тот же маршрут становится активным маршрутом поездки.
+    # Маршрут строится сразу после назначения инженера (task_step=pending); принятие задачи не требуется.
     route_terminal_statuses = ('completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted')
     route_work_steps = ('pending', 'accepted', 'in_car', 'arrived', 'diagnosing')
     is_working = (req['status'] not in route_terminal_statuses and
@@ -1136,7 +2507,7 @@ def _recalc_route_for_request_id(request_id, force=False):
                   req['engineer_id'] is not None and req['engineer_status'] == 'busy' and
                   req['engineer_task_step'] in route_work_steps and
                   req['engineer_lat'] is not None and req['engineer_lng'] is not None and
-                  str(req['parking_id'] or '') in PARKING_COORDS)
+                  _request_target_coords(req['parking_id'], req['source']) is not None)
     if not is_working:
         _clear_route_for_request(cur, request_id, req['engineer_comment'])
         conn.commit()
@@ -1184,6 +2555,16 @@ def _recalc_route_for_request_id(request_id, force=False):
                  request_id))
     conn.commit()
     conn.close()
+    try:
+        route_data = json.loads(new_route)
+        _log_event('route', 'Система', request_id, {
+            'travel_time': fields['travel_time'],
+            'using_car': bool(fields['using_car']),
+            'best_car': fields.get('best_car'),
+            'path_points': len(route_data.get('path') or []),
+        })
+    except Exception:
+        pass
     print(f'[SYNC] ROUTE recalculated for {request_id}')
 
 
@@ -1263,6 +2644,7 @@ def _log_routing_event(conn, rid, stage, actor, note=''):
     })
     cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
                 (json.dumps(history, ensure_ascii=False), rid))
+    _log_event('routing', actor, rid, {'stage': stage, 'note': note})
 
 
 # ============================================================
@@ -1360,6 +2742,27 @@ def api_parking():
     def sort_key(k):
         m = re.match(r'^(\d+)', str(k))
         return (int(m.group(1)) if m else 9999, str(k))
+    if current_airport_payload().get('airport') == 'vdnh':
+        zones = []
+        try:
+            with open(os.path.join(STATIC_DIR, 'vdnh', 'service_zones.geojson'), 'r', encoding='utf-8') as f:
+                features = json.load(f).get('features') or []
+            for feature in features:
+                props = feature.get('properties') or {}
+                zone_id = props.get('id')
+                center = _vdnh_service_zone_center(zone_id)
+                if zone_id is None or center is None:
+                    continue
+                zones.append({
+                    'ref': str(zone_id),
+                    'name': 'Сервисная зона ' + str(zone_id),
+                    'lat': center[0], 'lng': center[1],
+                    'terminal': 'ВДНХ',
+                })
+        except (OSError, ValueError):
+            zones = []
+        zones.sort(key=lambda z: sort_key(z['ref']))
+        return jsonify(zones)
     result = [PARKING_META[k] for k in sorted(PARKING_META.keys(), key=sort_key)]
     return jsonify(result)
 
@@ -1438,11 +2841,49 @@ def api_map_debug():
 # ============================================================
 # Авторизация
 # ============================================================
+def _mobile_sessions_connection():
+    """Отдельное хранилище блокировок мобильных сессий; основная БД не меняется."""
+    conn = sqlite3.connect(MOBILE_SESSIONS_DB, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA busy_timeout=30000')
+    conn.execute("""CREATE TABLE IF NOT EXISTS mobile_engineer_sessions (
+        user_id TEXT PRIMARY KEY,
+        session_token TEXT NOT NULL,
+        last_seen REAL NOT NULL
+    )""")
+    return conn
+
+
+def _claim_mobile_engineer_session(user_id):
+    token = uuid.uuid4().hex
+    now = time.time()
+    conn = _mobile_sessions_connection()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute(
+            'SELECT session_token, last_seen FROM mobile_engineer_sessions WHERE user_id=?',
+            (str(user_id),)
+        ).fetchone()
+        if row and now - float(row['last_seen'] or 0) <= MOBILE_SESSION_TTL_SECONDS:
+            conn.rollback()
+            return None
+        conn.execute("""INSERT INTO mobile_engineer_sessions(user_id, session_token, last_seen)
+            VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+            session_token=excluded.session_token, last_seen=excluded.last_seen""",
+            (str(user_id), token, now))
+        conn.commit()
+        return token
+    finally:
+        conn.close()
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     email = (data.get('email') or '').strip().lower()
     password = (data.get('password') or '').strip()
+    is_mobile = (str(data.get('client_type') or '').lower() == 'mobile' or
+                 request.headers.get('X-InTrAvia-Client', '').lower() == 'mobile')
     if not email or not password:
         return jsonify({'error': 'Заполните все поля'}), 400
     conn = get_db()
@@ -1453,6 +2894,22 @@ def auth_login():
     if not u:
         conn.close()
         return jsonify({'error': 'Неверный email или пароль'}), 401
+
+    mobile_session_token = None
+    if is_mobile and u['role'] == 'engineer':
+        try:
+            mobile_session_token = _claim_mobile_engineer_session(u['id'])
+        except Exception as exc:
+            conn.close()
+            print(f'[AUTH] Не удалось проверить мобильную сессию инженера: {exc}')
+            return jsonify({'success': False, 'error': 'Не удалось проверить активную сессию. Повторите попытку.'}), 503
+        if not mobile_session_token:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Отказано в доступе: в данном аккаунте инженера уже выполнена мобильная сессия на другом устройстве.'
+            }), 409
+
     cur.execute("UPDATE users SET status='online' WHERE id=?", (u['id'],))
     conn.commit()
     extra = {}
@@ -1465,8 +2922,45 @@ def auth_login():
     conn.close()
     res = {'id': u['id'], 'email': u['email'], 'name': u['name'],
            'role': u['role'], 'avatar': u['avatar'] or '👤'}
+    if mobile_session_token:
+        res['mobile_session_token'] = mobile_session_token
     res.update(extra)
     return jsonify({'success': True, 'user': res})
+
+
+@app.route('/api/auth/mobile-heartbeat', methods=['POST'])
+def mobile_engineer_session_heartbeat():
+    data = request.get_json(silent=True) or {}
+    user_id = str(data.get('user_id') or '').strip()
+    token = str(data.get('session_token') or '').strip()
+    if not user_id or not token:
+        return jsonify({'success': False, 'error': 'Нет данных мобильной сессии'}), 400
+    conn = _mobile_sessions_connection()
+    try:
+        cur = conn.execute("UPDATE mobile_engineer_sessions SET last_seen=? WHERE user_id=? AND session_token=?",
+                           (time.time(), user_id, token))
+        conn.commit()
+        if cur.rowcount != 1:
+            return jsonify({'success': False, 'error': 'Мобильная сессия завершена или открыта на другом устройстве.'}), 401
+        return jsonify({'success': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/auth/mobile-logout', methods=['POST'])
+def mobile_engineer_session_logout():
+    data = request.get_json(silent=True) or {}
+    user_id = str(data.get('user_id') or '').strip()
+    token = str(data.get('session_token') or '').strip()
+    if user_id and token:
+        conn = _mobile_sessions_connection()
+        try:
+            conn.execute('DELETE FROM mobile_engineer_sessions WHERE user_id=? AND session_token=?',
+                         (user_id, token))
+            conn.commit()
+        finally:
+            conn.close()
+    return jsonify({'success': True})
 
 
 # ============================================================
@@ -1798,6 +3292,61 @@ def sync_expired_mel(conn):
     return len(expired)
 
 
+@app.route('/api/defects', methods=['GET'])
+def list_defects():
+    """Open defect catalog: search by free text, ATA chapter and category."""
+    q = str(request.args.get('q') or request.args.get('query') or '').strip()
+    ata = str(request.args.get('ata') or '').strip()
+    category = str(request.args.get('category') or '').strip()
+    try:
+        limit = min(100, max(1, int(request.args.get('limit') or 20)))
+    except (TypeError, ValueError):
+        limit = 20
+    catalog = load_defect_catalog()
+    items = search_defect_catalog(q, ata, category, limit) if (q or ata or category) else list(catalog.get('defects') or [])[:limit]
+    return jsonify({
+        'success': True,
+        'query': q, 'ata': ata, 'category': category,
+        'count': len(items),
+        'defects': items,
+        'categories': catalog.get('categories') or DEFECT_CATEGORIES,
+        'ata_chapters': catalog.get('ata_chapters') or ATA_CHAPTERS,
+    })
+
+
+@app.route('/api/defects', methods=['POST'])
+def create_defect():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get('text') or data.get('description') or '').strip()
+    ata = str(data.get('ata') or '').strip()
+    category = str(data.get('category') or '').strip()
+    synonyms = data.get('synonyms') or []
+    if isinstance(synonyms, str):
+        synonyms = [s.strip() for s in synonyms.split(',') if s.strip()]
+    try:
+        item, created = add_defect_to_catalog(text, ata, category, data.get('skill'), synonyms)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    return jsonify({'success': True, 'created': created, 'defect': item,
+                    'classification': classify_defect(text, item.get('ata'), item.get('category'))})
+
+
+@app.route('/api/defects/classify', methods=['POST'])
+def classify_defect_endpoint():
+    data = request.get_json(silent=True) or {}
+    result = classify_defect(data.get('text') or data.get('description') or '',
+                             data.get('ata') or '', data.get('category') or '')
+    result['success'] = True
+    return jsonify(result)
+
+
+@app.route('/api/defects/ata', methods=['GET'])
+def defect_ata_reference():
+    catalog = load_defect_catalog()
+    return jsonify({'success': True, 'categories': catalog.get('categories') or DEFECT_CATEGORIES,
+                    'ata_chapters': catalog.get('ata_chapters') or ATA_CHAPTERS})
+
+
 @app.route('/api/mcc/ata', methods=['POST'])
 def mcc_set_ata():
     data = request.get_json() or {}
@@ -2041,6 +3590,8 @@ def engineer_submit_report():
     mel_assessment_comment = ''
     mel_m_procedure_completed = bool(data.get('mel_m_procedure_completed'))
     mel_m_procedure_comment = str(data.get('mel_m_procedure_comment') or '').strip()
+    need_parts = bool(data.get('need_parts'))
+    waiting_parts = bool(condition == 'aog' and need_parts)
     try:
         duration = int(data.get('duration') or 0)
     except (TypeError, ValueError):
@@ -2116,7 +3667,9 @@ def engineer_submit_report():
         str(row['mcc_mel_ref'] or '').strip().casefold() == mel_item_ref.casefold() and row['cpu_mel_applicability_confirmed'])
 
     flight_reason = (
-        'AOG установлен инженером: полёт запрещён. Отчёт передан в ЦПУ.' if preliminary_verdict == 'AOG' else
+        ('AOG установлен инженером: полёт запрещён. Ожидается запчасть — инженер возвращён в пул.'
+         if waiting_parts else
+         'AOG установлен инженером: полёт запрещён. Отчёт передан в ЦПУ.') if preliminary_verdict == 'AOG' else
         ('Инженер сопоставил дефект с пунктом MEL ' + str(mel_values['mcc_mel_ref']) +
          '. Условная эксплуатация не активна; ожидаются проверка ЦПУ и решение MCC.' if preliminary_verdict == 'MEL' else
          'Инженер завершил диагностику. Отчёт передан в ЦПУ; полёт запрещён до решения MCC и отдельного допуска.')
@@ -2140,6 +3693,7 @@ def engineer_submit_report():
         cpu_mel_checked_at=NULL, cpu_mel_checked_by='', cpu_mel_check_comment='',
         cpu_mel_o_comment=CASE WHEN ?=1 THEN cpu_mel_o_comment ELSE '' END, cpu_mel_m_comment='',
         flight_status='DO_NOT_FLY', flight_status_reason=?,
+        aog_action=CASE WHEN ?=1 THEN 'WAITING_PARTS' WHEN ?='AOG' THEN 'AOG' ELSE aog_action END,
         aog_since=CASE WHEN ?='AOG' THEN COALESCE(aog_since,CURRENT_TIMESTAMP) ELSE aog_since END
         WHERE id=?""", (
         condition, preliminary_verdict, report_text,
@@ -2152,7 +3706,8 @@ def engineer_submit_report():
         mel_values['mel_deadline_mode'], mel_values['mel_deadline_value'],
         mel_values['mel_deadline_start_rule'], preliminary_verdict,
         1 if preserve_cpu_mel_o else 0, 1 if preserve_cpu_mel_o else 0,
-        1 if preserve_cpu_mel_o else 0, flight_reason, preliminary_verdict, rid))
+        1 if preserve_cpu_mel_o else 0, flight_reason,
+        1 if waiting_parts else 0, preliminary_verdict, preliminary_verdict, rid))
     if row['engineer_id']:
         release_engineers_without_active_requests(conn, [row['engineer_id']])
     cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
@@ -2160,8 +3715,24 @@ def engineer_submit_report():
     if preliminary_verdict == 'MEL':
         event_text += ' · выбран пункт ' + str(mel_values['mcc_mel_ref']) + ' · Cat ' + str(mel_values['mcc_mel_category'])
     _log_routing_event(conn, rid, 'cpu_report', 'Инженер', event_text)
+    _log_event('status_change', 'Инженер', rid, {
+        'from': row['status'], 'to': 'report_submitted',
+        'reason': 'Инженер отправил отчёт о диагностике',
+        'condition': condition, 'verdict': preliminary_verdict,
+    })
     conn.commit()
     conn.close()
+    if waiting_parts:
+        _log_event('waiting_parts', 'Инженер', rid, {
+            'reason': 'AOG: требуется запчасть, инженер освобождён и возвращён в пул',
+            'engineer_id': str(row['engineer_id'] or ''),
+            'aog_action': 'WAITING_PARTS',
+        })
+    _log_event('report_submitted', 'Инженер', rid, {
+        'condition': condition, 'verdict': preliminary_verdict,
+        'need_parts': need_parts, 'waiting_parts': waiting_parts,
+        'engineer_id': str(row['engineer_id'] or ''),
+    })
     _recalc_route_for_request_id(rid, force=True)
     # Инженер освобождён: сразу запускаем автоподбор для ожидающих заявок.
     try:
@@ -2730,7 +4301,7 @@ def cpu_send_to_dispatcher():
     aircraft = row['aircraft'] or 'ВС'
     parking_id = str(row['parking_id'] or '')
     fault = row['fault_type'] or 'other'
-    target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
+    target = _request_target_coords(parking_id, row['source']) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
 
     # Передаём заявку в диспетчерскую зону, сохраняя исходный source='pilot'.
     # Это необходимо, чтобы пилот продолжал видеть именно свою заявку.
@@ -2766,8 +4337,7 @@ def cpu_send_to_dispatcher():
                            'Автоматически назначен ' + eng['name'])
         conn.commit()
         conn.close()
-        # Маршрут-превью сразу доступен диспетчеру; выезд начнётся после принятия.
-        _recalc_route_for_request_id(rid, force=True)
+        # До принятия задачи инженером маршрут не создаётся.
         return jsonify({
             'success': True, 'request_id': rid, 'routing_stage': 'technician',
             'assigned': True, 'queued': False,
@@ -3114,30 +4684,62 @@ def mcc_mark_mel_expired():
 
 
 def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
-    """Explainable ranking using the same eligibility/ETA rules as auto-assignment."""
-    fault = str(request_row.get('fault_type') or 'other')
-    required_skill = FAULT_SKILL.get(fault, 'general')
+    """Explainable multi-criteria ranking: urgency, position, qualification/ATA,
+    workload/started work, norm consequences and tool availability."""
+    started_at = time.perf_counter()
+    def row_get(key, default=None):
+        try:
+            value = request_row[key]
+            return default if value is None else value
+        except (KeyError, IndexError, TypeError):
+            return default
+    classification = _request_classification(request_row)
+    required_skill = classification.get('skill') or FAULT_SKILL.get(str(row_get('fault_type') or 'other'), 'general')
     skill_labels = {
         'engine': 'Двигатель', 'avionics': 'Авионика', 'hydraulics': 'Гидравлика',
         'electrical': 'Электрика', 'mechanical': 'Механика', 'general': 'Общая специализация'
     }
-    parking_id = str(request_row.get('parking_id') or '')
-    target = PARKING_COORDS.get(parking_id)
+    priority = str(row_get('criticality') or row_get('severity') or 'medium').lower()
+    text_lower = (str(row_get('description') or '') + ' ' + str(row_get('fault_type') or '')).lower()
+    aog = bool(row_get('aog_since')) or priority == 'high' or 'aog' in text_lower
+    created = _parse_db_dt(row_get('created_at')) or datetime.now(timezone.utc)
+    deadline = created + timedelta(minutes=NORM_LIMIT_MINUTES)
+
+    selected_airport = current_airport_payload()['airport']
+    parking_id = str(row_get('parking_id') or '')
+    target = _request_target_coords(parking_id, row_get('source'))
     target_known = target is not None
     if target is None:
-        target = (55.975, 37.410)
+        target = AIRPORT_CENTERS.get(selected_airport, (55.975, 37.410))
 
     cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, specialization, coords_lat, coords_lng, status
-                   FROM engineers""")
+    cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization,
+                          COALESCE(gps.lat, p.lat, e.coords_lat) AS coords_lat,
+                          COALESCE(gps.lng, p.lng, e.coords_lng) AS coords_lng,
+                          e.status, e.task, e.task_step
+                   FROM engineers e
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id""")
     engineers = [dict(row) for row in cur.fetchall()]
-    cur.execute("""SELECT DISTINCT engineer_id FROM requests
-                   WHERE routing_stage='technician'
-                     AND status IN ('assigned','arriving','in_progress','working')
-                     AND engineer_id IS NOT NULL""")
-    active_engineer_ids = {str(row['engineer_id']) for row in cur.fetchall()}
+    assignments = load_airport_assignments()
+    selected_airport = current_airport_payload()['airport']
+    engineers = [e for e in engineers
+                 if assigned_airport('engineers', e['id'], assignments) == selected_airport]
+    cur.execute("""SELECT r.engineer_id, r.id, r.status, r.aircraft, r.parking_id, r.fault_type,
+                          e.task_step AS engineer_task_step
+                   FROM requests r
+                   LEFT JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.routing_stage='technician'
+                     AND r.status IN ('assigned','arriving','in_progress','working')
+                     AND r.engineer_id IS NOT NULL""")
+    active_by_engineer = {}
+    for row in cur.fetchall():
+        active_by_engineer[str(row['engineer_id'])] = dict(row)
+    active_engineer_ids = set(active_by_engineer)
     cur.execute("SELECT id, device_id, lat, lng, speed FROM transport WHERE assigned_to IS NULL")
-    cars = [dict(row) for row in cur.fetchall()]
+    cars = [] if selected_airport == 'vdnh' else filter_objects_by_airport('transport', cur.fetchall(), selected_airport, assignments)
 
     free = [e for e in engineers
             if str(e.get('status') or '').lower() == 'free'
@@ -3145,13 +4747,29 @@ def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
     skill_pool = [e for e in free if str(e.get('specialization') or 'general') == required_skill]
 
     feasible = []
-    over_regulation = 0
     for engineer in skill_pool:
-        # Keep the same fallback location used by the existing selection algorithm.
-        e_lat = float(engineer.get('coords_lat') or 55.975)
-        e_lng = float(engineer.get('coords_lng') or 37.410)
-        walk_distance = distance_km(e_lat, e_lng, target[0], target[1])
-        walk_time = walk_distance / WALK_SPEED_KMH * 60
+        # ETA is computed before assignment from the engineer's latest real GPS position.
+        if engineer.get('coords_lat') is None or engineer.get('coords_lng') is None:
+            continue
+        e_lat = float(engineer['coords_lat'])
+        e_lng = float(engineer['coords_lng'])
+        engineer_airport = assigned_airport('engineers', engineer['id'], assignments)
+        _walk_path, walk_distance, walk_time = get_airport_road_path(
+            engineer_airport, e_lat, e_lng, target[0], target[1]
+        )
+        if not _walk_path:
+            walk_distance = distance_km(e_lat, e_lng, target[0], target[1])
+        tool_status, tool_info = get_engineer_tool_status(engineer['id'])
+        warehouse_name = ''
+        if (selected_airport == 'vdnh' and _request_needs_tools(request_row) and
+                tool_status not in ('on_hand', 'at_site', 'none')):
+            warehouse_result = _warehouse_route('vdnh', e_lat, e_lng, target[0], target[1])
+            if warehouse_result:
+                walk_distance = warehouse_result['distance']
+                warehouse_name = warehouse_result['warehouse']['name']
+        walk_time = walk_distance / WALK_SPEED_KMH * 60.0
+        tool_delay = TOOL_PICKUP_DELAY_MIN if tool_status not in ('on_hand', 'at_site', 'none') else 0.0
+        walk_time += tool_delay
         best_time = walk_time
         best_car = None
         best_car_time = 0.0
@@ -3161,15 +4779,28 @@ def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
             car_lng = float(car.get('lng') or 0)
             if not car_lat or not car_lng:
                 continue
-            to_car_dist = distance_km(e_lat, e_lng, car_lat, car_lng)
-            to_car_time = to_car_dist / WALK_SPEED_KMH * 60
-            _path, road_distance = get_shortest_path(
-                road_graph_vehicle, car_lat, car_lng, target[0], target[1]
+            to_car_path, to_car_dist, _to_car_graph_time = get_airport_road_path(
+                selected_airport, e_lat, e_lng, car_lat, car_lng
             )
-            if not road_distance:
-                road_distance = distance_km(car_lat, car_lng, target[0], target[1])
-            speed = float(car.get('speed') or 30)
-            car_leg_time = road_distance / max(speed, 1.0) * 60
+            if not to_car_path:
+                to_car_dist = distance_km(e_lat, e_lng, car_lat, car_lng)
+            to_car_time = to_car_dist / WALK_SPEED_KMH * 60
+            if selected_airport == 'vdnh':
+                result = get_airport_transport_path('vdnh', car_lat, car_lng, target[0], target[1])
+                if not result:
+                    continue
+                _path, road_distance, road_time, _legs = result
+            else:
+                _path, road_distance, road_time = get_airport_road_path(
+                    selected_airport, car_lat, car_lng, target[0], target[1]
+                )
+                if not _path:
+                    road_distance = distance_km(car_lat, car_lng, target[0], target[1])
+                    road_time = road_distance / max(float(car.get('speed') or 30), 1.0) * 60
+                # Road network ETA respects per-segment limits; vehicle speed is an upper bound.
+                road_time = max(float(road_time or 0),
+                                road_distance / max(float(car.get('speed') or 30), 1.0) * 60)
+            car_leg_time = float(road_time or 0) + TRACK_BOARD_DELAY_MIN + tool_delay
             total_time = to_car_time + car_leg_time
             if total_time < best_time:
                 best_time = total_time
@@ -3178,9 +4809,8 @@ def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
                 walk_to_car = to_car_time
 
         eta = round(best_time, 1)
-        if eta > REGULATION_MINUTES:
-            over_regulation += 1
-            continue
+        arrives_at = datetime.now(timezone.utc) + timedelta(minutes=best_time)
+        slack = (deadline - arrives_at).total_seconds() / 60.0
         feasible.append({
             'engineer_id': str(engineer['id']),
             'engineer_name': engineer.get('name') or 'Инженер',
@@ -3193,25 +4823,45 @@ def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
             'walk_to_car': round(walk_to_car, 1),
             'car_time': round(best_car_time, 1),
             'position_known': bool(engineer.get('coords_lat') is not None and engineer.get('coords_lng') is not None),
+            'ata': classification.get('ata'),
+            'ata_match': True,
+            'tool_status': tool_status,
+            'tool_ready': tool_status in ('on_hand', 'at_site'),
+            'tool_comment': (tool_info or {}).get('comment') or '',
+            'via_label': warehouse_name,
+            'slack_min': round(slack, 1),
+            'meets_norm': slack >= 0,
+            'priority': priority,
+            'aog': aog,
+            'workload': 0,
+            'started_work': False,
         })
 
-    feasible.sort(key=lambda item: (item['travel_time'], item['engineer_name'].lower(), item['engineer_id']))
+    feasible.sort(key=lambda item: (not item['meets_norm'], item['travel_time'],
+                                    item['engineer_name'].lower(), item['engineer_id']))
     for idx, candidate in enumerate(feasible[:limit], start=1):
         candidate['rank'] = idx
         route_text = ('пешком до ' + str(candidate['best_car']) + ' ' + str(candidate['walk_to_car']) +
                       ' мин, затем на спецтранспорте ' + str(candidate['car_time']) + ' мин'
                       if candidate['using_car'] else 'пешком')
         reason_parts = [
-            'Профиль совпадает: ' + skill_labels.get(required_skill, required_skill),
-            'инженер свободен и не имеет активной заявки',
-            'расчётное прибытие ' + str(candidate['travel_time']) + ' мин (' + route_text + ')'
+            'Допуск соответствует: ' + skill_labels.get(required_skill, required_skill) +
+            (' · ATA ' + str(classification.get('ata')) + ' ' + str(classification.get('ata_name') or '') if classification.get('ata') else ''),
+            'инженер свободен, активных заявок нет (загрузка 0)',
+            'расчётное прибытие ' + str(candidate['travel_time']) + ' мин (' + route_text + ')',
+            ('норматив 15 мин соблюдается, запас ' + str(candidate['slack_min']) + ' мин'
+             if candidate['meets_norm'] else 'РИСК: норматив 15 мин не соблюдается'),
+            ('инструмент готов' if candidate['tool_ready'] else
+             'инструмент не подтверждён — +30 с' + (' и заход на ' + candidate['via_label'] if candidate.get('via_label') else ' на складе')),
         ]
+        if aog:
+            reason_parts.append('заявка AOG/высокой срочности — приоритет отдан соблюдению норматива')
         if not candidate['position_known']:
             reason_parts.append('координаты инженера не получены — использована базовая точка аэропорта')
         if not target_known:
             reason_parts.append('ID стоянки отсутствует в координатном справочнике — использована базовая точка аэропорта')
         if idx == 1:
-            reason_parts.append('самое короткое расчётное время среди подходящих свободных инженеров')
+            reason_parts.append('лучший по совокупности факторов, а не только по расстоянию')
         else:
             delta = round(candidate['travel_time'] - feasible[0]['travel_time'], 1)
             reason_parts.append('на ' + str(delta) + ' мин дольше лидера рейтинга')
@@ -3222,20 +4872,80 @@ def _dispatcher_engineer_recommendations(conn, request_row, limit=5):
     elif not free:
         no_candidate_reason = 'Нет свободных инженеров: все специалисты заняты или недоступны.'
     elif not skill_pool:
-        no_candidate_reason = 'Нет свободного инженера со специализацией «' + skill_labels.get(required_skill, required_skill) + '».'
+        no_candidate_reason = 'Нет свободного инженера со специализацией «' + skill_labels.get(required_skill, required_skill) + '» (ATA ' + str(classification.get('ata') or '—') + ').'
     else:
-        no_candidate_reason = ('Есть ' + str(len(skill_pool)) + ' свободных инженеров нужного профиля, '
-                               'но их расчётное время превышает норматив ' + str(REGULATION_MINUTES) + ' мин.')
-    return {
+        no_candidate_reason = 'Нет инженеров с доступными координатами для расчёта времени прибытия.'
+
+    candidates = feasible[:limit]
+    feasible_ids = {str(c.get('engineer_id')) for c in feasible}
+    skill_pool_ids = {str(e.get('id')) for e in skill_pool}
+    rejected = []
+    for engineer in engineers:
+        eid = str(engineer.get('id'))
+        if eid in feasible_ids:
+            continue
+        active = active_by_engineer.get(eid)
+        if str(engineer.get('status') or '').lower() != 'free' or eid in active_engineer_ids:
+            if active:
+                reason = ('занят: заявка ' + str(active.get('id') or '') +
+                          ', этап «' + str(active.get('status') or '') + '»' +
+                          (' — снятие после начала работ только решением старшего смены'
+                           if active.get('status') in ('in_progress', 'working') else ''))
+            else:
+                reason = 'занят или уже имеет активную заявку'
+        elif eid not in skill_pool_ids:
+            reason = ('не соответствует допуску: требуется ' +
+                      skill_labels.get(required_skill, required_skill) +
+                      (' (ATA ' + str(classification.get('ata')) + ')' if classification.get('ata') else '') +
+                      ', у инженера ' + skill_labels.get(str(engineer.get('specialization') or 'general'),
+                                                          str(engineer.get('specialization') or '—')))
+        elif engineer.get('coords_lat') is None or engineer.get('coords_lng') is None:
+            reason = 'нет координат для расчёта времени прибытия'
+        else:
+            reason = 'не прошёл по маршруту/времени прибытия'
+        rejected.append({
+            'engineer_id': eid,
+            'engineer_name': engineer.get('name') or 'Инженер',
+            'reason': reason,
+        })
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000.0, 1)
+    result = {
         'required_skill': required_skill,
         'required_skill_label': skill_labels.get(required_skill, required_skill),
-        'candidates': feasible[:limit],
+        'classification': classification,
+        'priority': priority,
+        'aog': aog,
+        'duration_ms': duration_ms,
+        'norm_deadline': _iso_ms(deadline),
+        'candidates': candidates,
+        'rejected': rejected,
         'no_candidate_reason': no_candidate_reason,
         'free_engineers_count': len(free),
         'matching_engineers_count': len(skill_pool),
-        'over_regulation_count': over_regulation,
-        'regulation_minutes': REGULATION_MINUTES,
     }
+    _log_event('candidates', 'Система', str(row_get('id') or ''), {
+        'duration_ms': duration_ms,
+        'duration_sec': round(duration_ms / 1000.0, 3),
+        'required_skill': required_skill,
+        'classification': classification,
+        'priority': priority,
+        'aog': aog,
+        'target_known': target_known,
+        'candidates': [{
+            'engineer_id': c.get('engineer_id'),
+            'engineer_name': c.get('engineer_name'),
+            'eta_min': c.get('travel_time'),
+            'using_car': c.get('using_car'),
+            'slack_min': c.get('slack_min'),
+            'meets_norm': c.get('meets_norm'),
+            'tool_ready': c.get('tool_ready'),
+            'reason': c.get('reason'),
+        } for c in candidates],
+        'rejected': rejected,
+        'no_candidate_reason': no_candidate_reason,
+    })
+    return result
 
 
 @app.route('/api/dispatcher/priorities', methods=['GET'])
@@ -3244,7 +4954,8 @@ def dispatcher_priorities():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT id, aircraft, flight_number, fault_type, description, parking_id,
-                          source, criticality, severity, created_at, status
+                          source, criticality, severity, created_at, status,
+                          mcc_ata, mcc_comment, aog_since
                    FROM requests
                    WHERE routing_stage='dispatcher'
                      AND engineer_id IS NULL
@@ -3276,6 +4987,30 @@ def dispatcher_priorities():
     return jsonify({'success': True, 'requests': result})
 
 
+@app.route('/api/dispatcher/requests/<rid>/priority', methods=['POST'])
+def dispatcher_set_request_priority(rid):
+    data = request.get_json() or {}
+    value = str(data.get('priority') or '').strip()
+    priority_map = {'1': 'high', '2': 'medium', '3': 'low'}
+    if value not in priority_map:
+        return jsonify({'success': False, 'error': 'Приоритет должен быть 1, 2 или 3'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, engineer_id, routing_stage FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if row['routing_stage'] != 'dispatcher' or row['engineer_id']:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Приоритет можно менять только до назначения инженера'}), 409
+    cur.execute("UPDATE requests SET criticality=?, severity=? WHERE id=?",
+                (priority_map[value], priority_map[value], rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'request_id': rid, 'priority': value})
+
+
 @app.route('/api/dispatcher/queue', methods=['GET'])
 def dispatcher_queue():
     conn = get_db()
@@ -3304,12 +5039,16 @@ def dispatcher_assign():
     rid = data.get('request_id')
     eng_id = data.get('engineer_id')
     comment = (data.get('comment') or '').strip()
-    if not rid or not eng_id or not comment:
-        return jsonify({'success': False, 'error': 'Заполните все поля'}), 400
+    if not rid or not eng_id:
+        return jsonify({'success': False, 'error': 'Не указаны заявка или инженер'}), 400
+    if not comment:
+        comment = 'Назначение диспетчером'
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT id, aircraft, parking_id, fault_type, routing_stage
+    cur.execute("""SELECT id, aircraft, parking_id, fault_type, description, criticality,
+                          severity, source, created_at, mcc_ata, mcc_comment, aog_since,
+                          routing_stage, status
                    FROM requests WHERE id=?""", (rid,))
     req = cur.fetchone()
     if not req:
@@ -3324,23 +5063,51 @@ def dispatcher_assign():
     if not eng:
         conn.close()
         return jsonify({'success': False, 'error': 'Техник не найден'}), 404
+    if not object_belongs_to_airport('engineers', eng_id):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер относится к другому аэропорту'}), 403
     if (eng['status'] or 'free') != 'free':
         conn.close()
         return jsonify({'success': False, 'error': 'Инженер уже занят или недоступен'}), 409
+    request_classification = _request_classification(req)
+    cur.execute("SELECT specialization FROM engineers WHERE id=?", (eng_id,))
+    spec_row = cur.fetchone()
+    engineer_skill = spec_row['specialization'] if spec_row else None
+    if (request_classification.get('skill') and engineer_skill != request_classification.get('skill')
+            and not bool(data.get('override_qualification'))):
+        conn.close()
+        return jsonify({
+            'success': False,
+            'requires_override': True,
+            'error': 'Допуск инженера не соответствует дефекту: требуется ' +
+                     str(request_classification.get('skill')) + ', у инженера ' + str(engineer_skill) +
+                     '. Назначение возможно только с подтверждением старшего смены.',
+            'required_skill': request_classification.get('skill'),
+            'engineer_skill': engineer_skill,
+        }), 409
     cur.execute("SELECT id FROM requests WHERE engineer_id=? AND status NOT IN ('completed','cancelled','flight_cancelled','deleted') AND routing_stage='technician'", (eng_id,))
     if cur.fetchone():
         conn.close()
         return jsonify({'success': False, 'error': 'У инженера уже есть активная заявка'}), 409
 
+    # ETA вычисляется до назначения по текущей GPS-позиции и дорожному графу.
+    eta_minutes = 0.0
+    request_dict = dict(req)
+    ranking = _dispatcher_engineer_recommendations(conn, request_dict)
+    for candidate in ranking.get('candidates', []):
+        if str(candidate.get('engineer_id')) == str(eng_id):
+            eta_minutes = float(candidate.get('travel_time') or 0)
+            break
+
     cur.execute("""UPDATE requests SET
-                   engineer_id=?, engineer_name=?, travel_time=0, using_car=0,
+                   engineer_id=?, engineer_name=?, travel_time=?, using_car=0,
                    walk_to_car=0, car_time=0, best_car=NULL, engineer_comment='',
                    status='assigned', routing_stage='technician',
                    mcc_status=CASE WHEN mcc_mel_choice='MEL' THEN 'MEL_REVIEW' ELSE 'INSPECTION' END,
                    inspection_assigned_at=NULL,
                    mcc_comment=COALESCE(mcc_comment,'') || ?
                    WHERE id=?""",
-                (eng_id, eng['name'],
+                (eng_id, eng['name'], eta_minutes,
                  '\n[Диспетчер→Техник] ' + comment + ' — ' + eng['name'], rid))
     cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                 ('ВС ' + (req['aircraft'] or ''), eng_id))
@@ -3348,14 +5115,183 @@ def dispatcher_assign():
                        f'Назначен {eng["name"]}: {comment}')
     conn.commit()
     conn.close()
-    # Маршрут-превью появляется сразу после назначения, до ответа инженера.
+    # Сразу после назначения строим и сохраняем маршрут. Инженер увидит его в карточке назначенной задачи.
     _recalc_route_for_request_id(rid, force=True)
+    _log_event('assignment', 'Диспетчер', rid, {
+        'engineer_id': eng_id, 'engineer_name': eng['name'],
+        'eta_min': eta_minutes, 'comment': comment,
+    })
+    if str(req['status'] or '') != 'assigned':
+        _log_event('status_change', 'Диспетчер', rid, {
+            'from': req['status'], 'to': 'assigned',
+            'reason': 'Назначен инженер ' + eng['name'],
+        })
+    _refresh_risk_for_request(rid)
 
     return jsonify({
         'success': True, 'request_id': rid,
         'engineer_id': eng_id, 'engineer_name': eng['name'],
-        'travel_time': 0, 'awaiting_acceptance': True,
+        'travel_time': eta_minutes, 'awaiting_acceptance': True, 'route_ready': True,
     })
+
+
+def _append_routing_history(conn, rid, entry):
+    cur = conn.cursor()
+    cur.execute("SELECT routing_history FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    try:
+        history = json.loads(row['routing_history'] or '[]') if row else []
+    except (TypeError, ValueError):
+        history = []
+    if not isinstance(history, list):
+        history = []
+    history.append(entry)
+    cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
+                (json.dumps(history, ensure_ascii=False), rid))
+
+
+@app.route('/api/dispatcher/requests/<rid>/reassign', methods=['POST'])
+def dispatcher_reassign(rid):
+    """Reassignment. After work starts it requires the senior dispatcher's confirmation."""
+    data = request.get_json(silent=True) or {}
+    new_engineer_id = str(data.get('engineer_id') or '').strip()
+    reason = str(data.get('reason') or '').strip()
+    senior_confirmed = bool(data.get('senior_confirmed') or data.get('confirm_senior'))
+    actor = str(data.get('actor') or 'Старший смены').strip()[:120]
+    if not new_engineer_id:
+        return jsonify({'success': False, 'error': 'Укажите нового инженера'}), 400
+    if len(reason) < 5:
+        return jsonify({'success': False, 'error': 'Укажите причину переназначения (не менее 5 символов)'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT r.id, r.aircraft, r.parking_id, r.fault_type, r.description,
+                          r.criticality, r.severity, r.source, r.created_at, r.mcc_ata,
+                          r.mcc_comment, r.aog_since, r.status, r.routing_stage,
+                          r.engineer_id, r.engineer_name, r.engineer_comment,
+                          e.task_step AS old_task_step
+                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                   WHERE r.id=?""", (rid,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Заявка не найдена'}), 404
+    if req['routing_stage'] != 'technician':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Переназначение доступно только на этапе инженера'}), 409
+    if str(req['engineer_id'] or '') == new_engineer_id:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Этот инженер уже назначен'}), 409
+    work_started = (str(req['status'] or '') in ('in_progress', 'working') or
+                    str(req['old_task_step'] or '') in ('in_car', 'arrived', 'diagnosing'))
+    if work_started and not senior_confirmed:
+        conn.close()
+        return jsonify({
+            'success': False,
+            'requires_senior_confirmation': True,
+            'error': 'Работы уже начаты. Переназначение возможно только с подтверждением старшего смены.',
+        }), 409
+
+    cur.execute("SELECT id, name, device_id, status FROM engineers WHERE id=?", (new_engineer_id,))
+    eng = cur.fetchone()
+    if not eng:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+    if not object_belongs_to_airport('engineers', new_engineer_id):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер относится к другому аэропорту'}), 403
+    if str(eng['status'] or 'free') != 'free':
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер уже занят'}), 409
+    classification_for_check = _request_classification(req)
+    new_engineer_skill = None
+    cur.execute("SELECT specialization FROM engineers WHERE id=?", (new_engineer_id,))
+    spec_row = cur.fetchone()
+    if spec_row:
+        new_engineer_skill = spec_row['specialization']
+    if classification_for_check.get('skill') and new_engineer_skill != classification_for_check.get('skill'):
+        if not senior_confirmed:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'requires_senior_confirmation': True,
+                'error': 'Инженер не соответствует требуемому допуску (' +
+                         str(classification_for_check.get('skill')) + '). Переназначение возможно только решением старшего смены.',
+                'required_skill': classification_for_check.get('skill'),
+                'engineer_skill': new_engineer_skill,
+            }), 409
+    cur.execute("""SELECT id FROM requests WHERE engineer_id=?
+                   AND status NOT IN ('completed','cancelled','flight_cancelled','deleted')
+                   AND routing_stage='technician'""", (new_engineer_id,))
+    if cur.fetchone():
+        conn.close()
+        return jsonify({'success': False, 'error': 'У инженера уже есть активная заявка'}), 409
+
+    old_engineer_id = req['engineer_id']
+    old_engineer_name = req['engineer_name'] or ''
+    now = datetime.now(timezone.utc)
+    old_created = _parse_db_dt(req['created_at']) or now
+    deadline = old_created + timedelta(minutes=NORM_LIMIT_MINUTES)
+    classification = _request_classification(req)
+    target = _request_target_coords(req['parking_id'], req['source']) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
+    eta = 0.0
+    try:
+        ranking = _dispatcher_engineer_recommendations(conn, dict(req), limit=10)
+        for candidate in ranking.get('candidates', []):
+            if str(candidate.get('engineer_id')) == new_engineer_id:
+                eta = float(candidate.get('travel_time') or 0)
+                break
+    except Exception as exc:
+        print(f'[REASSIGN] eta: {exc}')
+
+    cleaned_comment = _strip_route_payload(req['engineer_comment'] or '')
+    cur.execute("""UPDATE requests SET engineer_id=?, engineer_name=?, status='assigned',
+                   travel_time=?, using_car=0, walk_to_car=0, car_time=0, best_car=NULL,
+                   engineer_comment=?, inspection_assigned_at=NULL
+                   WHERE id=?""",
+                (new_engineer_id, eng['name'], eta, cleaned_comment, rid))
+    cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
+    if old_engineer_id:
+        release_engineers_without_active_requests(conn, [old_engineer_id])
+    cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
+                ('ВС ' + (req['aircraft'] or ''), new_engineer_id))
+    _append_routing_history(conn, rid, {
+        'at': _iso_ms(now), 'stage': 'reassignment', 'actor': actor,
+        'from_engineer_id': str(old_engineer_id or ''), 'from_engineer_name': old_engineer_name,
+        'to_engineer_id': new_engineer_id, 'to_engineer_name': eng['name'],
+        'reason': reason, 'senior_confirmed': senior_confirmed,
+        'work_started': work_started,
+    })
+    _log_routing_event(conn, rid, 'technician', actor,
+                       'Переназначение: ' + old_engineer_name + ' → ' + eng['name'] + '. ' + reason)
+    conn.commit()
+    conn.close()
+    _log_event('reassignment', actor, rid, {
+        'from_engineer_id': str(old_engineer_id or ''), 'from_engineer_name': old_engineer_name,
+        'to_engineer_id': new_engineer_id, 'to_engineer_name': eng['name'],
+        'reason': reason, 'senior_confirmed': senior_confirmed,
+        'work_started': work_started, 'eta_min': eta,
+        'deadline_at': _iso_ms(deadline), 'classification': classification,
+    })
+    if str(req['status'] or '') != 'assigned':
+        _log_event('status_change', actor, rid, {
+            'from': req['status'], 'to': 'assigned',
+            'reason': 'Переназначение на ' + eng['name'],
+        })
+    _recalc_route_for_request_id(rid, force=True)
+    _refresh_risk_for_request(rid)
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT travel_time FROM requests WHERE id=?", (rid,)).fetchone()
+        conn.close()
+        if row and row['travel_time'] is not None:
+            eta = float(row['travel_time'] or 0)
+    except Exception:
+        pass
+    return jsonify({'success': True, 'request_id': rid,
+                    'engineer_id': new_engineer_id, 'engineer_name': eng['name'],
+                    'status': 'assigned', 'travel_time': eta,
+                    'senior_confirmed': senior_confirmed})
 
 
 @app.route('/api/dispatcher/assigned', methods=['GET'])
@@ -3385,11 +5321,17 @@ def dispatcher_request_route(rid):
     """
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.engineer_comment,
+    cur.execute("""SELECT r.id, r.engineer_id, r.parking_id, r.source, r.engineer_comment,
                           r.status, r.routing_stage, e.task_step AS engineer_task_step,
-                          e.status AS engineer_status, e.coords_lat AS engineer_lat,
-                          e.coords_lng AS engineer_lng
-                   FROM requests r LEFT JOIN engineers e ON e.id=r.engineer_id
+                          e.status AS engineer_status,
+                          COALESCE(gps.lat, p.lat, e.coords_lat) AS engineer_lat,
+                          COALESCE(gps.lng, p.lng, e.coords_lng) AS engineer_lng
+                   FROM requests r
+                   LEFT JOIN engineers e ON e.id=r.engineer_id
+                   LEFT JOIN map_object_positions p
+                     ON p.object_type='engineer' AND p.object_id=e.id
+                   LEFT JOIN map_object_positions gps
+                     ON gps.object_type='engineer_gps' AND gps.object_id=e.id
                    WHERE r.id=?""", (rid,))
     row = cur.fetchone()
     conn.close()
@@ -3458,9 +5400,14 @@ def get_engineers():
                      ON gps_heading.object_type='engineer_gps_heading' AND gps_heading.object_id=e.id""")
     rows = cur.fetchall()
     conn.close()
+    assignments = load_airport_assignments()
+    selected_airport = current_airport_payload()['airport']
     res = []
     for r in rows:
         d = dict(r)
+        d['airport'] = assigned_airport('engineers', d['id'], assignments)
+        if d['airport'] != selected_airport:
+            continue
         num = get_engineer_number_from_device(d.get('device_id'))
         d['number'] = num
         d['device_id'] = normalize_device_id(d.get('device_id'), num)
@@ -3505,6 +5452,9 @@ def get_engineer(eng_id):
     if not row:
         return jsonify({'error': 'Не найден'}), 404
     d = dict(row)
+    d['airport'] = assigned_airport('engineers', d['id'])
+    if d['airport'] != current_airport_payload()['airport']:
+        return jsonify({'error': 'Инженер относится к другому аэропорту'}), 404
     num = get_engineer_number_from_device(d.get('device_id'))
     d['number'] = num
     d['device_id'] = normalize_device_id(d.get('device_id'), num)
@@ -3542,6 +5492,7 @@ def create_engineer():
                 (eid, email, name))
     conn.commit()
     conn.close()
+    set_assigned_airport('engineers', eid, data.get('airport', current_airport_payload()['airport']))
     return jsonify({'success': True, 'id': eid, 'device_id': dev, 'number': num})
 
 
@@ -3554,16 +5505,37 @@ def update_engineer(eng_id):
     if not cur.fetchone():
         conn.close()
         return jsonify({'error': 'Не найден'}), 404
-    cur.execute("""UPDATE engineers SET name=?, specialization=?, status=?, task=?, phone=?
-                   WHERE id=?""",
-                (data.get('name'), data.get('specialization', 'general'),
-                 data.get('status', 'free'), data.get('task'),
-                 data.get('phone', ''), eng_id))
+    work_status = data.get('work_status')
+    if work_status not in (None, 'free', 'assigned', 'working'):
+        conn.close()
+        return jsonify({'error': 'Недопустимый статус инженера'}), 400
+    if work_status == 'free':
+        cur.execute("""UPDATE engineers SET name=?, specialization=?, status='free', task=NULL,
+                       task_step='idle', task_started_at=NULL, phone=? WHERE id=?""",
+                    (data.get('name'), data.get('specialization', 'general'), data.get('phone', ''), eng_id))
+    elif work_status == 'assigned':
+        cur.execute("""UPDATE engineers SET name=?, specialization=?, status='busy',
+                       task_step='pending', task_started_at=NULL, phone=? WHERE id=?""",
+                    (data.get('name'), data.get('specialization', 'general'), data.get('phone', ''), eng_id))
+    elif work_status == 'working':
+        cur.execute("""UPDATE engineers SET name=?, specialization=?, status='busy',
+                       task_step='diagnosing', phone=? WHERE id=?""",
+                    (data.get('name'), data.get('specialization', 'general'), data.get('phone', ''), eng_id))
+    else:
+        cur.execute("""UPDATE engineers SET name=?, specialization=?, status=?, task=?, phone=?
+                       WHERE id=?""",
+                    (data.get('name'), data.get('specialization', 'general'),
+                     data.get('status', 'free'), data.get('task'), data.get('phone', ''), eng_id))
     if data.get('name'):
         cur.execute("UPDATE users SET name=? WHERE id=?", (data['name'], eng_id))
     conn.commit()
     conn.close()
     _recalc_routes_for_engineer(eng_id, force=True)
+    if 'airport' in data:
+        try:
+            set_assigned_airport('engineers', eng_id, data['airport'])
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
     return jsonify({'success': True})
 
 @app.route('/api/requests/<rid>/accept', methods=['POST'])
@@ -3595,6 +5567,9 @@ def accept_request_assignment(rid):
     if not engineer:
         conn.close()
         return jsonify({'success': False, 'error': 'Инженер не найден'}), 404
+    if not object_belongs_to_airport('engineers', engineer_id):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Инженер относится к другому аэропорту'}), 403
 
     if req['status'] in ('arriving', 'in_progress', 'working') and engineer['task_step'] in ('accepted', 'in_car', 'arrived', 'diagnosing'):
         conn.close()
@@ -3611,8 +5586,15 @@ def accept_request_assignment(rid):
                    WHERE id=?""", (rid,))
     _log_routing_event(conn, rid, 'technician', req['engineer_name'] or engineer_id,
                        'Инженер принял назначение; маршрут запущен')
+    _append_routing_history(conn, rid, {
+        'at': _iso_ms(), 'stage': 'status', 'actor': req['engineer_name'] or engineer_id,
+        'from': 'assigned', 'to': 'arriving', 'note': 'Инженер принял заявку',
+    })
     conn.commit()
     conn.close()
+    _log_event('status_change', req['engineer_name'] or engineer_id, rid, {
+        'from': 'assigned', 'to': 'arriving', 'reason': 'Инженер принял назначение',
+    })
 
     # On acceptance, refresh the preview as the active travel route.
     _recalc_route_for_request_id(rid, force=True)
@@ -3627,6 +5609,12 @@ def accept_request_assignment(rid):
         best_car = found['best_car'] if found else None
         if not best_car:
             conn.close()
+            break
+        cur.execute("SELECT id FROM transport WHERE device_id=?", (best_car,))
+        car_row = cur.fetchone()
+        if not car_row or not object_belongs_to_airport('transport', car_row['id']):
+            conn.close()
+            _recalc_route_for_request_id(rid, force=True)
             break
         cur.execute("UPDATE transport SET assigned_to=? WHERE device_id=? AND assigned_to IS NULL",
                     (rid, best_car))
@@ -3674,6 +5662,14 @@ def update_engineer_step(eng_id):
     if step in ('in_car', 'arrived', 'diagnosing') and engineer['task_step'] in ('pending', 'idle', None, ''):
         conn.close()
         return jsonify({'success': False, 'error': 'Сначала примите назначение кнопкой «Принять»'}), 409
+    order = ['pending', 'accepted', 'in_car', 'arrived', 'diagnosing', 'completed']
+    current_step = str(engineer['task_step'] or '')
+    if current_step in order and step in order:
+        if order.index(step) < order.index(current_step) and step not in ('accepted',):
+            conn.close()
+            return jsonify({'success': False,
+                            'error': 'Недопустимый обратный переход этапа: ' +
+                                     current_step + ' → ' + step}), 409
 
     if step in ('idle', 'completed'):
         cur.execute(
@@ -3682,8 +5678,28 @@ def update_engineer_step(eng_id):
     else:
         cur.execute("UPDATE engineers SET task_step=? WHERE id=?", (step, eng_id))
 
+    # Заявка отражает этап работ: начало диагностики = «В работе».
+    cur.execute("""SELECT id, status FROM requests WHERE engineer_id=?
+                   AND routing_stage='technician'
+                   AND status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
+                   ORDER BY created_at DESC LIMIT 1""", (eng_id,))
+    active_req = cur.fetchone()
+    if active_req and step in ('arrived', 'diagnosing') and active_req['status'] == 'arriving':
+        cur.execute("UPDATE requests SET status='in_progress' WHERE id=?", (active_req['id'],))
+        _log_event('status_change', 'Инженер', active_req['id'], {
+            'from': 'arriving', 'to': 'in_progress',
+            'reason': 'Инженер прибыл на место и начал работу',
+        })
+        _append_routing_history(conn, active_req['id'], {
+            'at': _iso_ms(), 'stage': 'status', 'actor': 'Инженер',
+            'from': 'arriving', 'to': 'in_progress', 'note': 'Инженер прибыл на место и начал работу',
+        })
+
     conn.commit()
     conn.close()
+    _log_event('engineer_step', 'Инженер', active_req['id'] if active_req else '', {
+        'engineer_id': str(eng_id), 'from': current_step, 'to': step,
+    })
     _recalc_routes_for_engineer(eng_id, force=True)
     return jsonify({'success': True, 'step': step})
 
@@ -3786,6 +5802,7 @@ def engineer_gps_location(eng_id):
                     (str(eng_id), heading, accuracy if accuracy is not None else 0.0))
     conn.commit()
     conn.close()
+    _after_engineer_position(eng_id, lat, lng)
     return jsonify({'success': True, 'engineer_id': str(eng_id), 'lat': lat,
                     'lng': lng, 'accuracy': accuracy, 'heading': heading})
 
@@ -3821,9 +5838,738 @@ def update_engineer_coords(eng_id):
     conn.commit()
     conn.close()
     _recalc_routes_for_engineer(eng_id, force=True)
+    _after_engineer_position(eng_id, lat, lng, recalc_route=False)
     return jsonify({'success': True, 'object_type': 'engineer', 'id': str(eng_id),
                     'lat': lat, 'lng': lng})
 
+
+# ============================================================
+# Финальный этап: геопозиция агентов, динамический маршрут,
+# норматив 15 минут и проактивные предупреждения
+# ============================================================
+@app.route('/api/engineers/<eng_id>/tools', methods=['GET', 'PUT'])
+def engineer_tools_status(eng_id):
+    """Engineer-controlled tool availability. No DB schema changes."""
+    if request.method == 'GET':
+        status, item = get_engineer_tool_status(eng_id)
+        return jsonify({'success': True, 'engineer_id': str(eng_id),
+                        'status': status, 'item': item})
+    data = request.get_json(silent=True) or {}
+    try:
+        item = set_engineer_tool_status(eng_id, data.get('status') or 'unknown',
+                                        data.get('comment') or '')
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    try:
+        _recalc_routes_for_engineer(eng_id, force=True)
+        conn = get_db()
+        active_row = _active_request_for_engineer(conn, eng_id)
+        conn.close()
+        if active_row:
+            _refresh_risk_for_request(active_row['id'])
+    except Exception as exc:
+        print(f'[TOOLS] route recalc: {exc}')
+    return jsonify({'success': True, 'engineer_id': str(eng_id),
+                    'status': item['status'], 'item': item})
+
+
+def _parse_db_dt(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith('Z'):
+        text = text[:-1] + '+00:00'
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            dt = datetime.strptime(text[:19], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _sql_time(value=None):
+    dt = _parse_db_dt(value) or datetime.now(timezone.utc)
+    return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _parse_route_payload(comment):
+    text = str(comment or '')
+    if not text.startswith('ROUTE:'):
+        return None
+    payload = text[6:]
+    depth = 0
+    end = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(payload):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end <= 0:
+        return None
+    try:
+        data = json.loads(payload[:end])
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _active_request_for_engineer(conn, engineer_id):
+    cur = conn.cursor()
+    cur.execute("""SELECT * FROM requests
+                   WHERE engineer_id=?
+                     AND routing_stage='technician'
+                     AND status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
+                   ORDER BY created_at DESC LIMIT 1""", (str(engineer_id),))
+    return cur.fetchone()
+
+
+def _norm_info(conn, row):
+    now = datetime.now(timezone.utc)
+    created = _parse_db_dt(row['created_at']) or now
+    deadline = created + timedelta(minutes=NORM_LIMIT_MINUTES)
+    eta = float(row['travel_time'] or 0)
+    route = _parse_route_payload(row['engineer_comment'])
+    if route and route.get('tt') is not None:
+        try:
+            eta = float(route.get('tt') or 0)
+        except (TypeError, ValueError):
+            pass
+    eta = max(0.0, eta)
+
+    arrived_at = None
+    try:
+        history = json.loads(row['routing_history'] or '[]')
+        if isinstance(history, list):
+            for entry in history:
+                if isinstance(entry, dict) and entry.get('stage') == 'arrival' and entry.get('at'):
+                    arrived_at = _parse_db_dt(entry.get('at'))
+                    if arrived_at:
+                        break
+    except (TypeError, ValueError):
+        arrived_at = None
+
+    if arrived_at:
+        actual_min = (arrived_at - created).total_seconds() / 60.0
+        forecast = arrived_at
+        remaining = 0.0
+        risk = False
+        late = actual_min > NORM_LIMIT_MINUTES
+        eta = actual_min
+    else:
+        forecast = now + timedelta(minutes=eta)
+        remaining = (deadline - now).total_seconds() / 60.0
+        risk = forecast > deadline
+        late = now > deadline
+    level = 'critical' if late else ('warning' if risk else 'ok')
+    if arrived_at and not late:
+        level = 'ok'
+    return {
+        'request_id': str(row['id']),
+        'aircraft': row['aircraft'] or '—',
+        'parking_id': row['parking_id'] or '—',
+        'source': row['source'] or '',
+        'status': row['status'] or '',
+        'engineer_id': str(row['engineer_id'] or ''),
+        'engineer_name': row['engineer_name'] or '',
+        'eta_min': round(eta, 1),
+        'created_at': _iso_ms(created),
+        'deadline_at': _iso_ms(deadline),
+        'forecast_at': _iso_ms(forecast),
+        'remaining_min': round(remaining, 1),
+        'arrived_at': _iso_ms(arrived_at) if arrived_at else None,
+        'norm_minutes': round((arrived_at - created).total_seconds() / 60.0, 1) if arrived_at else None,
+        'risk': risk,
+        'late': late,
+        'level': level,
+    }
+
+
+def _point_in_ring(lat, lng, ring):
+    inside = False
+    if not ring:
+        return False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        yi, xi = ring[i][1], ring[i][0]
+        yj, xj = ring[j][1], ring[j][0]
+        if ((yi > lat) != (yj > lat)) and (lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _vdnh_point_in_zone(zone_id, lat, lng):
+    try:
+        with open(os.path.join(STATIC_DIR, 'vdnh', 'service_zones.geojson'), 'r', encoding='utf-8') as f:
+            features = json.load(f).get('features', [])
+        for feature in features:
+            props = feature.get('properties') or {}
+            if str(props.get('id')) != str(zone_id):
+                continue
+            geom = feature.get('geometry') or {}
+            coords = geom.get('coordinates') or []
+            polygons = coords if geom.get('type') == 'MultiPolygon' else [coords]
+            for polygon in polygons:
+                if not polygon:
+                    continue
+                if _point_in_ring(lat, lng, polygon[0] or []):
+                    if not any(_point_in_ring(lat, lng, hole or []) for hole in polygon[1:]):
+                        return True
+    except (OSError, ValueError, TypeError):
+        return False
+    return False
+
+
+def _record_arrival_geofence(conn, row, lat, lng):
+    target = _request_target_coords(row['parking_id'], row['source'])
+    if target is None:
+        return False
+    arrived = False
+    try:
+        if current_airport_payload().get('airport') == 'vdnh':
+            arrived = _vdnh_point_in_zone(row['parking_id'], lat, lng)
+    except Exception:
+        arrived = False
+    if not arrived:
+        arrived = distance_km(lat, lng, target[0], target[1]) * 1000.0 <= 45.0
+    if not arrived:
+        return False
+
+    cur = conn.cursor()
+    cur.execute("SELECT routing_history FROM requests WHERE id=?", (row['id'],))
+    history_row = cur.fetchone()
+    try:
+        history = json.loads(history_row['routing_history'] or '[]') if history_row else []
+    except Exception:
+        history = []
+    if not isinstance(history, list):
+        history = []
+    if any(isinstance(e, dict) and (e.get('stage') == 'arrival' or e.get('type') == 'arrival') for e in history):
+        return False
+
+    now = datetime.now(timezone.utc)
+    created = _parse_db_dt(row['created_at']) or now
+    norm_minutes = (now - created).total_seconds() / 60.0
+    late = norm_minutes > NORM_LIMIT_MINUTES
+    history.append({
+        'at': _iso_ms(now),
+        'stage': 'arrival',
+        'actor': 'GPS',
+        'note': 'Прибытие в зону обслуживания зафиксировано автоматически',
+    })
+    cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
+                (json.dumps(history, ensure_ascii=False), row['id']))
+    if str(row['status'] or '') == 'arriving':
+        cur.execute("UPDATE requests SET status='in_progress' WHERE id=?", (row['id'],))
+        _log_event('status_change', 'GPS', row['id'], {
+            'from': 'arriving', 'to': 'in_progress',
+            'reason': 'Автоматическая фиксация прибытия в зону обслуживания',
+        })
+    _log_event('arrival', 'GPS', row['id'], {
+        'lat': lat, 'lng': lng, 'norm_minutes': round(norm_minutes, 1),
+        'limit_minutes': NORM_LIMIT_MINUTES, 'late': late,
+    })
+    _log_event('norm_violation' if late else 'norm_ok', 'GPS', row['id'], {
+        'norm_minutes': round(norm_minutes, 1), 'limit_minutes': NORM_LIMIT_MINUTES, 'late': late,
+    })
+    _RISK_WARNINGS.pop(str(row['id']), None)
+    return True
+
+
+def _maybe_dynamic_route(eng_id, lat, lng, force=False):
+    now = time.time()
+    key = str(eng_id)
+    state = _ROUTE_RECALC_STATE.get(key) or {}
+    moved = None
+    if state.get('lat') is not None and state.get('lng') is not None:
+        moved = distance_km(float(state['lat']), float(state['lng']), lat, lng) * 1000.0
+    if not force and state and now - float(state.get('t') or 0) < 2.5 and (moved is None or moved < 8.0):
+        return
+    conn = get_db()
+    row = _active_request_for_engineer(conn, eng_id)
+    conn.close()
+    if not row:
+        return
+    _recalc_route_for_request_id(row['id'], force=True)
+    _ROUTE_RECALC_STATE[key] = {'lat': lat, 'lng': lng, 't': now}
+
+
+def _refresh_risk_for_request(rid):
+    rid = str(rid)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM requests WHERE id=?", (rid,))
+    row = cur.fetchone()
+    if (not row or row['routing_stage'] != 'technician' or not row['engineer_id'] or
+            row['status'] in ('completed', 'cancelled', 'flight_cancelled', 'draft', 'report_submitted', 'deleted')):
+        _RISK_WARNINGS.pop(rid, None)
+        conn.close()
+        return None
+    norm = _norm_info(conn, row)
+    if not norm or not norm['risk']:
+        _RISK_WARNINGS.pop(rid, None)
+        conn.close()
+        return None
+
+    deadline = _parse_db_dt(norm['deadline_at'])
+    alternative = None
+    try:
+        ranking = _dispatcher_engineer_recommendations(conn, dict(row), limit=5)
+        for candidate in ranking.get('candidates', []):
+            if str(candidate.get('engineer_id')) == str(row['engineer_id']):
+                continue
+            eta = float(candidate.get('travel_time') or 0)
+            arrives = datetime.now(timezone.utc) + timedelta(minutes=eta)
+            fits = bool(deadline and arrives <= deadline)
+            alternative = {
+                'engineer_id': candidate.get('engineer_id'),
+                'engineer_name': candidate.get('engineer_name'),
+                'eta_min': round(eta, 1),
+                'arrives_at': _iso_ms(arrives),
+                'fits': fits,
+            }
+            if fits:
+                break
+    except Exception as exc:
+        print(f'[RISK] alternative: {exc}')
+
+    deadline_text = _parse_db_dt(norm['deadline_at'])
+    forecast_text = _parse_db_dt(norm['forecast_at'])
+    fmt = lambda d: d.astimezone().strftime('%H:%M:%S') if d else '—'
+    message = ('Заявка %s (%s, стоянка %s): прогноз прибытия %s, норматив до %s, запас %s мин.'
+               % (rid, norm['aircraft'], norm['parking_id'], fmt(forecast_text), fmt(deadline_text),
+                  norm['remaining_min']))
+    if norm['late']:
+        message = 'НОРМАТИВ УЖЕ НАРУШЕН. ' + message
+    if alternative:
+        if alternative['fits']:
+            message += ' Может успеть %s: ETA %s мин.' % (alternative['engineer_name'], alternative['eta_min'])
+        else:
+            message += ' Свободных инженеров, успевающих в норматив, нет.'
+    warning = {
+        'request_id': rid,
+        'type': 'norm_risk',
+        'level': norm['level'],
+        'aircraft': norm['aircraft'],
+        'parking_id': norm['parking_id'],
+        'engineer_id': norm['engineer_id'],
+        'engineer_name': norm['engineer_name'],
+        'deadline_at': norm['deadline_at'],
+        'forecast_at': norm['forecast_at'],
+        'remaining_min': norm['remaining_min'],
+        'eta_min': norm['eta_min'],
+        'late': norm['late'],
+        'message': message,
+        'alternative': alternative,
+    }
+    _RISK_WARNINGS[rid] = warning
+    state = _RISK_WARNING_STATE.get(rid) or {}
+    if time.time() - float(state.get('logged') or 0) > 60.0:
+        _log_event('risk', 'Система', rid, warning)
+        _RISK_WARNING_STATE[rid] = {'logged': time.time()}
+    conn.close()
+    return warning
+
+
+def _log_data_warning_once(rid, warning_type, message, details=None, throttle_sec=60.0):
+    key = str(rid) + ':' + str(warning_type)
+    now = time.time()
+    state = _DATA_WARNING_STATE.get(key) or {}
+    if now - float(state.get('t') or 0) < throttle_sec:
+        return
+    _DATA_WARNING_STATE[key] = {'t': now}
+    payload = {'message': message, 'warning_type': warning_type}
+    if details:
+        payload.update(details)
+    _log_event('data_warning', 'Система', rid, payload)
+
+
+def _refresh_all_norms():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT * FROM requests
+                   WHERE routing_stage='technician'
+                     AND engineer_id IS NOT NULL
+                     AND status NOT IN ('completed','cancelled','flight_cancelled','draft','report_submitted','deleted')
+                   ORDER BY created_at ASC""")
+    rows = [dict(r) for r in cur.fetchall()]
+    norms = []
+    warnings = []
+    for row in rows:
+        norm = _norm_info(conn, row)
+        warning = _refresh_risk_for_request(row['id'])
+        if warning:
+            warnings.append(warning)
+            norm['warning'] = warning
+
+        data_warnings = []
+        cur.execute("""SELECT lat,lng,updated_at FROM map_object_positions
+                       WHERE object_type='engineer_gps' AND object_id=?""", (str(row['engineer_id']),))
+        gps = cur.fetchone()
+        if gps and gps['updated_at']:
+            updated = _parse_db_dt(gps['updated_at'])
+            if updated:
+                age = (datetime.now(timezone.utc) - updated).total_seconds()
+                if age > 30:
+                    msg = 'GPS инженера %s не обновлялся %d сек (последняя позиция %s).' % (
+                        row['engineer_name'] or row['engineer_id'], int(age),
+                        updated.astimezone().strftime('%H:%M:%S'))
+                    data_warnings.append({'type': 'stale_gps', 'message': msg, 'age_sec': round(age, 1)})
+                    warnings.append({'request_id': str(row['id']), 'type': 'stale_gps',
+                                     'level': 'warning', 'message': msg,
+                                     'engineer_id': str(row['engineer_id'])})
+                    _log_data_warning_once(row['id'], 'stale_gps', msg,
+                                           {'age_sec': round(age, 1),
+                                            'last_position_at': _iso_ms(updated)})
+        route_payload = _parse_route_payload(row['engineer_comment'])
+        if not route_payload:
+            msg = 'Для заявки %s ещё не рассчитан маршрут.' % row['id']
+            data_warnings.append({'type': 'route_missing', 'message': msg})
+            warnings.append({'request_id': str(row['id']), 'type': 'route_missing',
+                             'level': 'warning', 'message': msg,
+                             'engineer_id': str(row['engineer_id'])})
+        elif gps and gps['updated_at']:
+            path = route_payload.get('path') or []
+            if len(path) >= 2:
+                min_dist = min(
+                    _point_segment_distance_m(float(gps['lat']), float(gps['lng']),
+                                              (float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
+                    for a, b in zip(path, path[1:])
+                )
+                if min_dist > 120:
+                    msg = ('Инженер %s отклонился от маршрута на %d м (рассогласование данных).'
+                           % (row['engineer_name'] or row['engineer_id'], int(min_dist)))
+                    data_warnings.append({'type': 'route_deviation', 'message': msg,
+                                          'deviation_m': round(min_dist, 1)})
+                    warnings.append({'request_id': str(row['id']), 'type': 'route_deviation',
+                                     'level': 'warning', 'message': msg,
+                                     'engineer_id': str(row['engineer_id']),
+                                     'deviation_m': round(min_dist, 1)})
+                    _log_data_warning_once(row['id'], 'route_deviation', msg,
+                                           {'deviation_m': round(min_dist, 1)})
+        tool_status, _tool_item = get_engineer_tool_status(row['engineer_id'])
+        if tool_status == 'unknown' and _request_needs_tools(row):
+            msg = 'Статус инструмента инженера %s не подтверждён; ETA учитывает +30 с на складе.' % (
+                row['engineer_name'] or row['engineer_id'])
+            data_warnings.append({'type': 'tool_unknown', 'message': msg})
+            warnings.append({'request_id': str(row['id']), 'type': 'tool_unknown',
+                             'level': 'info', 'message': msg,
+                             'engineer_id': str(row['engineer_id'])})
+        if data_warnings:
+            norm['data_warnings'] = data_warnings
+        norms.append(norm)
+    conn.close()
+    return norms, warnings
+
+
+def _after_engineer_position(eng_id, lat, lng, recalc_route=True):
+    try:
+        conn = get_db()
+        row = _active_request_for_engineer(conn, eng_id)
+        if row:
+            _record_arrival_geofence(conn, row, lat, lng)
+            conn.commit()
+        conn.close()
+        if row:
+            if recalc_route:
+                _maybe_dynamic_route(eng_id, lat, lng)
+            _refresh_risk_for_request(row['id'])
+    except Exception as exc:
+        print(f'[FINAL GPS] {exc}')
+
+
+def _after_transport_position(tid, lat, lng):
+    try:
+        now = time.time()
+        key = 'transport_' + str(tid)
+        state = _ROUTE_RECALC_STATE.get(key) or {}
+        if state and now - float(state.get('t') or 0) < 2.5:
+            return
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT assigned_to FROM transport WHERE id=?", (tid,))
+        row = cur.fetchone()
+        conn.close()
+        if row and row['assigned_to']:
+            _recalc_route_for_request_id(row['assigned_to'], force=True)
+            _refresh_risk_for_request(row['assigned_to'])
+        _ROUTE_RECALC_STATE[key] = {'t': now}
+    except Exception as exc:
+        print(f'[FINAL TRANSPORT] {exc}')
+
+
+def _load_track_object_map():
+    path = os.path.join(BASE_DIR, 'data', 'track_objects.json')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _resolve_track_object(conn, obj):
+    raw = str(obj or '').strip()
+    if not raw:
+        return None, None
+    cur = conn.cursor()
+    lower = raw.lower()
+
+    mapped = _load_track_object_map().get(raw)
+    if mapped:
+        lower = str(mapped).strip().lower()
+        raw_lookup = str(mapped).strip()
+    else:
+        raw_lookup = raw
+
+    row = cur.execute("SELECT id,device_id,name FROM engineers WHERE id=? OR device_id=? OR lower(id)=? OR lower(device_id)=?",
+                      (raw_lookup, raw_lookup, lower, lower)).fetchone()
+    if row:
+        return 'engineer', row['id']
+
+    match = re.match(r'^(?:e|eng)[-_]?0*(\d+)$', lower)
+    if match:
+        number = int(match.group(1))
+        for candidate in ('EN-%03d' % number, 'eng_%d' % number, str(number)):
+            row = cur.execute("SELECT id FROM engineers WHERE id=? OR device_id=?", (candidate, candidate)).fetchone()
+            if row:
+                return 'engineer', row['id']
+
+    row = cur.execute("SELECT id,device_id FROM transport WHERE CAST(id AS TEXT)=? OR lower(device_id)=?",
+                      (lower, lower)).fetchone()
+    if row:
+        return 'transport', row['id']
+    match = re.match(r'^v[-_]?0*(\d+)$', lower)
+    if match:
+        number = int(match.group(1))
+        for candidate in (number, 'CAR-%03d' % number, 'v-%02d' % number):
+            row = cur.execute("SELECT id FROM transport WHERE CAST(id AS TEXT)=? OR lower(device_id)=?",
+                              (str(candidate), str(candidate).lower())).fetchone()
+            if row:
+                return 'transport', row['id']
+
+    row = cur.execute("SELECT id,callsign FROM aircraft WHERE id=? OR lower(callsign)=?",
+                      (raw_lookup, lower)).fetchone()
+    if row:
+        return 'aircraft', row['id']
+    if raw.upper().startswith('RA-'):
+        return 'aircraft_new', raw.upper()
+    return None, None
+
+
+def _record_aircraft_arrival(obj, lat, lng, at):
+    """Log aircraft reaching the parking area when it is visible from track data."""
+    callsign = str(obj or '').strip()
+    if not callsign:
+        return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""SELECT id, aircraft, parking_id, source, routing_history
+                       FROM requests
+                       WHERE UPPER(COALESCE(aircraft,''))=UPPER(?)
+                         AND status NOT IN ('completed','cancelled','flight_cancelled','deleted','draft')
+                       ORDER BY created_at DESC LIMIT 20""", (callsign,))
+        for row in cur.fetchall():
+            key = str(row['id'])
+            if _AIRCRAFT_ARRIVAL_STATE.get(key):
+                continue
+            target = _request_target_coords(row['parking_id'], row['source'])
+            if target is None:
+                continue
+            if distance_km(lat, lng, target[0], target[1]) * 1000.0 > 80.0:
+                continue
+            try:
+                history = json.loads(row['routing_history'] or '[]')
+            except (TypeError, ValueError):
+                history = []
+            if not isinstance(history, list):
+                history = []
+            history.append({'at': _iso_ms(at), 'stage': 'aircraft_arrival', 'actor': 'GPS',
+                            'note': 'ВС в зоне стоянки по данным трека'})
+            cur.execute("UPDATE requests SET routing_history=? WHERE id=?",
+                        (json.dumps(history, ensure_ascii=False), key))
+            conn.commit()
+            _AIRCRAFT_ARRIVAL_STATE[key] = time.time()
+            _log_event('aircraft_arrival', 'GPS', key, {
+                'aircraft': callsign, 'lat': lat, 'lng': lng,
+                'parking_id': row['parking_id'],
+                'source': 'фактическое положение ВС',
+            })
+        conn.close()
+    except Exception as exc:
+        print(f'[AIRCRAFT ARRIVAL] {exc}')
+
+
+def _apply_track_point(point):
+    obj = str(point.get('obj') or '')
+    lat = float(point['lat'])
+    lng = float(point['lng'])
+    t = _iso_ms(point.get('t') or None)
+    t_sql = _sql_time(t)
+    spd = point.get('spd')
+    acc = point.get('acc')
+    conn = get_db()
+    applied = False
+    kind = None
+    ident = None
+    try:
+        kind, ident = _resolve_track_object(conn, obj)
+        if not kind:
+            _log_event('track_error', 'GPS', '', {
+                'error': 'объект не найден', 'obj': obj, 'lat': lat, 'lon': lng,
+            })
+            return {'accepted': True, 'applied': False, 'obj': obj, 't': t}
+        cur = conn.cursor()
+        if kind == 'engineer':
+            cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                           VALUES ('engineer_gps',?,?,?,?)
+                           ON CONFLICT(object_type,object_id) DO UPDATE SET
+                             lat=excluded.lat,lng=excluded.lng,updated_at=excluded.updated_at""",
+                        (str(ident), lat, lng, t_sql))
+            applied = True
+        elif kind == 'transport':
+            speed_kmh = None
+            if spd is not None:
+                try:
+                    parsed_speed = float(spd) * 3.6
+                    if parsed_speed > 0.5:
+                        speed_kmh = round(parsed_speed, 1)
+                except (TypeError, ValueError):
+                    speed_kmh = None
+            cur.execute("UPDATE transport SET lat=?, lng=?, speed=COALESCE(?, speed) WHERE id=?",
+                        (lat, lng, speed_kmh, ident))
+            cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                           VALUES ('transport',?,?,?,?)
+                           ON CONFLICT(object_type,object_id) DO UPDATE SET
+                             lat=excluded.lat,lng=excluded.lng,updated_at=excluded.updated_at""",
+                        (str(ident), lat, lng, t_sql))
+            if speed_kmh is not None:
+                cur.execute("UPDATE transport SET speed=? WHERE id=?", (speed_kmh, ident))
+            applied = cur.rowcount > 0
+        elif kind in ('aircraft', 'aircraft_new'):
+            aircraft_id = ident
+            if kind == 'aircraft_new':
+                aircraft_id = 'trk_' + hashlib.sha1(obj.encode('utf-8')).hexdigest()[:12]
+            cur.execute("SELECT id FROM aircraft WHERE id=? OR lower(callsign)=?",
+                        (aircraft_id, obj.lower()))
+            existing = cur.fetchone()
+            if existing:
+                cur.execute("UPDATE aircraft SET lat=?, lng=?, status='tracked', updated_at=? WHERE id=?",
+                            (lat, lng, t_sql, existing['id']))
+            else:
+                cur.execute("INSERT INTO aircraft (id,callsign,lat,lng,status,updated_at) VALUES (?,?,?,?,?,?)",
+                            (aircraft_id, obj, lat, lng, 'tracked', t_sql))
+            cur.execute("""INSERT INTO map_object_positions (object_type,object_id,lat,lng,updated_at)
+                           VALUES ('aircraft_gps',?,?,?,?)
+                           ON CONFLICT(object_type,object_id) DO UPDATE SET
+                             lat=excluded.lat,lng=excluded.lng,updated_at=excluded.updated_at""",
+                        (str(aircraft_id), lat, lng, t_sql))
+            applied = True
+        conn.commit()
+        _log_event('track', 'GPS', '', {
+            'obj': obj, 'kind': kind, 'internal_id': str(ident), 'lat': lat, 'lng': lng,
+            'spd': spd, 'acc': acc, 'source_t': point.get('t'),
+        })
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        _log_event('track_error', 'GPS', '', {'obj': obj, 'lat': lat, 'lng': lng, 'error': str(exc)})
+        return {'accepted': True, 'applied': False, 'obj': obj, 't': t}
+    finally:
+        conn.close()
+
+    if applied:
+        try:
+            if kind == 'engineer':
+                _after_engineer_position(ident, lat, lng)
+            elif kind == 'transport':
+                _after_transport_position(ident, lat, lng)
+            elif kind in ('aircraft', 'aircraft_new'):
+                _record_aircraft_arrival(obj, lat, lng, t)
+        except Exception as exc:
+            print(f'[FINAL TRACK] {exc}')
+    return {'accepted': True, 'applied': applied, 'obj': obj, 't': t}
+
+
+@app.route('/api/v1/track', methods=['POST'])
+def api_v1_track():
+    """Контракт приёма геопозиции агентов из приложения к заданию."""
+    payload = request.get_json(silent=True)
+    single = True
+    if isinstance(payload, list):
+        points = payload
+        single = False
+    elif isinstance(payload, dict) and isinstance(payload.get('points'), list):
+        points = payload['points']
+        single = False
+    elif isinstance(payload, dict):
+        points = [payload]
+    else:
+        return jsonify({'accepted': False, 'error': 'Ожидается JSON-объект или массив точек'}), 400
+    prepared = []
+    for index, item in enumerate(points):
+        if not isinstance(item, dict):
+            return jsonify({'accepted': False, 'error': 'Точка должна быть объектом', 'index': index}), 400
+        try:
+            lat = float(item.get('lat'))
+            # Контракт положения использует lon; lng принимаем для совместимости со старыми клиентами.
+            lng = float(item.get('lon') if item.get('lon') is not None else item.get('lng'))
+        except (TypeError, ValueError):
+            _log_event('track_error', 'API', '', {'error': 'lat/lon не числа', 'index': index,
+                                                   'obj': item.get('obj')})
+            return jsonify({'accepted': False, 'error': 'lat/lon обязательны и должны быть числами', 'index': index}), 400
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            _log_event('track_error', 'API', '', {'error': 'координаты вне диапазона', 'index': index,
+                                                   'obj': item.get('obj'), 'lat': lat, 'lon': lng})
+            return jsonify({'accepted': False, 'error': 'Координаты вне допустимого диапазона', 'index': index}), 400
+        if not str(item.get('obj') or '').strip():
+            _log_event('track_error', 'API', '', {'error': 'obj отсутствует', 'index': index})
+            return jsonify({'accepted': False, 'error': 'obj обязателен', 'index': index}), 400
+        prepared.append({
+            'obj': str(item.get('obj')).strip(),
+            'lat': lat,
+            'lng': lng,
+            't': item.get('t'),
+            'acc': item.get('acc'),
+            'spd': item.get('spd'),
+        })
+    results = [_apply_track_point(p) for p in prepared]
+    return jsonify(results[0] if single and results else results)
+
+
+@app.route('/api/dispatcher/norms', methods=['GET'])
+def dispatcher_norms():
+    norms, warnings = _refresh_all_norms()
+    return jsonify({'success': True, 'norms': norms, 'warnings': warnings,
+                    'count': len(norms)})
+
+
+@app.route('/api/dispatcher/warnings', methods=['GET'])
+def dispatcher_warnings():
+    _norms, warnings = _refresh_all_norms()
+    return jsonify({'success': True, 'warnings': warnings, 'count': len(warnings)})
 
 # ============================================================
 # Pilots
@@ -3897,6 +6643,19 @@ def delete_pilot(pid):
 # ============================================================
 # Transport
 # ============================================================
+@app.route('/api/aircraft', methods=['GET'])
+def get_aircraft():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id,callsign,lat,lng,heading,speed,status,updated_at
+                   FROM aircraft
+                   WHERE callsign LIKE 'RA-%' OR status='tracked'
+                   ORDER BY callsign""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
 @app.route('/api/transport', methods=['GET'])
 def get_transport():
     conn = get_db()
@@ -3908,7 +6667,11 @@ def get_transport():
                    ORDER BY t.id""")
     res = [dict(r) for r in cur.fetchall()]
     conn.close()
-    return jsonify(res)
+    assignments = load_airport_assignments()
+    selected_airport = current_airport_payload()['airport']
+    for item in res:
+        item['airport'] = assigned_airport('transport', item['id'], assignments)
+    return jsonify([item for item in res if item['airport'] == selected_airport])
 
 
 @app.route('/api/transport', methods=['POST'])
@@ -3931,6 +6694,7 @@ def create_transport():
     conn.commit()
     tid = cur.lastrowid
     conn.close()
+    set_assigned_airport('transport', tid, data.get('airport', current_airport_payload()['airport']))
     return jsonify({'success': True, 'id': tid})
 
 
@@ -3949,6 +6713,11 @@ def update_transport(tid):
                  data.get('speed', 50), data.get('assigned_to'), tid))
     conn.commit()
     conn.close()
+    if 'airport' in data:
+        try:
+            set_assigned_airport('transport', tid, data['airport'])
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
     return jsonify({'success': True})
 
 
@@ -3975,6 +6744,9 @@ def update_transport_coords(tid):
     if not row:
         conn.close()
         return jsonify({'error': 'Не найден'}), 404
+    if not object_belongs_to_airport('transport', tid):
+        conn.close()
+        return jsonify({'success': False, 'error': 'Транспорт относится к другому аэропорту и недоступен в текущем режиме'}), 403
     if 'speed' in data and data['speed'] is not None:
         cur.execute("UPDATE transport SET lat=?, lng=?, speed=? WHERE id=?",
                     (lat, lng, data['speed'], tid))
@@ -3990,6 +6762,7 @@ def update_transport_coords(tid):
     conn.close()
     if assigned_to:
         _recalc_route_for_request_id(assigned_to, force=True)
+        _refresh_risk_for_request(assigned_to)
     return jsonify({'success': True, 'object_type': 'transport', 'id': str(tid),
                     'lat': lat, 'lng': lng})
 
@@ -4002,6 +6775,56 @@ def delete_transport(tid):
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+
+# ============================================================
+# Журнал событий финального этапа (append-only JSONL -> CSV/XLSX)
+# ============================================================
+@app.route('/api/event-log', methods=['GET'])
+def export_event_log():
+    events = _read_event_log()
+    fmt = str(request.args.get('format') or 'csv').lower()
+    if fmt == 'json':
+        return jsonify({'success': True, 'count': len(events), 'events': events})
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(['time', 'type', 'actor', 'request_id', 'details'])
+    for event in events:
+        writer.writerow([
+            event.get('t', ''), event.get('type', ''), event.get('actor', ''),
+            event.get('request_id', ''),
+            json.dumps(event.get('details') or {}, ensure_ascii=False),
+        ])
+    data = '﻿' + buf.getvalue()
+    buf.close()
+    return Response(data, mimetype='text/csv; charset=utf-8', headers={
+        'Content-Disposition': 'attachment; filename=InTrAvia_event_log.csv'
+    })
+
+
+@app.route('/api/event-log.xlsx', methods=['GET'])
+def export_event_log_xlsx():
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return jsonify({'success': False, 'error': 'openpyxl не установлен'}), 503
+    events = _read_event_log()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Event log'
+    ws.append(['Время', 'Тип', 'Участник', 'Заявка', 'Детали'])
+    for event in events:
+        ws.append([
+            event.get('t', ''), event.get('type', ''), event.get('actor', ''),
+            event.get('request_id', ''),
+            json.dumps(event.get('details') or {}, ensure_ascii=False),
+        ])
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return Response(bio.getvalue(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename=InTrAvia_event_log.xlsx'})
 
 
 # ============================================================
@@ -4186,7 +7009,7 @@ def get_requests():
         r.replaces_request_id, r.delay_minutes, r.delay_reason, r.delay_started_at,
         r.delay_approved_by, r.flight_cancelled, r.flight_cancel_reason,
         r.flight_cancelled_at, r.all_rejected, r.mcc_status, r.mcc_decision, r.mcc_comment,
-        r.engineer_verdict, r.engineer_verdict_at, r.aog_action, r.inspection_assigned_at,
+        r.engineer_verdict, r.engineer_verdict_at, r.aog_action, r.aog_since, r.mcc_ata, r.inspection_assigned_at,
         r.mcc_mel_choice, r.mcc_proc_o, r.mcc_proc_m, r.mcc_proc_o_text, r.mcc_proc_m_text,
         r.mcc_mel_ref, r.mcc_mel_category, r.mcc_due_date, r.mcc_due_condition,
         r.mcc_mel_revision, r.mcc_mel_description, r.mcc_mel_restrictions,
@@ -4232,11 +7055,40 @@ def update_request(rid):
         conn.close()
         return jsonify({'error': 'Не найдена'}), 404
 
-    cur.execute("SELECT routing_stage FROM requests WHERE id=?", (rid,))
+    cur.execute("SELECT status, routing_stage, engineer_id, engineer_comment FROM requests WHERE id=?", (rid,))
     current = cur.fetchone()
     if data.get('status') == 'completed' and current and current['routing_stage'] in ('technician','dispatcher','dispatcher_report','cpu_report','mcc_finalize'):
         conn.close()
         return jsonify({'success': False, 'error': 'Нельзя закрыть техническую задачу вручную. Инженер отправляет отчёт, затем он проходит диспетчера, ЦПУ и MCC.'}), 409
+
+    new_status = data.get('status')
+    if new_status and current and new_status != current['status']:
+        allowed = {
+            'draft': ('new', 'queued', 'cancelled'),
+            'new': ('queued', 'assigned', 'cancelled', 'mcc_review'),
+            'queued': ('assigned', 'cancelled'),
+            'assigned': ('arriving', 'queued', 'cancelled'),
+            'arriving': ('in_progress', 'cancelled'),
+            'in_progress': ('working', 'report_submitted', 'cancelled'),
+            'working': ('in_progress', 'report_submitted', 'cancelled'),
+            'report_submitted': ('completed', 'cancelled'),
+            'completed': (),
+            'cancelled': (),
+        }.get(str(current['status'] or ''), ())
+        if new_status not in allowed:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Недопустимый переход статуса: ' + str(current['status']) + ' → ' + new_status,
+                'allowed': list(allowed),
+            }), 409
+        if str(current['status']) in ('in_progress', 'working') and not bool(data.get('senior_confirmed')):
+            conn.close()
+            return jsonify({
+                'success': False,
+                'requires_senior_confirmation': True,
+                'error': 'Снятие с начатой работы требует подтверждения старшего смены.',
+            }), 409
 
     def _optional_float(key):
         if key not in data or data.get(key) is None or data.get(key) == '':
@@ -4293,6 +7145,17 @@ def update_request(rid):
                             (r['engineer_id'],))
         cur.execute("UPDATE transport SET assigned_to=NULL WHERE assigned_to=?", (rid,))
 
+    if new_status and current and new_status != current['status']:
+        _log_event('status_change', str(data.get('actor') or 'Диспетчер'), rid, {
+            'from': current['status'], 'to': new_status,
+            'senior_confirmed': bool(data.get('senior_confirmed')),
+            'reason': str(data.get('reason') or '')[:300],
+        })
+        _append_routing_history(conn, rid, {
+            'at': _iso_ms(), 'stage': 'status', 'actor': str(data.get('actor') or 'Диспетчер'),
+            'from': current['status'], 'to': new_status,
+            'note': str(data.get('reason') or 'смена статуса'),
+        })
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -4347,6 +7210,10 @@ def dispatch():
                          data.get('pilot_audio_duration') or 0))
             conn.commit()
             conn.close()
+            _log_event('request_created', 'КВС', rid, {
+                'source': 'pilot', 'aircraft': aircraft, 'mode': 'voice',
+                'note': 'Голосовая заявка зафиксирована, ожидает расшифровки MCC',
+            })
             return jsonify({'success': True, 'request_id': rid})
 
         parking_id = str(data.get('parking_id') or '')
@@ -4354,20 +7221,37 @@ def dispatch():
             conn.close()
             return jsonify({'success': False, 'error': 'Не указана стоянка'}), 400
         flight_number = (data.get('flight_number') or '').strip()
-        fault = normalize_fault_type(data.get('fault_type', 'other'))
-        description = data.get('description', fault)
+        description = str(data.get('description') or data.get('defect_text') or '').strip()
+        classification = classify_defect(description or data.get('fault_type') or 'other',
+                                         data.get('ata') or '', data.get('defect_category') or '')
+        fault = normalize_fault_type(data.get('fault_type') or classification.get('ata') or 'other')
+        if fault == 'other' and classification.get('skill'):
+            fault = next((code for code, ata in FAULT_ATA.items()
+                          if ata == classification.get('ata') and FAULT_SKILL.get(code) == classification.get('skill')),
+                         'other')
+        description = description or classification.get('matched_text') or fault
         severity = 'medium'
 
         rid = 'req_' + str(int(time.time() * 1000))
         cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
             parking_id, description, source, status, criticality, mcc_status, routing_stage,
-            pilot_name, pilot_rank)
-            VALUES (?,?,?,?,?,?,?,'pilot','new',?,'PENDING','mcc',?,?)""",
+            pilot_name, pilot_rank, mcc_ata)
+            VALUES (?,?,?,?,?,?,?,'pilot','new',?,'PENDING','mcc',?,?,?)""",
                     (rid, aircraft or '—', flight_number, fault, severity, parking_id, description,
-                     severity, pilot_name, pilot_rank))
+                     severity, pilot_name, pilot_rank, classification.get('ata') or ''))
         conn.commit()
         conn.close()
-        return jsonify({'success': True, 'request_id': rid})
+        _log_event('request_created', 'КВС', rid, {
+            'source': 'pilot', 'aircraft': aircraft, 'flight_number': flight_number,
+            'parking_id': parking_id, 'description': description,
+            'classification': classification,
+        })
+        if data.get('scheduled_at') or data.get('aircraft_eta'):
+            _log_event('aircraft_scheduled', 'КВС', rid, {
+                'scheduled_at': data.get('scheduled_at') or data.get('aircraft_eta'),
+                'source': 'предполагаемое расписание',
+            })
+        return jsonify({'success': True, 'request_id': rid, 'classification': classification})
 
     # source == 'dispatcher'
     aircraft = (data.get('aircraft') or '').strip()
@@ -4377,14 +7261,48 @@ def dispatch():
         return jsonify({'success': False, 'error': 'Не указан борт или стоянка'}), 400
 
     flight_number = (data.get('flight_number') or '').strip()
-    fault = normalize_fault_type(data.get('fault_type', 'other'))
+    description = str(data.get('description') or data.get('defect_text') or '').strip()
+    classification = classify_defect(description or data.get('fault_type') or 'other',
+                                     data.get('ata') or '', data.get('defect_category') or '')
+    fault = normalize_fault_type(data.get('fault_type') or classification.get('ata') or 'other')
+    if fault == 'other' and classification.get('skill'):
+        fault = next((code for code, ata in FAULT_ATA.items()
+                      if ata == classification.get('ata') and FAULT_SKILL.get(code) == classification.get('skill')),
+                     'other')
+    description = description or classification.get('matched_text') or fault
     severity = data.get('severity', 'medium')
-    description = data.get('description', fault)
     pilot_name = (data.get('pilot_name') or '').strip() or None
     pilot_rank = (data.get('pilot_rank') or '').strip() or None
 
     rid = 'req_' + str(int(time.time() * 1000))
-    target = PARKING_COORDS.get(parking_id, (55.975, 37.410))
+    target = _request_target_coords(parking_id, source) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
+
+    # Диспетчерский интерфейс создаёт заявку без автоназначения:
+    # диспетчер сам выбирает исполнителя из объяснимой таблицы кандидатов.
+    if data.get('auto_assign') is False:
+        cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
+            parking_id, description, source, status, criticality, mcc_status, routing_stage,
+            pilot_name, pilot_rank, mcc_ata, mcc_comment)
+            VALUES (?,?,?,?,?,?,?,?,'new',?,'INSPECTION','dispatcher',?,?,?,?)""",
+                    (rid, aircraft, flight_number, fault, severity, parking_id, description,
+                     source, severity, pilot_name, pilot_rank,
+                     classification.get('ata') or '',
+                     '[CLASS] ' + json.dumps(classification, ensure_ascii=False)))
+        conn.commit()
+        conn.close()
+        _log_event('request_created', 'Диспетчер', rid, {
+            'source': source, 'aircraft': aircraft, 'flight_number': flight_number,
+            'parking_id': parking_id, 'description': description,
+            'classification': classification, 'queued_for_dispatch': True,
+        })
+        if data.get('scheduled_at'):
+            _log_event('aircraft_scheduled', 'Диспетчер', rid, {
+                'scheduled_at': data.get('scheduled_at'),
+                'source': 'предполагаемое расписание',
+            })
+        return jsonify({'success': True, 'queued': True, 'request_id': rid,
+                        'classification': classification,
+                        'message': 'Заявка создана. Выберите инженера из таблицы рекомендаций.'})
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
         WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
@@ -4393,34 +7311,46 @@ def dispatch():
 
     eng, route = get_free_engineer_for(conn, fault, FAULT_SKILL,
                                        target[0], target[1],
-                                       exclude_ids=busy)
+                                       exclude_ids=busy,
+                                       required_skill_override=classification.get('skill'))
 
     if eng:
         cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
             parking_id, description, source, status, criticality, mcc_status, routing_stage,
             engineer_id, engineer_name, travel_time, using_car, walk_to_car, car_time, best_car,
-            pilot_name, pilot_rank)
-            VALUES (?,?,?,?,?,?,?,?,'assigned',?,'PENDING','technician',?,?,?,?,?,?,?,?,?)""",
+            pilot_name, pilot_rank, mcc_ata, mcc_comment)
+            VALUES (?,?,?,?,?,?,?,?,'assigned',?,'INSPECTION','technician',?,?,?,?,?,?,?,?,?,?,?)""",
                     (rid, aircraft, flight_number, fault, severity, parking_id, description,
                      source, severity,
                      eng['id'], eng['name'],
-                     0, 0, 0, 0, None, pilot_name, pilot_rank))
+                     0, 0, 0, 0, None, pilot_name, pilot_rank,
+                     classification.get('ata') or '',
+                     '[CLASS] ' + json.dumps(classification, ensure_ascii=False)))
         cur.execute("UPDATE engineers SET status='busy', task=?, task_step='pending', task_started_at=NULL WHERE id=?",
                     ('ВС ' + aircraft, eng['id']))
         conn.commit()
         conn.close()
-        # Маршрут-превью должен появиться сразу после назначения инженера.
-        # Не ждём ни подтверждения диспетчера, ни ответа самого инженера.
-        _recalc_route_for_request_id(rid, force=True)
-        route_conn = get_db()
-        route_cur = route_conn.cursor()
-        route_cur.execute("SELECT travel_time, using_car, walk_to_car, car_time, best_car FROM requests WHERE id=?", (rid,))
-        saved_route = route_cur.fetchone()
-        route_conn.close()
-        final_time = float(saved_route['travel_time'] or 0) if saved_route else 0
+        _log_event('request_created', 'Диспетчер', rid, {
+            'source': source, 'aircraft': aircraft, 'flight_number': flight_number,
+            'parking_id': parking_id, 'description': description,
+            'classification': classification, 'assigned_immediately': True,
+            'engineer_id': eng['id'],
+        })
+        if data.get('scheduled_at') or data.get('aircraft_eta'):
+            _log_event('aircraft_scheduled', 'Диспетчер', rid, {
+                'scheduled_at': data.get('scheduled_at') or data.get('aircraft_eta'),
+                'source': 'предполагаемое расписание',
+            })
+        _log_event('assignment', 'Диспетчер', rid, {
+            'engineer_id': eng['id'], 'engineer_name': eng['name'],
+            'eta_min': float(route.get('travel_time') or 0) if route else 0,
+            'mode': 'auto_recommendation', 'classification': classification,
+        })
+        # Маршрут строится только после принятия задачи инженером; до этого сохраняется ETA.
+        final_time = float(route.get('travel_time') or 0) if route else 0
 
         return jsonify({
-            'success': True, 'request_id': rid,
+            'success': True, 'request_id': rid, 'classification': classification,
             'selected': {
                 'request_id': rid,
                 'engineer': {
@@ -4443,22 +7373,57 @@ def dispatch():
 
     cur.execute("""INSERT INTO requests (id, aircraft, flight_number, fault_type, severity,
         parking_id, description, source, status, criticality, mcc_status, routing_stage,
-        pilot_name, pilot_rank, delay_started_at, delay_reason)
-        VALUES (?,?,?,?,?,?,?,?,'queued',?,'PENDING','dispatcher',?,?,CURRENT_TIMESTAMP,'Ожидание инженера')""",
+        pilot_name, pilot_rank, delay_started_at, delay_reason, mcc_ata, mcc_comment)
+        VALUES (?,?,?,?,?,?,?,?,'queued',?,'PENDING','dispatcher',?,?,CURRENT_TIMESTAMP,'Ожидание инженера',?,?)""",
                 (rid, aircraft, flight_number, fault, severity, parking_id, description,
-                 source, severity, pilot_name, pilot_rank))
+                 source, severity, pilot_name, pilot_rank,
+                 classification.get('ata') or '',
+                 '[CLASS] ' + json.dumps(classification, ensure_ascii=False)))
     conn.commit()
     conn.close()
+    _log_event('request_created', 'Диспетчер', rid, {
+        'source': source, 'aircraft': aircraft, 'flight_number': flight_number,
+        'parking_id': parking_id, 'description': description,
+        'classification': classification, 'queued': True,
+    })
     _schedule_recheck(rid)
     return jsonify({'success': True, 'queued': True, 'request_id': rid,
+                    'classification': classification,
                     'message': 'Заявка в очереди — нет свободных специалистов'})
 
 
 # ============================================================
 # /api/route
 # ============================================================
+def _parse_route_point(raw):
+    """Point may be [lat,lng], {lat,lon}, {parking_id}, zone id or 'lat,lng'."""
+    if isinstance(raw, dict):
+        if raw.get('lat') is not None and (raw.get('lon') is not None or raw.get('lng') is not None):
+            return float(raw.get('lat')), float(raw.get('lon') if raw.get('lon') is not None else raw.get('lng'))
+        ident = raw.get('parking_id') or raw.get('zone_id') or raw.get('id') or raw.get('ref')
+        if ident is not None:
+            return _request_target_coords(str(ident), raw.get('source'))
+        return None
+    if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+        return float(raw[0]), float(raw[1])
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        if ',' in text:
+            parts = [p.strip() for p in text.split(',')]
+            if len(parts) >= 2:
+                try:
+                    return float(parts[0]), float(parts[1])
+                except ValueError:
+                    pass
+        return _request_target_coords(text)
+    return None
+
+
 @app.route('/api/route', methods=['POST'])
 def compute_route():
+    """Graph route with 1+ intermediate points, off-graph snapping and transport legs."""
     data = request.get_json() or {}
     try:
         start_lat = float(data.get('start_lat'))
@@ -4467,40 +7432,144 @@ def compute_route():
         end_lng = float(data.get('end_lng'))
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'start/end обязательны'}), 400
+    if not (-90 <= start_lat <= 90 and -90 <= end_lat <= 90 and
+            -180 <= start_lng <= 180 and -180 <= end_lng <= 180):
+        return jsonify({'success': False, 'error': 'Координаты вне допустимого диапазона'}), 400
+
+    raw_waypoints = data.get('waypoints')
+    if raw_waypoints is None:
+        raw_waypoints = data.get('via') or []
+    if isinstance(raw_waypoints, (str, dict)):
+        raw_waypoints = [raw_waypoints]
+    if not isinstance(raw_waypoints, list):
+        return jsonify({'success': False, 'error': 'waypoints должен быть массивом'}), 400
+
+    waypoints = []
+    for index, raw in enumerate(raw_waypoints):
+        try:
+            point = _parse_route_point(raw)
+        except (TypeError, ValueError):
+            point = None
+        if point is None:
+            return jsonify({'success': False, 'error': 'Некорректная промежуточная точка',
+                            'index': index}), 400
+        if not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
+            return jsonify({'success': False, 'error': 'Промежуточная точка вне диапазона',
+                            'index': index}), 400
+        delay_sec = 0.0
+        label = ''
+        if isinstance(raw, dict):
+            try:
+                delay_sec = float(raw.get('delay_sec') or 0)
+            except (TypeError, ValueError):
+                delay_sec = 0.0
+            label = str(raw.get('label') or raw.get('type') or '')
+            kind = str(raw.get('type') or '').lower()
+            if delay_sec <= 0:
+                if kind in ('tool', 'warehouse', 'склад', 'инструмент'):
+                    delay_sec = TOOL_PICKUP_DELAY_MIN * 60.0
+                elif kind in ('transfer', 'car', 'parking', 'спецтранспорт'):
+                    delay_sec = TRACK_BOARD_DELAY_MIN * 60.0
+        waypoints.append({'lat': point[0], 'lng': point[1], 'delay_sec': max(0.0, delay_sec),
+                          'label': label})
 
     car_lat = data.get('car_lat')
     car_lng = data.get('car_lng')
-
-    if car_lat is not None and car_lng is not None:
+    using_car = car_lat is not None and car_lng is not None
+    if using_car:
         try:
             car_lat = float(car_lat)
             car_lng = float(car_lng)
         except (TypeError, ValueError):
-            car_lat = car_lng = None
+            return jsonify({'success': False, 'error': 'Некорректные координаты спецтранспорта'}), 400
 
-    if car_lat is not None and car_lng is not None:
-        walk_path, _ = get_shortest_path(road_graph_vehicle,
-                                          start_lat, start_lng, car_lat, car_lng)
-        if walk_path is None:
+    selected_airport = current_airport_payload()['airport']
+    points = [(start_lat, start_lng)] + [(w['lat'], w['lng']) for w in waypoints] + [(end_lat, end_lng)]
+
+    combined = []
+    legs = []
+    total_distance = 0.0
+    total_time = 0.0
+    fallback = False
+
+    def append_segment(path):
+        nonlocal combined
+        if not path:
+            return
+        if combined and distance_km(combined[-1][0], combined[-1][1], path[0][0], path[0][1]) < 0.002:
+            combined.extend(path[1:])
+        else:
+            combined.extend(path)
+
+    if using_car:
+        # Walk from the agent to the vehicle, then drive through all intermediate points.
+        walk_path, walk_dist, walk_time = get_airport_road_path(
+            selected_airport, start_lat, start_lng, car_lat, car_lng
+        )
+        if not walk_path:
             walk_path = [[start_lat, start_lng], [car_lat, car_lng]]
-        car_path, car_dist = get_shortest_path(road_graph_vehicle,
-                                               car_lat, car_lng, end_lat, end_lng)
-        if car_path is None:
-            car_path = [[car_lat, car_lng], [end_lat, end_lng]]
-        combined = walk_path + car_path[1:]
-        total = 0.0
-        for i in range(len(combined) - 1):
-            total += distance_km(combined[i][0], combined[i][1],
-                                 combined[i + 1][0], combined[i + 1][1])
-        return jsonify({'success': True, 'path': combined,
-                        'distance': round(total, 3), 'fallback': False})
+            walk_dist = distance_km(start_lat, start_lng, car_lat, car_lng)
+            walk_time = walk_dist / WALK_SPEED_KMH * 60.0
+            fallback = True
+        append_segment([list(p) for p in walk_path])
+        total_distance += walk_dist
+        total_time += walk_dist / WALK_SPEED_KMH * 60.0
+        legs.append({'mode': 'walk_to_transport', 'distance_km': round(walk_dist, 3),
+                     'time_min': round(walk_dist / WALK_SPEED_KMH * 60.0, 2)})
+        total_time += TRACK_BOARD_DELAY_MIN
+        car_points = [(car_lat, car_lng)] + [(w['lat'], w['lng']) for w in waypoints] + [(end_lat, end_lng)]
+        for index in range(len(car_points) - 1):
+            a, b = car_points[index], car_points[index + 1]
+            result = get_airport_transport_path(selected_airport, a[0], a[1], b[0], b[1])
+            if result:
+                car_path, car_dist, car_time, _car_legs = result
+            else:
+                car_path = [[a[0], a[1]], [b[0], b[1]]]
+                car_dist = distance_km(a[0], a[1], b[0], b[1])
+                car_time = car_dist / 5.0 * 60.0
+                fallback = True
+            append_segment([list(p) for p in car_path])
+            total_distance += car_dist
+            total_time += car_time
+            legs.append({'mode': 'transport', 'from_index': index,
+                         'distance_km': round(car_dist, 3), 'time_min': round(car_time, 2),
+                         'waypoint_delay_sec': waypoints[index]['delay_sec'] if index < len(waypoints) else 0})
+            if index < len(waypoints):
+                total_time += waypoints[index]['delay_sec'] / 60.0
+    else:
+        for index in range(len(points) - 1):
+            a, b = points[index], points[index + 1]
+            path, dist, _graph_time = get_airport_road_path(selected_airport, a[0], a[1], b[0], b[1])
+            if not path:
+                path = [[a[0], a[1]], [b[0], b[1]]]
+                dist = distance_km(a[0], a[1], b[0], b[1])
+                fallback = True
+            append_segment([list(p) for p in path])
+            seg_time = dist / WALK_SPEED_KMH * 60.0
+            total_distance += dist
+            total_time += seg_time
+            legs.append({'mode': 'walk', 'from_index': index, 'distance_km': round(dist, 3),
+                         'time_min': round(seg_time, 2),
+                         'waypoint_delay_sec': waypoints[index]['delay_sec'] if index < len(waypoints) else 0})
+            if index < len(waypoints):
+                total_time += waypoints[index]['delay_sec'] / 60.0
 
-    path, dist = get_shortest_path(road_graph_vehicle,
-                                    start_lat, start_lng, end_lat, end_lng)
-    if path is None:
-        return jsonify({'success': True, 'path': None, 'distance': 0, 'fallback': True})
-    return jsonify({'success': True, 'path': path,
-                    'distance': round(dist, 3), 'fallback': False})
+    if not combined:
+        return jsonify({'success': True, 'path': None, 'distance': 0,
+                        'total_time_min': 0, 'waypoints': len(waypoints), 'fallback': True})
+    response = {
+        'success': True,
+        'path': [[round(p[0], 6), round(p[1], 6)] for p in combined],
+        'distance': round(total_distance, 3),
+        'total_time_min': round(total_time, 2),
+        'speed_kmh': WALK_SPEED_KMH if not using_car else None,
+        'using_car': bool(using_car),
+        'waypoints': len(waypoints),
+        'waypoint_details': waypoints,
+        'legs': legs,
+        'fallback': fallback,
+    }
+    return jsonify(response)
 
 
 # ============================================================
@@ -4549,7 +7618,7 @@ def cancel_request(rid):
     fault = row['fault_type'] or 'engine_failure'
     parking = str(row['parking_id'] or '')
     aircraft = row['aircraft'] or 'ВС'
-    target = PARKING_COORDS.get(parking, (55.975, 37.410))
+    target = _request_target_coords(parking, row['source'] if 'source' in row.keys() else None) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
 
     cur.execute("""SELECT DISTINCT engineer_id FROM requests
         WHERE status NOT IN ('completed','cancelled','flight_cancelled','deleted')
@@ -4652,7 +7721,7 @@ def reject_request(rid):
     fault = row['fault_type'] or 'engine_failure'
     parking = str(row['parking_id'] or '')
     aircraft = row['aircraft'] or 'ВС'
-    target = PARKING_COORDS.get(parking, (55.975, 37.410))
+    target = _request_target_coords(parking, row['source'] if 'source' in row.keys() else None) or AIRPORT_CENTERS.get(current_airport_payload()['airport'], (55.975, 37.410))
     old_eng = row['engineer_id']
     rej_prev = {x.strip() for x in str(row['rejected_by']).split(',') if x.strip()}
     if rejected_by:
@@ -4677,8 +7746,15 @@ def reject_request(rid):
             inspection_assigned_at=NULL, rejected_by=?, all_rejected=0 WHERE id=?""",
                     (new_eng['id'], new_eng['name'], rej_str, rid))
         set_engineer_busy(conn, new_eng['id'], 'ВС ' + aircraft)
+        _log_routing_event(conn, rid, 'technician', row['engineer_name'] or 'Инженер',
+                           'Отказ от назначения; переназначено на ' + new_eng['name'])
         conn.commit()
         conn.close()
+        _log_event('reassignment', 'Система', rid, {
+            'from_engineer_id': str(old_eng or ''), 'from_engineer_name': row['engineer_name'] or '',
+            'to_engineer_id': str(new_eng['id']), 'to_engineer_name': new_eng['name'],
+            'reason': 'Отказ инженера: ' + rejected_by, 'auto': True,
+        })
         # После отказа назначаем следующего инженера и сразу строим его маршрут.
         _recalc_route_for_request_id(rid, force=True)
         _recalc_all_active_routes()
@@ -4999,6 +8075,8 @@ def _startup():
     init_db()
     load_svo_geojson()
     load_road_graph()
+    load_vdnh_road_graph()
+    load_osm_road_graphs()
     try:
         _recalc_all_active_routes()
     except Exception as e:

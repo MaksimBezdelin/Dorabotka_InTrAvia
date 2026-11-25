@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>InTrAvia — финальный этап</title>
+<style>
+    @page { size: 13.333in 7.5in; margin: 0; }
+    * { box-sizing: border-box; }
+    :root {
+        --navy:#071b33; --blue:#0b4a8f; --blue2:#1d6fc9; --pale:#f3f7fc; --pale2:#e7f0fa;
+        --gold:#c9a84c; --green:#16a34a; --orange:#d97706; --red:#b91c1c;
+        --text:#172433; --muted:#5b6b7e; --line:#d8e3ef;
+    }
+    html, body { margin:0; padding:0; background:#e9eef5; font-family: Arial, "Segoe UI", sans-serif; color:var(--text); }
+    .slide {
+        position: relative; width:13.333in; height:7.5in; background:var(--pale);
+        padding:1.18in 0.52in 0.35in; overflow:hidden; page-break-after:always;
+    }
+    .slide:last-child { page-break-after:auto; }
+    .head { position:absolute; left:0; top:0; right:0; height:1.02in; background:var(--navy); }
+    .head:before { content:""; position:absolute; left:.48in; top:.24in; width:.08in; height:.52in; background:var(--gold); }
+    .head h1 { position:absolute; left:.72in; top:.19in; margin:0; color:#fff; font-size:24px; letter-spacing:-.2px; }
+    .head .sub { position:absolute; left:.72in; top:.70in; color:#bfd1e4; font-size:9px; }
+    .head .num { position:absolute; right:.55in; top:.38in; color:#b9c7d8; font-size:11px; }
+    .foot { position:absolute; left:.52in; right:.52in; bottom:.16in; display:flex; justify-content:space-between; color:#7b8ca0; font-size:8px; }
+    .title-slide { background:var(--navy); color:#fff; padding:0; }
+    .title-slide .accent { position:absolute; left:.7in; top:.75in; width:.10in; height:1.8in; background:var(--gold); }
+    .title-slide .kicker { position:absolute; left:1.0in; top:.72in; color:var(--gold); font-size:12px; font-weight:700; letter-spacing:1.2px; }
+    .title-slide h1 { position:absolute; left:1.0in; top:1.16in; margin:0; font-size:54px; letter-spacing:-1.5px; }
+    .title-slide h2 { position:absolute; left:1.0in; top:2.42in; margin:0; font-size:24px; line-height:1.25; color:#d9e7f6; font-weight:400; }
+    .title-slide .facts { position:absolute; left:1.0in; top:3.60in; font-size:13px; line-height:1.5; color:#bfd1e4; }
+    .chips { position:absolute; left:1.0in; top:5.05in; display:flex; gap:.18in; }
+    .chip { padding:.12in .22in; border-radius:8px; background:#0e2b4d; border:1px solid #2e598a; font-size:9px; color:#fff; font-weight:700; }
+    .title-slide .credit { position:absolute; left:1.0in; bottom:.45in; font-size:9px; color:#9fb4cb; }
+    .grid { display:grid; gap:.18in; }
+    .g2 { grid-template-columns:1fr 1fr; }
+    .g3 { grid-template-columns:1fr 1fr 1fr; }
+    .g4 { grid-template-columns:repeat(4,1fr); }
+    .card { background:#fff; border:1px solid var(--line); border-radius:9px; padding:.16in .18in; }
+    .card h3 { margin:0 0 .08in; font-size:13px; color:var(--navy); }
+    .card p, .card li { font-size:10.2px; line-height:1.5; color:var(--text); }
+    .card ul { margin:.02in 0 0 .15in; padding:0; }
+    .card li { margin-bottom:.055in; }
+    .metric { background:#fff; border:1px solid var(--line); border-radius:9px; padding:.16in .18in; }
+    .metric .v { font-size:24px; font-weight:800; }
+    .metric .l { font-size:9.5px; color:var(--muted); line-height:1.35; margin-top:.02in; }
+    .blue { color:var(--blue); } .gold { color:var(--gold); } .green { color:var(--green); } .orange { color:var(--orange); } .red { color:var(--red); }
+    .g4-fill { grid-auto-rows:2.52in; }
+    .strip { width:100%; height:1.75in; object-fit:cover; object-position:center 32%; border-radius:9px; border:1px solid var(--line); display:block; }
+    .strip.tall { height:1.95in; }
+    .strip.crop-map { object-position:62% 35%; height:1.55in; }
+    .bar { background:var(--navy); color:#fff; border-radius:8px; padding:.14in .18in; font-size:10px; font-weight:700; }
+    .arch { display:grid; grid-template-columns:2.42in .20in 1.78in .20in 2.78in .20in 2.15in; gap:.10in; margin-top:.10in; align-items:stretch; }
+    .arch .col { display:flex; flex-direction:column; gap:.10in; }
+    .arch .arrowcol { display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:22px; font-weight:700; }
+    .arch .label { font-size:9px; font-weight:800; letter-spacing:.7px; color:var(--blue); margin-bottom:.02in; }
+    .arch .node { background:#fff; border:1px solid var(--line); border-radius:7px; padding:.10in .12in; min-height:.82in; }
+    .arch .node b { display:block; font-size:10.5px; color:var(--navy); }
+    .arch .node span { display:block; font-size:8.2px; color:var(--muted); line-height:1.35; margin-top:.03in; white-space:pre-line; }
+    .arch .node.integration { background:var(--pale2); border-color:var(--gold); }
+    .arch .node.server { border-color:#9fc0e2; }
+    .arch .node.data { border-color:#a7d6b7; }
+    .arrowcol { display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:18px; }
+    .flow { display:flex; gap:.10in; align-items:center; margin-top:.10in; }
+    .flow div { flex:1; background:#102c4e; border:1px solid #5178a8; color:#fff; border-radius:7px; text-align:center; padding:.10in .05in; font-size:9px; font-weight:700; }
+    .flow span { color:var(--gold); font-size:14px; }
+    .screens { display:grid; grid-template-columns:2.05fr .82fr .82fr; gap:.16in; align-items:start; }
+    .shot { background:#fff; border:1px solid var(--line); border-radius:8px; padding:.07in; }
+    .shot img { width:100%; height:4.55in; object-fit:contain; background:#0b1628; border-radius:5px; display:block; }
+    .shot .cap { font-size:8.2px; color:var(--muted); margin-top:.05in; line-height:1.3; }
+    .callout { background:var(--navy); color:#fff; border-radius:8px; padding:.12in .18in; font-size:9.5px; font-weight:700; margin-top:.14in; }
+    .cols3 { display:grid; grid-template-columns:repeat(3,1fr); gap:.18in; }
+    .colhead { background:var(--blue); color:#fff; border-radius:7px 7px 0 0; padding:.12in .15in; font-size:12px; font-weight:700; }
+    .colbody { background:#fff; border:1px solid var(--line); border-top:0; border-radius:0 0 7px 7px; padding:.18in .18in; min-height:4.5in; }
+    .colbody li { font-size:10.2px; line-height:1.55; margin-bottom:.10in; }
+    .note { color:var(--muted); font-size:8.5px; margin-top:.10in; }
+    .checklist { display:grid; grid-template-columns:1fr 1fr; gap:.12in .35in; margin-top:.20in; }
+    .checklist div { font-size:12.5px; line-height:1.45; color:#fff; }
+    .checklist b { color:var(--gold); }
+    .dark-card { background:#0e2b4d; border:1px solid #2e598a; border-radius:8px; padding:.14in .18in; }
+    .dark-card .k { color:var(--gold); font-size:9px; font-weight:700; }
+    .dark-card .v { color:#fff; font-size:10px; margin-top:.03in; }
+    .table { width:100%; border-collapse:collapse; font-size:9px; }
+    .table td { padding:.06in .05in; border-bottom:1px solid var(--line); vertical-align:top; }
+    .table td:first-child { font-weight:700; color:var(--blue); white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="slide title-slide">
+    <div class="accent"></div>
+    <div class="kicker">ФИНАЛЬНЫЙ ЭТАП · УМНАЯ ДИСПЕТЧЕРИЗАЦИЯ ОТО</div>
+    <h1>InTrAvia</h1>
+    <h2>маршрутизация, динамическая обстановка<br>и внештатные ситуации</h2>
+    <div class="facts">
+        Испытательный полигон ВДНХ · 10 сервисных зон · 3 инженера · 3 единицы спецтранспорта<br>
+        Норматив прибытия к ВС — 15 минут · пешая скорость — 5 км/ч
+    </div>
+    <div class="chips">
+        <div class="chip">REST API /api/v1/track</div>
+        <div class="chip">Flask · SQLite · Leaflet</div>
+        <div class="chip">Capacitor Android</div>
+        <div class="chip">Офлайн + голос</div>
+    </div>
+    <div class="credit">Команда InTrAvia · github.com/MaksimBezdelin/Dorabotka_InTrAvia</div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+    <div class="head"><h1>Решение в цифрах</h1><div class="sub">Что закрывает финальное задание и как это проверить</div><div class="num">02 / 10</div></div>
+    <div class="grid g4" style="margin-bottom:.18in;">
+        <div class="metric"><div class="v blue">15 мин</div><div class="l">норматив от фиксации<br>до прибытия к ВС</div></div>
+        <div class="metric"><div class="v orange">5 / 8 / 10 / 20</div><div class="l">км/ч — скорости<br>спецтранспорта</div></div>
+        <div class="metric"><div class="v green">2 Гц</div><div class="l">частота GPS<br>полевого инженера</div></div>
+        <div class="metric"><div class="v gold">мс</div><div class="l">точность меток<br>журнала событий</div></div>
+    </div>
+    <div class="grid g2">
+        <div class="card">
+            <h3>Обязательная часть — максимум</h3>
+            <ul>
+                <li>архитектура, функционал, процесс разработки и авторство;</li>
+                <li>ВДНХ: карта, 10 зон, объекты, 4 типа дорог;</li>
+                <li>маршруты по графу, промежуточные точки, точки вне графа;</li>
+                <li>спецтранспорт с реальными скоростями и пересадкой;</li>
+                <li>интерфейс инженера, полевая работа, приём геопозиции;</li>
+                <li>роли, статусы, многокритериальный и объяснимый подбор;</li>
+                <li>MEL/AOG, открытый классификатор, несколько AOG;</li>
+                <li>норматив, риск, журнал CSV/XLSX.</li>
+            </ul>
+        </div>
+        <div class="card">
+            <h3>Дополнительные баллы</h3>
+            <ul>
+                <li>маршрут обновляется по мере движения;</li>
+                <li>текстовые подсказки и озвучивание (ru-RU);</li>
+                <li>предупреждения диспетчеру о рассогласовании данных;</li>
+                <li>офлайн-очередь GPS и действий, автосинхронизация;</li>
+                <li>устаревшая позиция с временем последнего обновления;</li>
+                <li>авторские элементы: открытый каталог дефектов, альтернативный инженер в риск-уведомлении.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+    <div class="head"><h1>Архитектура</h1><div class="sub">Модули, связи и технологический стек</div><div class="num">03 / 10</div></div>
+    <div class="arch">
+        <div class="col">
+            <div class="label">КЛИЕНТЫ</div>
+            <div class="node"><b>Диспетчер</b><span>HTML · JS · Leaflet
+карта, очередь, кандидаты</span></div>
+            <div class="node"><b>Инженер desktop</b><span>HTML · JS · Leaflet
+заявки, маршрут, отчёт</span></div>
+            <div class="node"><b>Мобильный инженер</b><span>Capacitor Android
+GPS 2 Гц · компас · офлайн</span></div>
+            <div class="node"><b>MCC · ЦПУ · КВС</b><span>HTML · JS
+цепочка заявки</span></div>
+        </div>
+        <div class="arrowcol">→</div>
+        <div class="col">
+            <div class="label">ИНТЕГРАЦИЯ</div>
+            <div class="node integration"><b>REST / JSON</b><span>HTTPS · контракт
+/api/v1/track</span></div>
+            <div class="node integration"><b>Живой обмен</b><span>GPS 0.5–3 с
+очереди 1–5 с</span></div>
+            <div class="node integration"><b>Внешние данные</b><span>имитатор · OSM-тайлы
+расписание ВС</span></div>
+        </div>
+        <div class="arrowcol">→</div>
+        <div class="col">
+            <div class="label">СЕРВЕРНАЯ ЛОГИКА</div>
+            <div class="node server"><b>Маршрутизатор</b><span>NetworkX · графы ВДНХ
+веса по скорости и типу</span></div>
+            <div class="node server"><b>Подбор и роли</b><span>срочность · позиция · ATA
+загрузка · этап · риск</span></div>
+            <div class="node server"><b>Норматив и риск</b><span>ETA · прогноз · геозона
+альтернативный инженер</span></div>
+            <div class="node server"><b>Журнал и каталоги</b><span>JSONL · CSV · XLSX
+дефекты · ATA · MEL</span></div>
+        </div>
+        <div class="arrowcol">→</div>
+        <div class="col">
+            <div class="label">ДАННЫЕ</div>
+            <div class="node data"><b>SQLite</b><span>существующая схема
+без миграций</span></div>
+            <div class="node data"><b>GeoJSON ВДНХ</b><span>дороги · зоны · объекты</span></div>
+            <div class="node data"><b>JSON-конфиги</b><span>аэропорт · дефекты
+инструмент · привязки</span></div>
+            <div class="node data"><b>event_log.jsonl</b><span>append-only
+метки UTC, мс</span></div>
+        </div>
+    </div>
+    <div class="bar" style="margin-top:.16in;">Стек: Python 3.13 · Flask · Flask-CORS · SQLite · NetworkX · HTML/CSS/JS · Leaflet · Capacitor 6 · Gradle 8.2 · openpyxl</div>
+    <div class="note">Связи: клиенты → REST/JSON → серверные модули → SQLite/GeoJSON/JSONL; сервер читает конфигурацию и возвращает карту, ETA и предупреждения.</div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+    <div class="head"><h1>Реализованный функционал</h1><div class="sub">Список соответствует фактически работающим экранам и API</div><div class="num">04 / 10</div></div>
+    <div class="grid g4 g4-fill">
+        <div class="card"><h3>Заявка и роли</h3><ul><li>КВС → MCC/ЦПУ → диспетчер → инженер</li><li>валидируемые статусы и история</li><li>MEL/AOG устанавливает инженер</li><li>переназначение после старта — старший смены</li></ul></div>
+        <div class="card"><h3>Подбор</h3><ul><li>срочность, позиция, загрузка, этап</li><li>допуск по главе ATA</li><li>последствия задержки и норматив</li><li>таблица кандидатов + причины отклонения</li></ul></div>
+        <div class="card"><h3>Маршруты</h3><ul><li>граф ВДНХ, 4 типа дорог, ВПП исключена</li><li>1+ промежуточных точек</li><li>точки вне графа, динамический пересчёт</li><li>пешком / спецтранспорт 5–20 км/ч</li></ul></div>
+        <div class="card"><h3>Поле и данные</h3><ul><li>GPS инженера 2 Гц через API</li><li>имитатор: e-XX, v-XX, RA-XXXXX</li><li>автофиксация прибытия в зону</li><li>офлайн-очередь и автосинхронизация</li></ul></div>
+        <div class="card"><h3>Норматив и риск</h3><ul><li>прогноз от фиксации до прибытия</li><li>учёт пересадки +10 с и склада +30 с</li><li>предупреждение заранее + альтернатива</li><li>факт нарушения в журнале</li></ul></div>
+        <div class="card"><h3>Журнал и каталоги</h3><ul><li>все события из п. 3.2</li><li>метки UTC с миллисекундами</li><li>время формирования кандидатов</li><li>выгрузка CSV и Excel</li></ul></div>
+        <div class="card"><h3>Открытый классификатор</h3><ul><li>свободный текст не теряется</li><li>поиск по категориям и ATA</li><li>добавление новых типов без кода</li><li>классификация в подборе</li></ul></div>
+        <div class="card"><h3>Мобильный инженер</h3><ul><li>приём/отклонение, смена статуса</li><li>маршрут, ETA, позиция, инструмент</li><li>поворотные подсказки и озвучивание</li><li>устаревшая GPS-позиция помечается</li></ul></div>
+    </div>
+    <div class="bar" style="margin-top:.16in;">Ключевые API: /api/v1/track · /api/route · /api/dispatcher/norms · /api/defects · /api/event-log.xlsx</div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+    <div class="head"><h1>Процесс разработки, контроль качества и авторство</h1><div class="sub">Три обязательных блока — с конкретными фактами</div><div class="num">05 / 10</div></div>
+    <div class="cols3">
+        <div><div class="colhead">1 · Процесс и автоматизация</div><div class="colbody"><ul>
+            <li>Git/GitHub, отдельные ветки и worktree для каждой доработки;</li>
+            <li>Flask + SQLite: живой сервер и отдельная копия БД для прогонов;</li>
+            <li>Capacitor/Gradle: сборка debug APK, проверка assets и разрешений;</li>
+            <li>Playwright: smoke диспетчера, desktop-инженера и мобильной версии;</li>
+            <li>автоматизация API: curl/python-проверки контрактов и маршрутов.</li>
+            <li><b>Пример:</b> маршрут ВДНХ 4.557 км / 55.19 мин проверен на 1 и 2 точках.</li>
+            <li><b>Цикл:</b> изменение → тест на копии БД → браузерный smoke → коммит.</li>
+        </ul></div></div>
+        <div><div class="colhead" style="background:var(--orange);">2 · Контроль качества кода</div><div class="colbody"><ul>
+            <li>py_compile перед каждым запуском;</li>
+            <li>интеграционный прогон: 26 проверок PASS;</li>
+            <li>контракт /api/v1/track: lon+lng, пакет, 200/400;</li>
+            <li>браузерный прогон без console/page errors;</li>
+            <li>ручная проверка маршрута на карте и сценария 15 минут.</li>
+            <li><b>Найдено и исправлено:</b> клиент отправлял lng вместо lon; VDNKh-маршрут брал координаты SVO; VDNKh-транспорт был отключён.</li>
+            <li><b>Регрессия:</b> путь и ETA совпадают на mobile, desktop и у диспетчера.</li>
+        </ul></div></div>
+        <div><div class="colhead" style="background:var(--green);">3 · Авторство кода</div><div class="colbody"><ul>
+            <li>Люди: постановка задачи, архитектура, сценарии, приёмка;</li>
+            <li>ИИ-ассистент (Claude Code): генерация значительной части кода, тестов и документации;</li>
+            <li>Совместно: человек задавал правила (5 км/ч, запрет рулёжек и ВПП, роли), ИИ реализовывал;</li>
+            <li>человеческое ревью каждого изменения перед запуском и коммитом;</li>
+            <li><b>Пример:</b> endpoint /api/v1/track сгенерирован ИИ, человек исправил поле lon и UTC-мс;</li>
+            <li><b>Пример:</b> отчёт инженера и MEL/AOG — требования и проверка человеком.</li>
+        </ul></div></div>
+    </div>
+    <div class="note">Воспроизводимость: все проверки запускаются на копии БД; рабочая БД и схема не изменяются.</div>
+    <div class="bar" style="margin-top:.12in;">Артефакты QA: tests/final_stage_smoke.py · docs/FINAL_STAGE.md · browser smoke screenshots · APK debug</div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+    <div class="head"><h1>Адаптация под ВДНХ и маршрутизация</h1><div class="sub">Явный граф с атрибутами, скоростями и запретами</div><div class="num">06 / 10</div></div>
+    <div class="grid g2">
+        <div class="card">
+            <h3>Испытательный полигон</h3>
+            <ul>
+                <li>10 сервисных зон обслуживания ВС (полигоны GeoJSON).</li>
+                <li>463 ребра сети: 129 taxi (ВС), 269 service (инженер/спецтранспорт), 62 pedestrian (инженер), 3 runway (ВС).</li>
+                <li>Официальная сеть полигона: 801 узел / 842 ребра; спецтранспорт 677 / 706. Taxi/ВПП исключены.</li>
+                <li>Граф спецтранспорта: 637 / 647; скорость каждого ребра из spd_kmh.</li>
+                <li>ВПП и рулёжные ограничения исключены из пешего маршрута.</li>
+                <li>От инженера до стоянки: проекция на ближайшее ребро roads.geojson, затем движение только по рёбрам графа.</li>
+                <li>Смена локации = замена GeoJSON + JSON-справочников, без кода.</li>
+            </ul>
+        </div>
+        <div>
+            <div class="card" style="margin-bottom:.18in;">
+                <h3>Скоростной режим спецтранспорта</h3>
+                <table class="table">
+                    <tr><td>5 км/ч</td><td>подъезд к ВС, отъезд, маневрирование</td></tr>
+                    <tr><td>8 км/ч</td><td>перрон вдоль терминалов</td></tr>
+                    <tr><td>10 км/ч</td><td>перрон к местам стоянок ВС</td></tr>
+                    <tr><td>20 км/ч</td><td>остальная территория аэродрома</td></tr>
+                </table>
+                <div class="note" style="color:var(--orange);font-weight:700;">Посадка/высадка +10 с · склад +30 с</div>
+            </div>
+            <div class="card">
+                <h3>Проверенные маршруты</h3>
+                <ul>
+                    <li>Зона 9 → зона 1 (склад) → зона 10: 4.557 км, 55.19 мин, 352 координаты.</li>
+                    <li>Инженер → CAR-V01 → зона 10: 8.3 мин (6.8 пешком + 1.6 на машине).</li>
+                    <li>Пешая скорость — ровно 5 км/ч; формула distance / 5 × 60.</li>
+                    <li>Пересчёт при движении: каждые 2.5 с или 8 м.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <img class="strip crop-map" src="assets/map_strip.png" alt="Маршрут с промежуточной точкой на карте ВДНХ">
+    <div class="note">Официальная сеть полигона задаёт доступ: инженер — service/pedestrian; ВС — taxi/ВПП; ВПП исключена.</div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+    <div class="head"><h1>Спецтранспорт, промежуточные точки и динамика</h1><div class="sub">Маршрут выбирается сравнением вариантов, а не «всегда на машине»</div><div class="num">07 / 10</div></div>
+    <div class="cols3">
+        <div><div class="colhead">Пешком vs спецтранспорт</div><div class="colbody" style="min-height:2.5in;"><ul>
+            <li>Система считает оба варианта и выбирает быстрейший.</li>
+            <li>Учтены доступность машины, позиция, посадка +10 с и инструмент +30 с.</li>
+            <li>Для ВДНХ — 3 машины: CAR-V01, CAR-V02, CAR-V03.</li>
+            <li>Скорости берутся из рёбер service-дорог, а не из одной константы.</li>
+            <li>Назначение автомобиля закрепляется за заявкой после принятия.</li>
+        </ul></div></div>
+        <div><div class="colhead" style="background:var(--gold);color:var(--navy);">1+ промежуточных точек</div><div class="colbody" style="min-height:2.5in;"><ul>
+            <li>API /api/route принимает waypoints/via.</li>
+            <li>Поддерживаются координаты, ID стоянки, ID сервисной зоны.</li>
+            <li>Задержки: склад 30 с, пересадка 10 с.</li>
+            <li>UI: карточка «Маршрут с промежуточными точками».</li>
+            <li>Проверено: 1 и 2 промежуточные точки, 229 координат.</li>
+        </ul></div></div>
+        <div><div class="colhead" style="background:var(--green);">Динамика и точки вне графа</div><div class="colbody" style="min-height:2.5in;"><ul>
+            <li>Маршрут пересчитывается по GPS инженера и спецтехники.</li>
+            <li>Старт и финиш вне графа привязываются к ближайшему ребру.</li>
+            <li>После восстановления связи маршрут пересчитывается автоматически.</li>
+            <li>Диспетчер видит отклонение &gt; 120 м как рассогласование данных.</li>
+            <li>Мобильная карта поворачивается по азимуту, как в Яндекс Картах.</li>
+        </ul></div></div>
+    </div>
+    <div class="bar" style="margin-top:.16in;">Как принимается решение о транспорте</div>
+    <div class="flow">
+        <div>GPS инженера</div><span>→</span><div>вариант пешком</div><span>→</span><div>вариант на машине</div><span>→</span><div>сравнение ETA</div><span>→</span><div>выбор и резерв</div>
+    </div>
+    <div class="grid g3" style="margin-top:.18in;">
+        <div class="metric"><div class="v blue" style="font-size:18px;">3 машины</div><div class="l">CAR-V01 · CAR-V02 · CAR-V03 на сервисных дорогах ВДНХ</div></div>
+        <div class="metric"><div class="v orange" style="font-size:18px;">+10 секунд</div><div class="l">посадка/высадка инженера на спецтранспорт</div></div>
+        <div class="metric"><div class="v green" style="font-size:18px;">+30 секунд</div><div class="l">получение инструмента на складе, если он не при себе</div></div>
+    </div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+    <div class="head"><h1>Интерфейсы и полевая работа</h1><div class="sub">Диспетчер, инженер и мобильное устройство используют один серверный маршрут</div><div class="num">08 / 10</div></div>
+    <div class="screens">
+        <div class="shot"><img src="assets/dispatcher_final.png" alt="Диспетчер"><div class="cap"><b>Диспетчерская ВДНХ.</b> Карта, зоны, объекты, кандидаты и журнал.</div></div>
+        <div class="shot"><img src="assets/mobile_mobile_engineer.png" alt="Мобильный инженер"><div class="cap"><b>Мобильный инженер.</b> GPS, карта, инструмент, офлайн-баннер.</div></div>
+        <div class="shot"><img src="assets/mobile_nav_active.png" alt="Навигация"><div class="cap"><b>Навигация.</b> Поворотные подсказки и озвучивание.</div></div>
+    </div>
+    <div class="callout">Единый источник маршрута: сервер сохраняет ROUTE JSON; desktop, mobile и диспетчер рисуют одинаковый path и ETA.</div>
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+    <div class="head"><h1>Журнал, риск и объяснимость</h1><div class="sub">Диспетчер видит не только результат, но и основания</div><div class="num">09 / 10</div></div>
+    <div class="grid g2">
+        <div class="card">
+            <h3>Журнал событий</h3>
+            <ul>
+                <li>фиксация заявки, кандидаты, назначение, переназначение;</li>
+                <li>изменения статусов, построение и пересчёт маршрута;</li>
+                <li>прибытие ВС по расписанию и фактическое;</li>
+                <li>риск норматива, нарушение, ошибки приёма;</li>
+                <li>время формирования списка: duration_ms и duration_sec;</li>
+                <li>UTC-метки с миллисекундами, append-only JSONL;</li>
+                <li>выгрузка CSV и Excel, одна строка = одно событие.</li>
+            </ul>
+            <div class="note" style="color:var(--green);font-weight:700;">Проверено: 26 автоматических проверок PASS; факт прибытия в геозоне: 0.3 мин, norm_ok.</div>
+        </div>
+        <div>
+            <div class="card" style="border-color:#f0b4b4;margin-bottom:.18in;">
+                <h3 class="red">Упреждающий риск</h3>
+                <ul>
+                    <li>прогноз = текущее время + ETA маршрута;</li>
+                    <li>сравнение с дедлайном «фиксация + 15 мин»;</li>
+                    <li>предупреждение заранее + альтернативный инженер;</li>
+                    <li>учёт пересадки и склада в ETA;</li>
+                    <li>после прибытия риск снимается, фиксируется факт.</li>
+                </ul>
+            </div>
+            <div class="card" style="border-color:#e5cf8b;">
+                <h3 class="orange">Объяснимость подбора</h3>
+                <ul>
+                    <li>по каждому кандидату: допуск, ATA, загрузка, ETA, запас;</li>
+                    <li>по отклонённым: занят/этап, нет допуска, нет координат;</li>
+                    <li>причина выбора — совокупность факторов;</li>
+                    <li>пустой список тоже объясняется.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <img class="strip" style="height:2.05in;object-fit:contain;background:#fff;" src="assets/recommendation_table.png" alt="Таблица объяснимого подбора инженера">
+    <div class="foot"><span>InTrAvia · финальный этап · ВДНХ</span><span>25.11.2026</span></div>
+</section>
+
+<!-- 10 -->
+<section class="slide title-slide">
+    <div style="position:absolute;left:.75in;top:.55in;color:var(--gold);font-size:11px;font-weight:700;letter-spacing:1.2px;">ИТОГИ ФИНАЛЬНОГО ЭТАПА</div>
+    <div style="position:absolute;left:.75in;top:1.0in;color:#fff;font-size:34px;font-weight:800;">Готово к испытаниям на ВДНХ</div>
+    <div class="checklist" style="position:absolute;left:.8in;top:1.95in;right:.8in;">
+        <div><b>•</b> Маршруты: граф, 5 км/ч, спецтранспорт 5/8/10/20, промежуточные точки, динамика.</div>
+        <div><b>•</b> Поле: GPS 2 Гц, автофиксация прибытия, норматив и факт в журнале.</div>
+        <div><b>•</b> Диспетчер: объяснимый подбор, риск заранее, переназначение по роли.</div>
+        <div><b>•</b> Данные: открытый каталог дефектов, ATA, MEL/AOG, несколько AOG.</div>
+        <div><b>•</b> Журнал: все события, UTC-мс, CSV/XLSX.</div>
+    </div>
+    <div class="dark-card" style="position:absolute;left:.75in;top:5.4in;width:5.7in;">
+        <div class="k">ДОСТУП К РЕШЕНИЮ</div><div class="v">http://&lt;сервер&gt;:5000 · dispatcher@aeroflot.ru</div>
+    </div>
+    <div class="dark-card" style="position:absolute;left:6.65in;top:5.4in;width:5.95in;">
+        <div class="k">ИСХОДНЫЙ КОД И ПРЕЗЕНТАЦИЯ</div><div class="v">github.com/MaksimBezdelin/Dorabotka_InTrAvia</div>
+    </div>
+    <div style="position:absolute;left:.75in;bottom:.4in;color:#8fa9c4;font-size:9px;">InTrAvia · команда финального этапа · 25.11.2026</div>
+</section>
+
+</body>
+</html>

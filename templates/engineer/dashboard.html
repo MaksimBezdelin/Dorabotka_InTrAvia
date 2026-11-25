@@ -239,8 +239,13 @@
             <span class="name" id="profileName">Инженер</span>
             <span class="spec" id="profileSpec">Специализация: Двигатели</span>
         </div>
-        <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span class="status-badge free" id="statusBadge">Свободен</span>
+            <label style="font-size:12px;font-weight:700;color:var(--aero-text);display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="toolAvailableCheckbox" onchange="setToolAvailable(this.checked)" style="width:17px;height:17px;accent-color:#0b67d1;">
+                Инструмент есть
+            </label>
+            <span id="toolRouteHint" style="font-size:11px;color:var(--aero-gray);"></span>
         </div>
     </div>
 
@@ -391,6 +396,7 @@
                     return response.json();
                 })
                 .then(function(data) {
+                    if (currentAirport !== 'svo' || targetLayer !== engineerParkingIdLayer) return;
                     (data.features || []).forEach(function(feature) {
                         var props = feature.properties || {};
                         var geometry = feature.geometry || {};
@@ -515,6 +521,7 @@
         }
 
         function loadEngineerVdnhMap() {
+            if (currentAirport !== 'vdnh') return Promise.resolve();
             if (engineerAirportLayer && map && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
             engineerAirportLayer = L.layerGroup().addTo(map);
             function getJson(path) {
@@ -529,16 +536,12 @@
                 getJson('/static/vdnh/objects.geojson'),
                 getJson('/static/vdnh/airport_boundaries.geojson')
             ]).then(function(data) {
+                if (currentAirport !== 'vdnh' || !engineerAirportLayer || !map.hasLayer(engineerAirportLayer)) return;
                 var zones = data[0], roads = data[1], objects = data[2], boundaries = data[3];
                 if (zones) {
                     L.geoJSON(zones, {
                         style: function() { return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
                         onEachFeature: function(f, lyr) {
-                            var id = f.properties && f.properties.id;
-                            if (id != null) {
-                                lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
-                                addGeoJsonNumberLabel(engineerAirportLayer, lyr, id);
-                            }
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -562,9 +565,6 @@
                     L.geoJSON(objects, {
                         style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
                         onEachFeature: function(f, lyr) {
-                            var props = f.properties || {};
-                            if (props.name) lyr.bindTooltip(props.name, { sticky: true });
-                            if (props.id != null) addGeoJsonNumberLabel(engineerAirportLayer, lyr, props.id);
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -741,6 +741,9 @@
                     bestCarLng: parsed.bclng,
                     bestCar: parsed.bc ? { deviceId: parsed.bc } : null,
                     parkingId: parsed.pid,
+                    destinationLabel: parsed.destination_label || '',
+                    viaLabel: parsed.via_label || '',
+                    warehouse: parsed.warehouse || null,
                     path: parsed.path || null
                 };
             } catch (e) { console.warn('Не удалось распарсить ROUTE:', e); return null; }
@@ -813,10 +816,6 @@
             });
             var startLat = routeData.from.lat;
             var startLng = routeData.from.lng;
-            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
-                startLat = engineerData.coords_lat;
-                startLng = engineerData.coords_lng;
-            }
             routeMarkers['start'] = L.marker([startLat, startLng], { icon: startIcon })
                 .addTo(map).bindPopup('Ваше текущее положение');
 
@@ -836,7 +835,7 @@
                 iconSize: [34, 34], iconAnchor: [17, 17]
             });
             routeMarkers['end'] = L.marker([routeData.to.lat, routeData.to.lng], { icon: endIcon })
-                .addTo(map).bindPopup('Стоянка ' + (routeData.parkingId || ''));
+                .addTo(map).bindPopup(routeData.destinationLabel || ('Стоянка ' + (routeData.parkingId || '')));
 
             // Масштаб и центр меняем только при появлении новой задачи.
             // Обновления GPS и повторные ответы API не двигают карту под рукой пользователя.
@@ -906,6 +905,40 @@
         }
 
         function isReportFormOpen() { return !!document.querySelector('.report-form'); }
+
+        function loadMyToolStatus() {
+            if (!engineerId) return;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/tools', {cache: 'no-store'})
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var checkbox = document.getElementById('toolAvailableCheckbox');
+                    var status = data && data.status ? data.status : 'unknown';
+                    if (checkbox) checkbox.checked = (status === 'on_hand' || status === 'at_site');
+                    var hint = document.getElementById('toolRouteHint');
+                    if (hint) hint.textContent = checkbox && checkbox.checked ? 'маршрут сразу к ВС' : 'маршрут через ближайший склад';
+                })
+                .catch(function(err) { console.warn('[TOOLS]', err); });
+        }
+
+        function setToolAvailable(checked) {
+            setMyToolStatus(checked ? 'on_hand' : 'warehouse');
+            var hint = document.getElementById('toolRouteHint');
+            if (hint) hint.textContent = checked ? 'маршрут сразу к ВС' : 'маршрут через ближайший склад';
+        }
+
+        function setMyToolStatus(status) {
+            if (!engineerId) return;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/tools', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({status: status})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) throw new Error(data.error || 'Ошибка');
+                showToast('Статус инструмента обновлён', 'success');
+            })
+            .catch(function(err) { showToast('Не удалось обновить инструмент: ' + err.message, 'error'); });
+        }
 
         function loadTasks() {
             if (Date.now() < blockReloadUntil) return;
@@ -1037,16 +1070,6 @@
                     if (routeData) {
                         // Привязываем начало линии строго к текущей метке инженера,
                         // а конец — к координате стоянки из серверного маршрута.
-                        var liveLat = Number(engineerData.coords_lat);
-                        var liveLng = Number(engineerData.coords_lng);
-                        if (Number.isFinite(liveLat) && Number.isFinite(liveLng)) {
-                            routeData.from = { lat: liveLat, lng: liveLng };
-                            if (routeData.path && routeData.path.length) {
-                                routeData.path = routeData.path.slice();
-                                routeData.path[0] = [liveLat, liveLng];
-                                routeData.path[routeData.path.length - 1] = [Number(routeData.to.lat), Number(routeData.to.lng)];
-                            }
-                        }
                     }
 
                     if (!routeData) {
@@ -1070,11 +1093,8 @@
                         }
                     }
 
-                    if (!moveInterval && currentRoute && currentRoute.path &&
-                        currentRoute.path.length >= 2 &&
-                        (taskStep === 'accepted' || taskStep === 'in_car')) {
-                        startMoving();
-                    }
+                    // Движение инженера — только по реальной геолокации.
+                    // Симуляция прохождения маршрута отключена.
 
                     updateTaskWithRoute(request);
                 })
@@ -1212,11 +1232,26 @@
                                 currentRoute.bestCarTime + ' мин на машине = ' +
                                 currentRoute.time + ' мин';
                 } else {
-                    routeText = currentRoute.time + ' мин пешком';
+                    routeText = currentRoute.time + ' мин пешком' +
+                        (currentRoute.viaLabel ? ' · через ' + currentRoute.viaLabel : '');
                 }
             }
 
             var faultName = request.fault_type ? request.fault_type.replace(/_/g, ' ') : 'Неизвестная';
+            var normHtml = '';
+            if (request.created_at) {
+                var createdUtc = new Date(String(request.created_at).replace(' ', 'T') + (String(request.created_at).indexOf('Z') < 0 ? 'Z' : ''));
+                if (!isNaN(createdUtc.getTime())) {
+                    var deadline = new Date(createdUtc.getTime() + 15 * 60000);
+                    var etaMinutes = currentRoute && currentRoute.time != null ? Number(currentRoute.time) : Number(request.travel_time || 0);
+                    var forecast = new Date(Date.now() + etaMinutes * 60000);
+                    var late = forecast.getTime() > deadline.getTime();
+                    normHtml = '<div style="margin-top:6px;font-size:11px;font-weight:700;color:' + (late ? '#b91c1c' : '#15803d') + ';">' +
+                        'Норматив 15 мин: до ' + deadline.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) +
+                        ' · прогноз ' + forecast.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) +
+                        (late ? ' · РИСК НАРУШЕНИЯ' : ' · успевает') + '</div>';
+                }
+            }
             var melTaskHtml = '';
             var previousReportHtml = renderPreviousEngineerReport(request.engineer_comment || '');
             if (request.mcc_mel_choice === 'MEL' && request.mcc_proc_m) {
@@ -1269,6 +1304,7 @@
                 '<span class="route-icon"><i class="fas fa-route"></i></span>' +
                 '<span>' + routeText + '</span>' +
                 '</div>' +
+                normHtml +
                 melTaskHtml +
                 previousReportHtml +
                 '</div>' +
@@ -1536,9 +1572,10 @@
             moveTotalMs = travelMin * 60 * 1000;
 
             var progress0 = 0;
-            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
-                var curLat = engineerData.coords_lat;
-                var curLng = engineerData.coords_lng;
+            var liveMove = null; // маршрут во всех интерфейсах — строго серверный
+            if (liveMove) {
+                var curLat = liveMove.lat;
+                var curLng = liveMove.lng;
                 var startLat = movePath[0][0];
                 var startLng = movePath[0][1];
                 var distFromStart = haversineM(startLat, startLng, curLat, curLng);
@@ -1592,8 +1629,6 @@
             if (taskStep === 'in_car' && routeMarkers['car']) {
                 routeMarkers['car'].setLatLng([pos.lat, pos.lng]);
             }
-
-            updateRoutePolyline(pos);
 
             var now = Date.now();
             if (now - lastCoordSyncAt > 500) {
@@ -2112,7 +2147,9 @@
                     if (ownGpsPollTimer) clearInterval(ownGpsPollTimer);
                     ownGpsPollTimer = setInterval(refreshOwnGpsMarker, 500);
                     loadTasks();
+                    loadMyToolStatus();
                     setInterval(loadTasks, 5000);
+                    setInterval(loadMyToolStatus, 10000);
                     setInterval(refreshEngineerRequestAircraft, 5000);
                     airportRefreshTimer = setInterval(refreshEngineerAirport, 7000);
                 });

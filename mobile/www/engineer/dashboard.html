@@ -244,12 +244,19 @@
         .mobile-task-panel-content .step-item .step-num { width: 23px; height: 23px; font-size: 11px; }
         .mobile-task-panel-content .step-connector { flex-basis: 10px; }
         .mobile-route-info { font-size: 11px; color: #475569; padding: 8px 4px 2px; text-align: left; }
+        .mobile-route-hints { margin-top:6px; padding:8px 9px; background:#fff; border:1px solid var(--aero-gray-light); border-radius:8px; max-height:112px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+        .mobile-route-hints-title { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--aero-gray); margin-bottom:4px; }
+        .mobile-route-hint-row { display:flex; gap:6px; align-items:flex-start; font-size:10px; line-height:1.3; color:var(--aero-text); padding:3px 0; border-bottom:1px solid #f1f5f9; }
+        .mobile-route-hint-row:last-child { border-bottom:0; }
+        .mobile-route-hint-num { flex:0 0 16px; height:16px; border-radius:5px; background:#e8f0fe; color:#0757a6; font-size:9px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+        .mobile-route-hint-icon { color:#0b67d1; width:12px; text-align:center; margin-top:1px; }
         .mobile-task-panel.collapsed .mobile-task-panel-content { display: none; }
         .mobile-bottom-nav button { border: 0; background: transparent; color: #64748b; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font: 700 9px Inter,sans-serif; padding: 6px 2px; cursor: pointer; }
         .mobile-bottom-nav button i { font-size: 17px; }
         .mobile-bottom-nav button.active { color: #0757a6; }
         .mobile-bottom-nav button.active i { transform: translateY(-1px); }
         .mobile-page-panel { display: none; }
+        .mobile-nav-banner { display: none; }
         .leaflet-control-attribution { display: block !important; font-size: 8px !important; background: rgba(255,255,255,.8) !important; }
 
         @media (max-width: 768px) {
@@ -272,6 +279,29 @@
             .mobile-top-actions .btn { min-height: 36px; padding: 8px 10px; font-size: 10px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
             .mobile-map-tools { position: absolute; z-index: 1200; top: calc(env(safe-area-inset-top, 0px) + 66px); right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
             .mobile-task-panel { display: block; position: absolute; z-index: 1300; left: 10px; right: 10px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); max-height: 48dvh; }
+            .mobile-map-screen .map-container { transition: transform .45s linear; transform-origin: 50% 50%; will-change: transform; }
+            .mobile-map-screen.nav-mode .map-container { transform: rotate(var(--nav-bearing, 0deg)) scale(1.8); }
+            .mobile-map-screen.nav-mode .leaflet-control-container { display: none !important; }
+            .mobile-nav-banner {
+                position: absolute; z-index: 1250; top: calc(env(safe-area-inset-top, 0px) + 60px);
+                left: 10px; right: auto; width: 238px; max-width: calc(100vw - 74px);
+                display: none; align-items: center; gap: 8px;
+                padding: 7px 9px; border-radius: 11px; color: #fff;
+                background: rgba(11, 28, 48, .92); border: 1px solid rgba(255,255,255,.12);
+                box-shadow: 0 6px 18px rgba(0,0,0,.22);
+                backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+                pointer-events: none;
+            }
+            .mobile-nav-banner.show { display: flex; }
+            .mobile-nav-turn {
+                width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 14px; background: #0b67d1;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+            }
+            .mobile-nav-copy { flex: 1; min-width: 0; }
+            .mobile-nav-instruction { font-size: 12px; font-weight: 800; line-height: 1.18; }
+            .mobile-nav-meta { font-size: 9px; color: #c7d7ea; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .mobile-task-panel-content { max-height: calc(48dvh - 50px); }
             .mobile-task-panel-content #taskList { max-height: 31dvh; }
             .mobile-task-panel-content .empty-state { padding: 18px 10px; }
@@ -358,6 +388,14 @@
             <div class="map-container">
                 <div id="map"></div>
             </div>
+            <div id="mobileConnectivityBanner" style="display:none;position:absolute;top:calc(env(safe-area-inset-top, 0px) + 62px);left:12px;right:12px;z-index:1400;padding:8px 11px;border-radius:9px;background:rgba(120,53,15,.94);color:#fff;font-size:12px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.22);"></div>
+            <div class="mobile-nav-banner" id="mobileNavBanner">
+                <div class="mobile-nav-turn"><i class="fas fa-arrow-up" id="mobileNavTurnIcon"></i></div>
+                <div class="mobile-nav-copy">
+                    <div class="mobile-nav-instruction" id="mobileNavInstruction">Маршрут построен</div>
+                    <div class="mobile-nav-meta" id="mobileNavMeta"></div>
+                </div>
+            </div>
             <div class="mobile-map-topbar">
                 <div class="mobile-map-brand">
                     <strong>InTrAvia · Инженер</strong>
@@ -375,6 +413,7 @@
                     <button type="button" class="map-layer-btn" id="mapLayerSatellite" onclick="setMobileMapLayer('satellite')">Спутник</button>
                 </div>
                 <button type="button" class="mobile-map-tool-btn" id="mobileCompassButton" onclick="enableMobileCompass(true)" title="Включить компас"><i class="fas fa-compass"></i></button>
+                <button type="button" class="mobile-map-tool-btn active" id="mobileVoiceButton" onclick="toggleNavVoice()" title="Озвучивание подсказок"><i class="fas fa-volume-high"></i></button>
                 <button type="button" class="mobile-map-tool-btn" onclick="centerOnEngineer()" title="Моё местоположение"><i class="fas fa-location-crosshairs"></i></button>
             </div>
             <section class="mobile-task-panel" id="mobileTaskPanel">
@@ -383,6 +422,11 @@
                     <i class="fas fa-chevron-down" id="mobileTaskChevron"></i>
                 </button>
                 <div class="mobile-task-panel-content" id="mobileTaskPanelContent">
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:#f8fafc;border:1px solid var(--aero-gray-light);border-radius:8px;font-size:12px;font-weight:700;color:var(--aero-text);cursor:pointer;">
+                        <input type="checkbox" id="toolAvailableCheckbox" onchange="setToolAvailable(this.checked)" style="width:18px;height:18px;accent-color:#0b67d1;">
+                        Инструмент есть
+                        <span id="mobileToolRouteHint" style="margin-left:auto;font-size:9px;font-weight:600;color:var(--aero-gray);">через склад</span>
+                    </label>
                     <div id="taskList">
                         <div class="empty-state">
                             <i class="fas fa-check-circle"></i>
@@ -391,6 +435,7 @@
                         </div>
                     </div>
                     <div id="routeInfo" class="mobile-route-info"><span style="color:var(--aero-gray);">Нет активного маршрута</span></div>
+                    <div id="routeHintsList" class="mobile-route-hints" style="display:none;"></div>
                 </div>
             </section>
         </div>
@@ -494,6 +539,158 @@
         var gpsDeviceHeading = null;
         var gpsHeadingFallback = false;
         var gpsHeadingAnchor = null;
+        var navModeActive = false;
+        var navGuidePath = null;
+        var navGuideCum = [];
+        var navGuideTotal = 0;
+        var navGuideKey = '';
+        var navLastBearing = null;
+        var navLastInstructionKey = '';
+        var navVoiceEnabled = true;
+        var navLastSpokenKey = '';
+        var navSpeechHoldUntil = 0;
+        var lastGpsFixAt = 0;
+        var lastSuccessfulSyncAt = 0;
+        var offlineSyncInFlight = false;
+        var OFFLINE_GPS_KEY = 'intravia_offline_gps_v1';
+        var OFFLINE_ACTIONS_KEY = 'intravia_offline_actions_v1';
+        var OFFLINE_ENGINEERS_KEY = 'intravia_cache_engineers_v1';
+        var OFFLINE_REQUESTS_KEY = 'intravia_cache_requests_v1';
+        var OFFLINE_STATUS_KEY = 'intravia_offline_last_sync_v1';
+
+        function offlineRead(key, fallback) {
+            try {
+                var raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : fallback;
+            } catch (_) { return fallback; }
+        }
+        function offlineWrite(key, value) {
+            try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+        }
+        function queueOfflineGps(lat, lng, accuracy, heading) {
+            var queue = offlineRead(OFFLINE_GPS_KEY, []);
+            if (!Array.isArray(queue)) queue = [];
+            queue.push({lat: lat, lng: lng, accuracy: accuracy, heading: heading, t: new Date().toISOString()});
+            if (queue.length > 800) queue = queue.slice(queue.length - 800);
+            offlineWrite(OFFLINE_GPS_KEY, queue);
+            updateConnectivityBanner();
+        }
+        function queueOfflineAction(url, method, body, label) {
+            var queue = offlineRead(OFFLINE_ACTIONS_KEY, []);
+            if (!Array.isArray(queue)) queue = [];
+            queue.push({url: url, method: method || 'POST', body: body || null,
+                        label: label || 'действие', t: new Date().toISOString()});
+            if (queue.length > 100) queue = queue.slice(queue.length - 100);
+            offlineWrite(OFFLINE_ACTIONS_KEY, queue);
+            updateConnectivityBanner();
+        }
+        function flushOfflineGps() {
+            var queue = offlineRead(OFFLINE_GPS_KEY, []);
+            if (!Array.isArray(queue) || !queue.length || !engineerId) return Promise.resolve();
+            var payload = {points: queue.map(function(p) {
+                return {obj: engineerId, lat: p.lat, lon: p.lng, t: p.t,
+                        acc: p.accuracy == null ? undefined : p.accuracy,
+                        spd: undefined};
+            })};
+            return fetch('/api/v1/track', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                offlineWrite(OFFLINE_GPS_KEY, []);
+                lastSuccessfulSyncAt = Date.now();
+                offlineWrite(OFFLINE_STATUS_KEY, lastSuccessfulSyncAt);
+                updateConnectivityBanner();
+            }).catch(function(err) {
+                console.warn('[OFFLINE] GPS flush failed', err);
+                throw err;
+            });
+        }
+        function flushOfflineActions() {
+            var queue = offlineRead(OFFLINE_ACTIONS_KEY, []);
+            if (!Array.isArray(queue) || !queue.length) return Promise.resolve();
+            var next = [];
+            var chain = Promise.resolve();
+            queue.forEach(function(item) {
+                chain = chain.then(function() {
+                    if (!item || !item.url) return;
+                    var options = {method: item.method || 'POST', headers: {'Content-Type': 'application/json'}};
+                    if (item.body != null) options.body = JSON.stringify(item.body);
+                    return fetch(item.url, options).then(function(r) {
+                        if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+                    }).catch(function(err) {
+                        next.push(item);
+                        console.warn('[OFFLINE] action kept in queue', item.label, err);
+                    });
+                });
+            });
+            return chain.then(function() {
+                offlineWrite(OFFLINE_ACTIONS_KEY, next);
+                if (!next.length) {
+                    lastSuccessfulSyncAt = Date.now();
+                    offlineWrite(OFFLINE_STATUS_KEY, lastSuccessfulSyncAt);
+                }
+                updateConnectivityBanner();
+            });
+        }
+        function flushOfflineQueue() {
+            if (offlineSyncInFlight) return;
+            if (navigator.onLine === false) { updateConnectivityBanner(); return; }
+            offlineSyncInFlight = true;
+            Promise.all([flushOfflineGps(), flushOfflineActions()])
+                .then(function() {
+                    loadTasks();
+                    loadRequestDetails();
+                    loadMyToolStatus();
+                })
+                .catch(function(err) { console.warn('[OFFLINE] sync', err); })
+                .finally(function() { offlineSyncInFlight = false; updateConnectivityBanner(); });
+        }
+        function updateConnectivityBanner() {
+            var banner = document.getElementById('mobileConnectivityBanner');
+            if (!banner) return;
+            var now = Date.now();
+            var gpsQueue = offlineRead(OFFLINE_GPS_KEY, []);
+            var actionQueue = offlineRead(OFFLINE_ACTIONS_KEY, []);
+            var gpsCount = Array.isArray(gpsQueue) ? gpsQueue.length : 0;
+            var actionCount = Array.isArray(actionQueue) ? actionQueue.length : 0;
+            var lastSync = Number(localStorage.getItem(OFFLINE_STATUS_KEY) || 0);
+            if (!lastSync) lastSync = lastSuccessfulSyncAt;
+            var lastSyncText = lastSync ? new Date(lastSync).toLocaleTimeString('ru-RU') : '—';
+            var parts = [];
+            if (navigator.onLine === false) {
+                parts.push('Нет сети. Работаем офлайн. Последняя синхронизация: ' + lastSyncText);
+            }
+            if (gpsCount || actionCount) {
+                parts.push('В очереди: GPS ' + gpsCount + ', действий ' + actionCount + '. Досылка автоматическая.');
+            }
+            var gpsStale = lastGpsFixAt && now - lastGpsFixAt > 12000;
+            if (gpsStale) {
+                parts.push('GPS устарел. Последняя позиция: ' + new Date(lastGpsFixAt).toLocaleTimeString('ru-RU') +
+                           ' (' + Math.round((now - lastGpsFixAt) / 1000) + ' с назад).');
+            }
+            if (geoMarker) {
+                try {
+                    geoMarker.setPopupContent(gpsStale
+                        ? '<b>Устаревшая позиция</b><br>Последнее обновление: ' +
+                          new Date(lastGpsFixAt).toLocaleTimeString('ru-RU')
+                        : 'Ваше местоположение');
+                } catch (_) {}
+            }
+            if (!parts.length) { banner.style.display = 'none'; banner.textContent = ''; return; }
+            banner.style.display = 'block';
+            banner.innerHTML = '<i class="fas fa-wifi" style="margin-right:6px;"></i>' + parts.join('<br>');
+        }
+        window.addEventListener('online', function() {
+            showToast('Связь восстановлена. Досылаю данные…', 'success');
+            flushOfflineQueue();
+        });
+        window.addEventListener('offline', function() {
+            updateConnectivityBanner();
+            showToast('Связь потеряна. Работаем офлайн, данные сохраняются.', 'warning');
+        });
+        setInterval(updateConnectivityBanner, 1000);
+        setInterval(function() { if (navigator.onLine !== false) flushOfflineQueue(); }, 8000);
         var PARKING_COORDS = {};
         // Полноценная симуляция самолётов инженера по связанной сети руления.
         var engineerAircraftMarkers={}, engineerAircraftSimulations={}, engineerTaxiGraph=null;
@@ -559,6 +756,7 @@
                     return response.json();
                 })
                 .then(function(data) {
+                    if (currentAirport !== 'svo' || targetLayer !== engineerParkingIdLayer) return;
                     (data.features || []).forEach(function(feature) {
                         var props = feature.properties || {};
                         var geometry = feature.geometry || {};
@@ -589,6 +787,32 @@
             if (user.role !== 'engineer') { window.location.href = '/login.html'; return; }
             engineerId = user.id || 'eng_1';
         } catch (_) { window.location.href = '/login.html'; return; }
+
+        // Серверная блокировка: один мобильный вход на аккаунт инженера.
+        var mobileSessionToken = user.mobile_session_token || '';
+        if (!mobileSessionToken) {
+            sessionStorage.removeItem('userSession');
+            window.location.href = '/login.html';
+            return;
+        }
+        var mobileSessionHeartbeat = null;
+        function checkMobileEngineerSession() {
+            fetch('/api/auth/mobile-heartbeat', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: engineerId, session_token: mobileSessionToken })
+            }).then(function(response) {
+                if (response.status === 401) {
+                    if (mobileSessionHeartbeat) clearInterval(mobileSessionHeartbeat);
+                    sessionStorage.removeItem('userSession');
+                    alert('Мобильная сессия этого аккаунта завершена или открыта на другом устройстве. Выполните вход заново.');
+                    window.location.href = '/login.html';
+                    return null;
+                }
+                return response.json();
+            }).catch(function(error) { console.warn('[MOBILE SESSION] Проверка временно недоступна:', error); });
+        }
+        checkMobileEngineerSession();
+        mobileSessionHeartbeat = setInterval(checkMobileEngineerSession, 20000);
 
         document.getElementById('userName').textContent = user.name || 'Инженер';
         var mobileEngineerName = document.getElementById('mobileEngineerName'); if (mobileEngineerName) mobileEngineerName.textContent = user.name || 'Мои задачи';
@@ -754,6 +978,7 @@
         }
 
         function loadEngineerVdnhMap() {
+            if (currentAirport !== 'vdnh') return Promise.resolve();
             if (engineerAirportLayer && map && map.hasLayer(engineerAirportLayer)) map.removeLayer(engineerAirportLayer);
             engineerAirportLayer = L.layerGroup().addTo(map);
             function getJson(path) {
@@ -768,16 +993,12 @@
                 getJson('/static/vdnh/objects.geojson'),
                 getJson('/static/vdnh/airport_boundaries.geojson')
             ]).then(function(data) {
+                if (currentAirport !== 'vdnh' || !engineerAirportLayer || !map.hasLayer(engineerAirportLayer)) return;
                 var zones = data[0], roads = data[1], objects = data[2], boundaries = data[3];
                 if (zones) {
                     L.geoJSON(zones, {
                         style: function() { return { color: '#0891b2', weight: 1, opacity: 0.65, fillColor: '#22d3ee', fillOpacity: 0.1, dashArray: '4 4' }; },
                         onEachFeature: function(f, lyr) {
-                            var id = f.properties && f.properties.id;
-                            if (id != null) {
-                                lyr.bindTooltip('Сервисная зона ' + id, { sticky: true });
-                                addGeoJsonNumberLabel(engineerAirportLayer, lyr, id);
-                            }
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -801,9 +1022,6 @@
                     L.geoJSON(objects, {
                         style: function(f) { return engineerVdnhObjectStyle(f.properties && f.properties.name); },
                         onEachFeature: function(f, lyr) {
-                            var props = f.properties || {};
-                            if (props.name) lyr.bindTooltip(props.name, { sticky: true });
-                            if (props.id != null) addGeoJsonNumberLabel(engineerAirportLayer, lyr, props.id);
                         }
                     }).addTo(engineerAirportLayer);
                 }
@@ -900,6 +1118,11 @@
             if (gpsPostInFlight || !gpsPendingPayload) return;
             var payload = gpsPendingPayload;
             gpsPendingPayload = null;
+            if (navigator.onLine === false) {
+                queueOfflineGps(payload.lat, payload.lng, payload.accuracy, payload.heading);
+                lastSuccessfulSyncAt = lastSuccessfulSyncAt || 0;
+                return;
+            }
             gpsPostInFlight = true;
             lastGeoSentAt = Date.now();
             fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/location', {
@@ -914,12 +1137,16 @@
                 if (!result.ok || !result.data || !result.data.success) {
                     if (result.status === 404) {
                         console.error('[ENGINEER GPS] API route missing:', result.data && result.data.path, result.data);
-                    } else {
                     }
+                    queueOfflineGps(payload.lat, payload.lng, payload.accuracy, payload.heading);
                     return;
                 }
+                lastSuccessfulSyncAt = Date.now();
+                offlineWrite(OFFLINE_STATUS_KEY, lastSuccessfulSyncAt);
+                updateConnectivityBanner();
             }).catch(function(error) {
                 console.warn('[ENGINEER GPS] Не удалось отправить координаты:', error);
+                queueOfflineGps(payload.lat, payload.lng, payload.accuracy, payload.heading);
             }).finally(function() {
                 gpsPostInFlight = false;
                 if (gpsPendingPayload) scheduleEngineerGpsSend();
@@ -937,12 +1164,28 @@
             scheduleEngineerGpsSend();
         }
 
+        function syncNavigationWithGps(lat, lng) {
+            if (!currentRoute || !currentRoute.path || currentRoute.path.length < 2) return;
+            if (['accepted', 'in_car', 'arrived', 'diagnosing'].indexOf(taskStep) === -1) return;
+            if (routeMarkers['start']) routeMarkers['start'].setLatLng([lat, lng]);
+            if (engineerData) {
+                engineerData.coords_lat = lat;
+                engineerData.coords_lng = lng;
+            }
+            updateRoutePolyline({lat: lat, lng: lng});
+            if (navModeActive) {
+                updateNavigationGuidance({lat: lat, lng: lng}, null);
+            }
+        }
+
         function onEngineerGpsPosition(position) {
             if (!position || !position.coords) return;
             var lat = Number(position.coords.latitude);
             var lng = Number(position.coords.longitude);
             if (!isFinite(lat) || !isFinite(lng)) return;
             var accuracy = position.coords.accuracy == null ? null : Number(position.coords.accuracy);
+            lastGpsFixAt = Date.now();
+            updateConnectivityBanner();
             currentPosition = { lat: lat, lng: lng, accuracy: accuracy, heading: lastGpsHeading };
             // Передаём координаты в Android: по ним вычисляется поправка склонения
             // магнитного севера, чтобы стрелка показывала истинный север.
@@ -959,6 +1202,7 @@
             if (gpsHeadingFallback) updateGpsFallbackHeading(position, lat, lng, accuracy);
             updateEngineerGpsMarker(lat, lng, lastGpsHeading);
             sendEngineerGps(lat, lng, !lastGeo, accuracy, lastGpsHeading);
+            syncNavigationWithGps(lat, lng);
         }
 
         function setCompassStatus(message, active) {
@@ -1373,6 +1617,9 @@
                     bestCarLng: parsed.bclng,
                     bestCar: parsed.bc ? { deviceId: parsed.bc } : null,
                     parkingId: parsed.pid,
+                    destinationLabel: parsed.destination_label || '',
+                    viaLabel: parsed.via_label || '',
+                    warehouse: parsed.warehouse || null,
                     path: parsed.path || null
                 };
             } catch (e) { console.warn('Не удалось распарсить ROUTE:', e); return null; }
@@ -1392,8 +1639,325 @@
                 r.walkToCar, r.bestCarTime,
                 r.bestCarLat, r.bestCarLng,
                 r.bestCar ? r.bestCar.deviceId : '',
-                r.parkingId || '', pathSig
+                r.parkingId || '', r.viaLabel || '', pathSig
             ].join('|');
+        }
+
+        // ── Навигация как в Яндекс.Картах: поворот карты по курсу и подсказки ──
+        function navNormBearing(value) {
+            var b = Number(value);
+            if (!Number.isFinite(b)) return null;
+            return (b % 360 + 360) % 360;
+        }
+
+        function navBearingBetween(a, b) {
+            if (!a || !b) return null;
+            var lat1 = a.lat != null ? a.lat : a[0], lng1 = a.lng != null ? a.lng : a[1];
+            var lat2 = b.lat != null ? b.lat : b[0], lng2 = b.lng != null ? b.lng : b[1];
+            var p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+            var dl = (lng2 - lng1) * Math.PI / 180;
+            var y = Math.sin(dl) * Math.cos(p2);
+            var x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+            return navNormBearing(Math.atan2(y, x) * 180 / Math.PI);
+        }
+
+        function navBuildGuide(path) {
+            var pts = [];
+            (path || []).forEach(function(p) {
+                var lat = Number(p[0]), lng = Number(p[1]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                var prev = pts[pts.length - 1];
+                if (prev && Math.abs(prev[0] - lat) < 1e-8 && Math.abs(prev[1] - lng) < 1e-8) return;
+                pts.push([lat, lng]);
+            });
+            navGuidePath = pts;
+            navGuideCum = [0];
+            navGuideTotal = 0;
+            for (var i = 1; i < pts.length; i++) {
+                navGuideTotal += haversineM(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+                navGuideCum.push(navGuideTotal);
+            }
+        }
+
+        function navFormatDistance(metres) {
+            var m = Math.max(0, Number(metres) || 0);
+            if (m >= 1000) return (m / 1000).toFixed(m >= 10000 ? 0 : 1).replace('.', ',') + ' км';
+            if (m >= 100) return Math.round(m / 10) * 10 + ' м';
+            if (m >= 20) return Math.round(m / 5) * 5 + ' м';
+            return Math.round(m) + ' м';
+        }
+
+        function navSetBearing(bearing) {
+            var b = navNormBearing(bearing);
+            if (b == null) return;
+            if (navLastBearing != null) {
+                var delta = ((b - navLastBearing + 540) % 360) - 180;
+                if (Math.abs(delta) < 2) b = navLastBearing;
+                else b = (navLastBearing + delta * 0.45 + 360) % 360;
+            }
+            navLastBearing = b;
+            var screen = document.getElementById('mobileMapScreen');
+            if (screen) screen.style.setProperty('--nav-bearing', (-b).toFixed(1) + 'deg');
+        }
+
+        function navSegmentAt(dist) {
+            if (!navGuidePath || navGuidePath.length < 2) return null;
+            var d = Math.max(0, Math.min(Number(dist) || 0, navGuideTotal));
+            var idx = 1;
+            while (idx < navGuideCum.length - 1 && navGuideCum[idx] < d) idx++;
+            var from = navGuidePath[idx - 1], to = navGuidePath[idx];
+            var segStart = navGuideCum[idx - 1];
+            var segLen = Math.max(0.001, navGuideCum[idx] - segStart);
+            var t = Math.max(0, Math.min(1, (d - segStart) / segLen));
+            return {
+                idx: idx, from: from, to: to,
+                pos: { lat: from[0] + (to[0] - from[0]) * t, lng: from[1] + (to[1] - from[1]) * t }
+            };
+        }
+
+        function navComputeHint(dist) {
+            if (!navGuidePath || navGuidePath.length < 2) return null;
+            var d = Math.max(0, Math.min(Number(dist) || 0, navGuideTotal));
+            var seg = navSegmentAt(d);
+            if (!seg) return null;
+            var currentBearing = navBearingBetween(seg.pos, seg.to);
+            for (var j = Math.max(1, seg.idx); j <= navGuidePath.length - 2; j++) {
+                var a = navGuidePath[j - 1], b = navGuidePath[j], c = navGuidePath[j + 1];
+                var lenIn = haversineM(a[0], a[1], b[0], b[1]);
+                var lenOut = haversineM(b[0], b[1], c[0], c[1]);
+                if (lenIn < 1.5 || lenOut < 1.5) continue;
+                var inB = navBearingBetween(a, b);
+                var outB = navBearingBetween(b, c);
+                if (inB == null || outB == null) continue;
+                var delta = ((outB - inB + 540) % 360) - 180;
+                if (Math.abs(delta) < 25) continue;
+                var turnDist = navGuideCum[j] - d;
+                if (turnDist < -2) continue;
+                var type = Math.abs(delta) >= 150 ? 'uturn' : (delta > 0 ? 'right' : 'left');
+                return { type: type, distance: Math.max(0, turnDist), bearing: currentBearing };
+            }
+            var remain = Math.max(0, navGuideTotal - d);
+            return { type: remain <= 15 ? 'arrive' : 'straight', distance: remain, bearing: currentBearing };
+        }
+
+        function navSpeak(text) {
+            if (!text) return;
+            if (window.AndroidVoice && typeof window.AndroidVoice.speak === 'function') {
+                try { window.AndroidVoice.speak(text); return; } catch (e) { console.warn('[NAV TTS]', e); }
+            }
+            if (!window.speechSynthesis) return;
+            try {
+                window.speechSynthesis.cancel();
+                var utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ru-RU';
+                utterance.rate = 1.0;
+                utterance.volume = 1.0;
+                window.speechSynthesis.speak(utterance);
+            } catch (speechError) { console.warn('[NAV VOICE]', speechError); }
+        }
+
+        function navCancelSpeech() {
+            if (window.AndroidVoice && typeof window.AndroidVoice.stop === 'function') {
+                try { window.AndroidVoice.stop(); } catch (e) {}
+            }
+            if (window.speechSynthesis) {
+                try { window.speechSynthesis.cancel(); } catch (e) {}
+            }
+        }
+
+        function navTurnSentence(type, distance) {
+            if (type === 'arrive') return 'Прибытие к точке';
+            if (type === 'uturn') {
+                return distance <= 15 ? 'Развернитесь' : 'Через ' + navFormatDistance(distance) + ' развернитесь';
+            }
+            if (type === 'left' || type === 'right') {
+                var side = type === 'left' ? 'налево' : 'направо';
+                return distance <= 15 ? 'Поверните ' + side : 'Через ' + navFormatDistance(distance) + ' поверните ' + side;
+            }
+            return distance <= 15 ? 'Продолжайте движение' : 'Идите прямо ' + navFormatDistance(distance);
+        }
+
+        function navBuildAllHints() {
+            if (!navGuidePath || navGuidePath.length < 2) return [];
+            var hints = [];
+            var previousTurnDist = 0;
+            for (var j = 1; j <= navGuidePath.length - 2; j++) {
+                var a = navGuidePath[j - 1], b = navGuidePath[j], c = navGuidePath[j + 1];
+                var lenIn = haversineM(a[0], a[1], b[0], b[1]);
+                var lenOut = haversineM(b[0], b[1], c[0], c[1]);
+                if (lenIn < 1.5 || lenOut < 1.5) continue;
+                var inB = navBearingBetween(a, b);
+                var outB = navBearingBetween(b, c);
+                if (inB == null || outB == null) continue;
+                var delta = ((outB - inB + 540) % 360) - 180;
+                if (Math.abs(delta) < 25) continue;
+                var type = Math.abs(delta) >= 150 ? 'uturn' : (delta > 0 ? 'right' : 'left');
+                var atDist = navGuideCum[j];
+                var distance = Math.max(0, atDist - previousTurnDist);
+                hints.push({type: type, distance: distance, at: atDist});
+                previousTurnDist = atDist;
+            }
+            hints.push({type: 'arrive', distance: Math.max(0, navGuideTotal - previousTurnDist), at: navGuideTotal});
+            return hints;
+        }
+
+        function renderAllTurns() {
+            var box = document.getElementById('routeHintsList');
+            if (!box) return;
+            var hints = navBuildAllHints();
+            if (!hints.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+            var icons = {left: 'fa-arrow-left', right: 'fa-arrow-right', uturn: 'fa-rotate-left', arrive: 'fa-flag-checkered'};
+            var html = '<div class="mobile-route-hints-title">Все повороты · ' + hints.length + '</div>';
+            hints.forEach(function(hint, index) {
+                html += '<div class="mobile-route-hint-row">' +
+                    '<span class="mobile-route-hint-num">' + (index + 1) + '</span>' +
+                    '<i class="fas ' + (icons[hint.type] || 'fa-arrow-up') + ' mobile-route-hint-icon"></i>' +
+                    '<span>' + navTurnSentence(hint.type, hint.distance) + '</span></div>';
+            });
+            box.innerHTML = html;
+            box.style.display = 'block';
+        }
+
+        function navApplyHint(hint, dist) {
+            var banner = document.getElementById('mobileNavBanner');
+            var icon = document.getElementById('mobileNavTurnIcon');
+            var instruction = document.getElementById('mobileNavInstruction');
+            var meta = document.getElementById('mobileNavMeta');
+            if (!banner || !icon || !instruction || !meta || !hint) return;
+            var key = hint.type + '|' + Math.round(hint.distance / 10);
+            var text, iconClass;
+            if (hint.type === 'arrive') {
+                text = 'Вы прибыли'; iconClass = 'fas fa-flag-checkered';
+            } else if (hint.type === 'uturn') {
+                text = hint.distance <= 15 ? 'Развернитесь' : 'Через ' + navFormatDistance(hint.distance) + ' развернитесь';
+                iconClass = 'fas fa-rotate-left';
+            } else if (hint.type === 'left' || hint.type === 'right') {
+                var side = hint.type === 'left' ? 'налево' : 'направо';
+                text = hint.distance <= 15 ? 'Поверните ' + side : 'Через ' + navFormatDistance(hint.distance) + ' поверните ' + side;
+                iconClass = hint.type === 'left' ? 'fas fa-arrow-left' : 'fas fa-arrow-right';
+            } else {
+                text = hint.distance <= 15 ? 'Продолжайте движение' : 'Идите прямо ' + navFormatDistance(hint.distance);
+                iconClass = 'fas fa-arrow-up';
+            }
+            if (key !== navLastInstructionKey) {
+                navLastInstructionKey = key;
+                instruction.textContent = text;
+                icon.className = iconClass;
+                var speakKey = hint.type + '|' + Math.round(hint.distance / 40);
+                var hasVoice = (window.AndroidVoice && typeof window.AndroidVoice.speak === 'function') || window.speechSynthesis;
+                var shouldSpeak = navVoiceEnabled && hasVoice && Date.now() >= navSpeechHoldUntil &&
+                    (hint.type !== 'straight' || hint.distance <= 25 || navLastSpokenKey.indexOf('straight|') !== 0);
+                if (shouldSpeak && speakKey !== navLastSpokenKey) {
+                    navLastSpokenKey = speakKey;
+                    navSpeak(text);
+                }
+            }
+            var remain = Math.max(0, navGuideTotal - dist);
+            var etaMin = Math.max(1, Math.round(remain / 5.0 * 60.0));
+            var label = currentRoute && currentRoute.destinationLabel ? currentRoute.destinationLabel + ' · ' : '';
+            meta.textContent = label + 'Осталось ' + navFormatDistance(remain) + (hint.type === 'arrive' ? '' : ' · ' + etaMin + ' мин');
+        }
+
+        function toggleNavVoice() {
+            navVoiceEnabled = !navVoiceEnabled;
+            var button = document.getElementById('mobileVoiceButton');
+            if (button) {
+                button.classList.toggle('active', navVoiceEnabled);
+                button.innerHTML = navVoiceEnabled ? '<i class="fas fa-volume-high"></i>' : '<i class="fas fa-volume-xmark"></i>';
+            }
+            if (navVoiceEnabled) {
+                navSpeak('Озвучивание подсказок включено');
+            } else {
+                navCancelSpeech();
+            }
+            showToast(navVoiceEnabled ? 'Озвучивание включено' : 'Озвучивание выключено', 'info');
+        }
+
+        function updateNavigationGuidance(pos, dist) {
+            if (!navModeActive || !navGuidePath || navGuidePath.length < 2) return;
+            var actualDist = Number(dist);
+            if (!Number.isFinite(actualDist) && pos) {
+                actualDist = 0;
+                var best = Infinity;
+                for (var i = 0; i < navGuidePath.length; i++) {
+                    var d = haversineM(navGuidePath[i][0], navGuidePath[i][1], pos.lat, pos.lng);
+                    if (d < best) { best = d; actualDist = navGuideCum[i]; }
+                }
+            }
+            actualDist = Math.max(0, Math.min(actualDist || 0, navGuideTotal));
+            var hint = navComputeHint(actualDist);
+            if (hint && hint.bearing != null) navSetBearing(hint.bearing);
+            if (map && pos && Number.isFinite(Number(pos.lat)) && Number.isFinite(Number(pos.lng))) {
+                map.setView([Number(pos.lat), Number(pos.lng)], Math.max(map.getZoom() || 16, 16), { animate: false });
+            }
+            navApplyHint(hint, actualDist);
+        }
+
+        function setMapNavigationInteractions(enabled) {
+            if (!map) return;
+            var method = enabled ? 'enable' : 'disable';
+            ['dragging', 'touchZoom', 'doubleClickZoom', 'scrollWheelZoom', 'boxZoom', 'keyboard'].forEach(function(name) {
+                if (map[name] && typeof map[name][method] === 'function') map[name][method]();
+            });
+        }
+
+        function activateNavigationMode(routeData) {
+            if (!routeData || !routeData.path || routeData.path.length < 2) {
+                deactivateNavigationMode();
+                return;
+            }
+            if (window.matchMedia && !window.matchMedia('(max-width: 768px)').matches) {
+                deactivateNavigationMode();
+                return;
+            }
+            var p0 = routeData.path[0], pn = routeData.path[routeData.path.length - 1];
+            var key = [
+                routeData.to ? routeData.to.lat : '', routeData.to ? routeData.to.lng : '',
+                routeData.path.length, p0[0], p0[1], pn[0], pn[1]
+            ].join('|');
+            if (!navModeActive || key !== navGuideKey) {
+                navBuildGuide(routeData.path);
+                if (!navGuidePath || navGuidePath.length < 2 || navGuideTotal < 1) {
+                    deactivateNavigationMode();
+                    return;
+                }
+                navGuideKey = key;
+                navModeActive = true;
+                navLastBearing = null;
+                navLastInstructionKey = '';
+                navLastSpokenKey = '';
+                var screen = document.getElementById('mobileMapScreen');
+                if (screen) screen.classList.add('nav-mode');
+                var banner = document.getElementById('mobileNavBanner');
+                if (banner) banner.classList.add('show');
+                setMapNavigationInteractions(false);
+                if (map && navGuidePath.length) {
+                    map.setView([navGuidePath[0][0], navGuidePath[0][1]], Math.max(map.getZoom() || 15, 16));
+                }
+            }
+            updateNavigationGuidance({ lat: navGuidePath[0][0], lng: navGuidePath[0][1] }, 0);
+            renderAllTurns();
+        }
+
+        function deactivateNavigationMode() {
+            navModeActive = false;
+            navGuidePath = null;
+            navGuideCum = [];
+            navGuideTotal = 0;
+            navGuideKey = '';
+            navLastBearing = null;
+            navLastInstructionKey = '';
+            navLastSpokenKey = '';
+            var hintsBox = document.getElementById('routeHintsList');
+            if (hintsBox) { hintsBox.style.display = 'none'; hintsBox.innerHTML = ''; }
+            var screen = document.getElementById('mobileMapScreen');
+            if (screen) {
+                screen.classList.remove('nav-mode');
+                screen.style.setProperty('--nav-bearing', '0deg');
+            }
+            var banner = document.getElementById('mobileNavBanner');
+            if (banner) banner.classList.remove('show');
+            setMapNavigationInteractions(true);
         }
 
         function drawRouteOnMap(routeData, fitMap) {
@@ -1409,6 +1973,7 @@
             routeMarkers = {};
 
             if (!routeData || !routeData.from || !routeData.to) {
+                deactivateNavigationMode();
                 document.getElementById('routeInfo').innerHTML =
                     '<span style="color:var(--aero-gray);">Нет активного маршрута</span>';
                 return;
@@ -1445,10 +2010,6 @@
             });
             var startLat = routeData.from.lat;
             var startLng = routeData.from.lng;
-            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
-                startLat = engineerData.coords_lat;
-                startLng = engineerData.coords_lng;
-            }
             routeMarkers['start'] = L.marker([startLat, startLng], { icon: startIcon })
                 .addTo(map).bindPopup('Ваше текущее положение');
 
@@ -1468,7 +2029,7 @@
                 iconSize: [34, 34], iconAnchor: [17, 17]
             });
             routeMarkers['end'] = L.marker([routeData.to.lat, routeData.to.lng], { icon: endIcon })
-                .addTo(map).bindPopup('Стоянка ' + (routeData.parkingId || ''));
+                .addTo(map).bindPopup(routeData.destinationLabel || ('Стоянка ' + (routeData.parkingId || '')));
 
             // Масштаб и центр меняем только при появлении новой задачи.
             if (fitMap === true) {
@@ -1490,8 +2051,10 @@
             } else {
                 routeInfo.innerHTML =
                     '<strong style="color:var(--aero-blue);">' + routeData.time + ' мин</strong>' +
-                    '<br><span style="font-size:13px;color:var(--aero-text-light);">пешком</span>';
+                    '<br><span style="font-size:13px;color:var(--aero-text-light);">пешком' +
+                    (routeData.viaLabel ? ' · через ' + routeData.viaLabel : '') + '</span>';
             }
+            activateNavigationMode(routeData);
         }
 
         function saveReportDraft() {
@@ -1538,10 +2101,65 @@
 
         function isReportFormOpen() { return !!document.querySelector('.report-form'); }
 
+        function loadMyToolStatus() {
+            if (!engineerId) return;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/tools', {cache: 'no-store'})
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var checkbox = document.getElementById('toolAvailableCheckbox');
+                    var status = data && data.status ? data.status : 'unknown';
+                    if (checkbox) checkbox.checked = (status === 'on_hand' || status === 'at_site');
+                    var hint = document.getElementById('mobileToolRouteHint');
+                    if (hint) hint.textContent = checkbox && checkbox.checked ? 'к ВС' : 'через склад';
+                })
+                .catch(function(err) { console.warn('[TOOLS]', err); });
+        }
+
+        function setToolAvailable(checked) {
+            setMyToolStatus(checked ? 'on_hand' : 'warehouse');
+            var hint = document.getElementById('mobileToolRouteHint');
+            if (hint) hint.textContent = checked ? 'к ВС' : 'через склад';
+        }
+
+        function setMyToolStatus(status) {
+            if (!engineerId) return;
+            fetch('/api/engineers/' + encodeURIComponent(engineerId) + '/tools', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({status: status})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) throw new Error(data.error || 'Ошибка');
+                showToast('Статус инструмента обновлён', 'success');
+            })
+            .catch(function(err) { showToast('Не удалось обновить инструмент: ' + err.message, 'error'); });
+        }
+
         function loadTasks() {
             if (Date.now() < blockReloadUntil) return;
-            fetch('/api/engineers')
-                .then(function(r) { return r.json(); })
+            var engineersRequest;
+            if (navigator.onLine === false) {
+                var cachedEngineers = offlineRead(OFFLINE_ENGINEERS_KEY, null);
+                engineersRequest = cachedEngineers ? Promise.resolve(cachedEngineers)
+                    : Promise.reject(new Error('offline без кэша'));
+            } else {
+                engineersRequest = fetch('/api/engineers')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (Array.isArray(data)) {
+                            offlineWrite(OFFLINE_ENGINEERS_KEY, data);
+                            lastSuccessfulSyncAt = Date.now();
+                            offlineWrite(OFFLINE_STATUS_KEY, lastSuccessfulSyncAt);
+                        }
+                        return data;
+                    })
+                    .catch(function(err) {
+                        var cachedEngineers = offlineRead(OFFLINE_ENGINEERS_KEY, null);
+                        if (cachedEngineers) return cachedEngineers;
+                        throw err;
+                    });
+            }
+            engineersRequest
                 .then(function(data) {
                     var eng = null;
                     for (var i = 0; i < data.length; i++) {
@@ -1621,8 +2239,29 @@
             }
             if (taskStep === 'diagnosing' && isReportFormOpen()) return;
 
-            fetch('/api/requests')
-                .then(function(r) { return r.json(); })
+            var requestsRequest;
+            if (navigator.onLine === false) {
+                var cachedRequests = offlineRead(OFFLINE_REQUESTS_KEY, null);
+                requestsRequest = cachedRequests ? Promise.resolve(cachedRequests)
+                    : Promise.reject(new Error('offline без кэша'));
+            } else {
+                requestsRequest = fetch('/api/requests')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (Array.isArray(data)) {
+                            offlineWrite(OFFLINE_REQUESTS_KEY, data);
+                            lastSuccessfulSyncAt = Date.now();
+                            offlineWrite(OFFLINE_STATUS_KEY, lastSuccessfulSyncAt);
+                        }
+                        return data;
+                    })
+                    .catch(function(err) {
+                        var cachedRequests = offlineRead(OFFLINE_REQUESTS_KEY, null);
+                        if (cachedRequests) return cachedRequests;
+                        throw err;
+                    });
+            }
+            requestsRequest
                 .then(function(data) {
                     var request = null;
                     for (var i = 0; i < data.length; i++) {
@@ -1670,16 +2309,6 @@
                     if (routeData) {
                         // Привязываем начало линии строго к текущей метке инженера,
                         // а конец — к координате стоянки из серверного маршрута.
-                        var liveLat = Number(engineerData.coords_lat);
-                        var liveLng = Number(engineerData.coords_lng);
-                        if (Number.isFinite(liveLat) && Number.isFinite(liveLng)) {
-                            routeData.from = { lat: liveLat, lng: liveLng };
-                            if (routeData.path && routeData.path.length) {
-                                routeData.path = routeData.path.slice();
-                                routeData.path[0] = [liveLat, liveLng];
-                                routeData.path[routeData.path.length - 1] = [Number(routeData.to.lat), Number(routeData.to.lng)];
-                            }
-                        }
                     }
 
                     if (!routeData) {
@@ -1703,11 +2332,9 @@
                         }
                     }
 
-                    if (!moveInterval && currentRoute && currentRoute.path &&
-                        currentRoute.path.length >= 2 &&
-                        (taskStep === 'accepted' || taskStep === 'in_car')) {
-                        startMoving();
-                    }
+                    // Движение инженера — только по реальной геолокации.
+                    // Симуляция прохождения маршрута отключена.
+                    if (currentPosition) syncNavigationWithGps(currentPosition.lat, currentPosition.lng);
 
                     updateTaskWithRoute(request);
                 })
@@ -1859,6 +2486,20 @@
             }
 
             var faultName = request.fault_type ? request.fault_type.replace(/_/g, ' ') : 'Неизвестная';
+            var normHtml = '';
+            if (request.created_at) {
+                var createdUtc = new Date(String(request.created_at).replace(' ', 'T') + (String(request.created_at).indexOf('Z') < 0 ? 'Z' : ''));
+                if (!isNaN(createdUtc.getTime())) {
+                    var deadline = new Date(createdUtc.getTime() + 15 * 60000);
+                    var etaMinutes = currentRoute && currentRoute.time != null ? Number(currentRoute.time) : Number(request.travel_time || 0);
+                    var forecast = new Date(Date.now() + etaMinutes * 60000);
+                    var late = forecast.getTime() > deadline.getTime();
+                    normHtml = '<div style="margin-top:6px;font-size:11px;font-weight:800;color:' + (late ? '#b91c1c' : '#15803d') + ';">' +
+                        'Норматив 15 мин: до ' + deadline.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) +
+                        ' · прогноз ' + forecast.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) +
+                        (late ? ' · РИСК' : ' · успевает') + '</div>';
+                }
+            }
             var melTaskHtml = '';
             var previousReportHtml = renderPreviousEngineerReport(request.engineer_comment || '');
             if (request.mcc_mel_choice === 'MEL' && request.mcc_proc_m) {
@@ -1911,6 +2552,7 @@
                 '<span class="route-icon"><i class="fas fa-route"></i></span>' +
                 '<span>' + routeText + '</span>' +
                 '</div>' +
+                normHtml +
                 melTaskHtml +
                 previousReportHtml +
                 '</div>' +
@@ -2112,22 +2754,24 @@
         //    и отрезаем пройденную часть. Новые точки не добавляем.
         function updateRoutePolyline(pos) {
             if (!routeMarkers['polyline'] || !routeMarkers['polylineFullPath']) return;
-            if (!movePath || !currentRoute) return;
+            var routePath = (movePath && movePath.length >= 2) ? movePath :
+                (currentRoute && currentRoute.path ? currentRoute.path : null);
+            if (!routePath || !currentRoute) return;
             // Не схлопываем и не скрываем линию в последние метры маршрута:
             // оставляем последний видимый участок до стоянки.
             if (currentRoute.to && haversineM(pos.lat, pos.lng, currentRoute.to.lat, currentRoute.to.lng) < 3) return;
 
             var bestIdx = 0, bestDist = Infinity;
-            for (var i = 0; i < movePath.length; i++) {
-                var d = haversineM(movePath[i][0], movePath[i][1], pos.lat, pos.lng);
+            for (var i = 0; i < routePath.length; i++) {
+                var d = haversineM(routePath[i][0], routePath[i][1], pos.lat, pos.lng);
                 if (d < bestDist) { bestDist = d; bestIdx = i; }
             }
 
-            var fullPath = routeMarkers['polylineFullPath'];
+            var fullPath = routePath;
             var startIdx = bestIdx;
-            if (startIdx < movePath.length - 1) {
-                var segFrom = movePath[startIdx];
-                var segTo = movePath[startIdx + 1];
+            if (startIdx < routePath.length - 1) {
+                var segFrom = routePath[startIdx];
+                var segTo = routePath[startIdx + 1];
                 var dFrom = haversineM(pos.lat, pos.lng, segFrom[0], segFrom[1]);
                 var dTo = haversineM(pos.lat, pos.lng, segTo[0], segTo[1]);
                 if (dTo < dFrom) startIdx = startIdx + 1;
@@ -2181,9 +2825,10 @@
             moveTotalMs = travelMin * 60 * 1000;
 
             var progress0 = 0;
-            if (engineerData && engineerData.coords_lat != null && engineerData.coords_lng != null) {
-                var curLat = engineerData.coords_lat;
-                var curLng = engineerData.coords_lng;
+            var liveMove = null; // маршрут во всех интерфейсах — строго серверный
+            if (liveMove) {
+                var curLat = liveMove.lat;
+                var curLng = liveMove.lng;
                 var startLat = movePath[0][0];
                 var startLng = movePath[0][1];
                 var distFromStart = haversineM(startLat, startLng, curLat, curLng);
@@ -2227,6 +2872,7 @@
 
             var pos = positionAtDist(dist);
             if (!pos) { stopMoving(); return; }
+            if (navModeActive) updateNavigationGuidance(pos, dist);
 
             if (routeMarkers['start']) routeMarkers['start'].setLatLng([pos.lat, pos.lng]);
             if (engineerData) {
@@ -2238,16 +2884,10 @@
                 routeMarkers['car'].setLatLng([pos.lat, pos.lng]);
             }
 
-            updateRoutePolyline(pos);
-
             var now = Date.now();
             if (now - lastCoordSyncAt > 500) {
                 lastCoordSyncAt = now;
-                fetch('/api/engineers/' + engineerId + '/coords', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat: pos.lat, lng: pos.lng })
-                }).catch(function(err) { console.warn('[MOVE] sync failed', err); });
+                sendCoordsWithQueue(pos.lat, pos.lng);
             }
 
             if (progress >= 1 && !(moveCarDist >= 0 && taskStep !== 'in_car')) {
@@ -2257,11 +2897,7 @@
                     engineerData.coords_lat = last[0];
                     engineerData.coords_lng = last[1];
                 }
-                fetch('/api/engineers/' + engineerId + '/coords', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat: last[0], lng: last[1] })
-                }).catch(function() {});
+                sendCoordsWithQueue(last[0], last[1]);
                 // Не удаляем и не перерисовываем линию после прибытия:
                 // последний участок остаётся видимым на карте.
                 stopMoving();
@@ -2269,13 +2905,38 @@
             }
         }
 
+        function sendCoordsWithQueue(lat, lng) {
+            if (!engineerId) return;
+            var url = '/api/engineers/' + encodeURIComponent(engineerId) + '/coords';
+            var body = {lat: lat, lng: lng};
+            if (navigator.onLine === false) {
+                queueOfflineAction(url, 'PUT', body, 'Координаты');
+                return;
+            }
+            fetch(url, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)})
+                .then(function(r) { if (r.status >= 500) queueOfflineAction(url, 'PUT', body, 'Координаты'); })
+                .catch(function() { queueOfflineAction(url, 'PUT', body, 'Координаты'); });
+        }
+
         function reportStep(step) {
             if (!engineerId) return;
-            fetch('/api/engineers/' + engineerId + '/step', {
+            var url = '/api/engineers/' + engineerId + '/step';
+            var body = { step: step };
+            if (navigator.onLine === false) {
+                queueOfflineAction(url, 'PUT', body, 'Этап: ' + step);
+                return;
+            }
+            fetch(url, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ step: step })
-            }).catch(function(err) { console.warn('[STEP] report failed', err); });
+                body: JSON.stringify(body)
+            }).then(function(r) {
+                if (r.status >= 500) queueOfflineAction(url, 'PUT', body, 'Этап: ' + step);
+            }).catch(function(err) {
+                console.warn('[STEP] report failed', err);
+                queueOfflineAction(url, 'PUT', body, 'Этап: ' + step);
+            });
         }
 
         window.acceptTask = function() {
@@ -2285,10 +2946,18 @@
             }
             var buttons = document.querySelectorAll('.task-actions button');
             for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
-            fetch('/api/requests/' + encodeURIComponent(taskData.id) + '/accept', {
+            var acceptUrl = '/api/requests/' + encodeURIComponent(taskData.id) + '/accept';
+            var acceptBody = { engineer_id: engineerId };
+            if (navigator.onLine === false) {
+                queueOfflineAction(acceptUrl, 'POST', acceptBody, 'Принятие заявки');
+                taskStep = 'accepted';
+                showToast('Заявка принята офлайн. Действие уйдёт на сервер при восстановлении связи.', 'warning');
+                return;
+            }
+            fetch(acceptUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ engineer_id: engineerId })
+                body: JSON.stringify(acceptBody)
             })
             .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
             .then(function(result) {
@@ -2297,11 +2966,15 @@
                 }
                 taskStep = 'accepted';
                 showToast('Задача принята. Маршрут запущен', 'success');
+                navSpeechHoldUntil = Date.now() + 3500;
+                if (navVoiceEnabled) navSpeak('Маршрут начат.');
                 loadRequestDetails();
             })
             .catch(function(err) {
-                showToast(err.message || 'Ошибка принятия заявки', 'error');
-                loadTasks();
+                queueOfflineAction(acceptUrl, 'POST', acceptBody, 'Принятие заявки');
+                taskStep = 'accepted';
+                showToast('Нет связи. Принятие сохранено локально и будет дослано автоматически.', 'warning');
+                updateConnectivityBanner();
             });
         };
 
@@ -2328,11 +3001,7 @@
                 }
                 if (routeMarkers['start']) routeMarkers['start'].setLatLng([currentRoute.to.lat, currentRoute.to.lng]);
                 if (routeMarkers['car']) routeMarkers['car'].setLatLng([currentRoute.to.lat, currentRoute.to.lng]);
-                fetch('/api/engineers/' + engineerId + '/coords', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat: currentRoute.to.lat, lng: currentRoute.to.lng })
-                }).catch(function() {});
+                sendCoordsWithQueue(currentRoute.to.lat, currentRoute.to.lng);
                 // Сохраняем последний участок маршрута на карте после прибытия.
             }
             showToast('Вы прибыли на место', 'success');
@@ -2604,10 +3273,18 @@
                 if (diagnoseTimerInterval) clearInterval(diagnoseTimerInterval);
                 diagnoseTimerInterval = null; diagnoseStartedAt = null;
 
-                fetch('/api/requests/' + requestId + '/reject', {
+                var rejectUrl = '/api/requests/' + requestId + '/reject';
+                var rejectBody = { engineer_id: engineerId, reason: reason };
+                if (navigator.onLine === false) {
+                    queueOfflineAction(rejectUrl, 'POST', rejectBody, 'Отклонение заявки');
+                    closeModal();
+                    showToast('Отклонение сохранено офлайн и уйдёт при восстановлении связи.', 'warning');
+                    return;
+                }
+                fetch(rejectUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ engineer_id: engineerId, reason: reason })
+                    body: JSON.stringify(rejectBody)
                 })
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
@@ -2661,9 +3338,13 @@
                 })
                 .catch(function(err) {
                     console.error(err);
-                    showToast('Ошибка соединения', 'error');
-                    confirmBtn.disabled = false;
-                    confirmBtn.textContent = 'Отклонить назначение';
+                    queueOfflineAction(rejectUrl, 'POST', rejectBody, 'Отклонение заявки');
+                    closeModal();
+                    showToast('Нет связи. Отклонение сохранено и будет дослано автоматически.', 'warning');
+                    if (engineerData) { engineerData.status = 'free'; engineerData.task = null; }
+                    taskStep = 'idle'; taskData = null; currentRoute = null; lastRequestId = null;
+                    drawRouteOnMap(null);
+                    updateConnectivityBanner();
                 });
             });
 
@@ -2728,8 +3409,13 @@
 
         window.logout = function() {
             if (diagnoseTimerInterval) clearInterval(diagnoseTimerInterval);
+            if (mobileSessionHeartbeat) clearInterval(mobileSessionHeartbeat);
             stopEngineerGpsTracking();
             stopMoving();
+            fetch('/api/auth/mobile-logout', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+                body: JSON.stringify({ user_id: engineerId, session_token: mobileSessionToken })
+            }).catch(function() {});
             sessionStorage.removeItem('userSession');
             window.location.href = '/login.html';
         };
@@ -2761,7 +3447,9 @@
                         refreshEngineerRequestAircraft();
                     }
                     loadTasks();
+                    loadMyToolStatus();
                     setInterval(loadTasks, 5000);
+                    setInterval(loadMyToolStatus, 10000);
                     setInterval(refreshEngineerRequestAircraft, 5000);
                     airportRefreshTimer = setInterval(refreshEngineerAirport, 7000);
                 });

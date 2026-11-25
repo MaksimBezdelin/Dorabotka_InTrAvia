@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Администратор — InTrAvia Dispatch</title>
+    <title>Администратор — Вектор InTrAvia</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -31,6 +31,7 @@
         .sidebar-brand .brand-icon::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.4) 50%, transparent 70%); animation: iconShine 5s ease-in-out infinite; }
         @keyframes iconShine { 0%,100% { transform: translateX(-100%) translateY(-100%); } 50% { transform: translateX(100%) translateY(100%); } }
         .sidebar-brand .brand-text { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.3px; line-height: 1; }
+        .sidebar-brand .brand-text .brand-vector { background: linear-gradient(135deg, #4d9fff 0%, #0066cc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; }
         .sidebar-brand .brand-text .brand-in { color: #fff; font-weight: 700; }
         .sidebar-brand .brand-text .brand-tr { color: #3b82f6; font-weight: 800; text-shadow: 0 0 10px rgba(59,130,246,0.6); }
         .sidebar-brand .brand-text .brand-avia { color: #ef4444; font-weight: 800; text-shadow: 0 0 10px rgba(239,68,68,0.6); }
@@ -185,7 +186,7 @@
         <div class="sidebar-brand">
             <div class="brand-icon">✈</div>
             <div class="brand-text">
-                <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
+                <span class="brand-vector">Вектор</span> <span class="brand-in">In</span><span class="brand-tr">Tr</span><span class="brand-avia">Avia</span>
             </div>
         </div>
 
@@ -246,7 +247,10 @@
     <div class="main">
 
         <div class="page-header">
-            <h1 id="pageTitle">Обзор системы</h1>
+            <div>
+                <h1 id="pageTitle">Администраторская</h1>
+                <div class="page-sub" id="adminCurrentAirport">Текущий аэропорт: загрузка…</div>
+            </div>
             <span class="date" id="currentDate"></span>
         </div>
 
@@ -343,7 +347,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead>
-                            <tr><th>Имя</th><th>Специализация</th><th>Статус</th><th>Задача</th><th style="text-align:center;">Действия</th></tr>
+                            <tr><th>Имя</th><th>Специализация</th><th>Аэропорт</th><th>Статус</th><th>Задача</th><th style="text-align:center;">Действия</th></tr>
                         </thead>
                         <tbody id="engineersTableBody"></tbody>
                     </table>
@@ -443,7 +447,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead>
-                            <tr><th>ID</th><th>Устройство</th><th>Скорость</th><th>Статус</th><th style="text-align:center;">Действия</th></tr>
+                            <tr><th>ID</th><th>Устройство</th><th>Аэропорт</th><th>Скорость</th><th>Статус</th><th style="text-align:center;">Действия</th></tr>
                         </thead>
                         <tbody id="transportTableBody"></tbody>
                     </table>
@@ -497,8 +501,12 @@
 
     <script>
         var API_URL = '/api';
-        var STATUS_LABELS = { 'free': 'Свободен', 'busy': 'В работе', 'onway': 'В пути', 'arriving': 'Прибывает' };
-        var STATUS_CLASSES = { 'free': 'free', 'busy': 'busy', 'onway': 'onway', 'arriving': 'onway' };
+        var STATUS_LABELS = { 'free': 'Свободен', 'assigned': 'Назначен', 'working': 'В работе' };
+        var STATUS_CLASSES = { 'free': 'free', 'assigned': 'assigned', 'working': 'busy' };
+        function getEngineerWorkStatus(engineer) {
+            if (!engineer || engineer.status === 'free') return 'free';
+            return engineer.task_step === 'pending' || engineer.task_step === 'idle' ? 'assigned' : 'working';
+        }
         var SKILL_MAP = { 'engine': 'Двигатели', 'avionics': 'Авионика', 'hydraulics': 'Гидравлика', 'electrical': 'Электрика', 'mechanical': 'Механика', 'general': 'Общая' };
         var DISPATCHER_STATUSES = { 'online': 'Онлайн', 'offline': 'Офлайн', 'busy': 'Занят' };
         var PILOT_STATUSES = { 'active': 'Активен', 'inactive': 'Неактивен' };
@@ -537,7 +545,10 @@
             var nameEl = document.getElementById('currentAirportName');
             var metaEl = document.getElementById('currentAirportMeta');
             var sel = document.getElementById('airportSelect');
-            if (nameEl) nameEl.textContent = data.name || AIRPORT_NAMES[data.airport] || data.airport || '—';
+            var airportName = data.name || AIRPORT_NAMES[data.airport] || data.airport || '—';
+            if (nameEl) nameEl.textContent = airportName;
+            var headerAirport = document.getElementById('adminCurrentAirport');
+            if (headerAirport) headerAirport.textContent = 'Текущий аэропорт: ' + airportName;
             if (metaEl) {
                 var parts = [];
                 if (data.confirmed_at) parts.push('Подтверждён: ' + formatAirportDate(data.confirmed_at));
@@ -611,6 +622,8 @@
                         statusEl.textContent = 'Подтверждено: ' + (data.name || AIRPORT_NAMES[data.airport]) + '. Карты в системе обновятся при следующем открытии или обновлении страниц.';
                     }
                     showToast('Аэропорт подтверждён: ' + (data.name || AIRPORT_NAMES[data.airport]), 'success');
+                    loadData();
+                    setTimeout(updateUI, 350);
                 })
                 .catch(function(e) {
                     if (statusEl) {
@@ -794,18 +807,20 @@
             var tbody = document.getElementById('engineersTableBody');
             var countEl = document.getElementById('engineerCount');
             if (!window.employees || !window.employees.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-users"></i><p>Нет инженеров</p></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-users"></i><p>Нет инженеров в выбранном аэропорту</p></td></tr>';
                 countEl.textContent = '0'; return;
             }
             countEl.textContent = window.employees.length;
             var html = '';
             window.employees.forEach(e => {
                 var skill = SKILL_MAP[e.specialization] || e.specialization || '—';
-                var statusLabel = STATUS_LABELS[e.status] || e.status || '—';
-                var statusClass = STATUS_CLASSES[e.status] || 'free';
+                var workStatus = getEngineerWorkStatus(e);
+                var statusLabel = STATUS_LABELS[workStatus] || '—';
+                var statusClass = STATUS_CLASSES[workStatus] || 'free';
                 html += `<tr>
                     <td><strong>${escapeHtml(e.name)}</strong></td>
                     <td>${escapeHtml(skill)}</td>
+                    <td><span class="status-badge">${escapeHtml((AIRPORT_NAMES && AIRPORT_NAMES[e.airport]) || e.airport || 'Шереметьево (SVO)')}</span></td>
                     <td><span class="status-badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
                     <td>${escapeHtml(e.task || '—')}</td>
                     <td style="text-align:center;white-space:nowrap;">
@@ -924,7 +939,7 @@
             var countEl = document.getElementById('transportCount');
             var transport = window.transport || [];
             if (!transport.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><i class="fas fa-truck"></i><p>Нет транспорта</p></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fas fa-truck"></i><p>Нет спецтранспорта в выбранном аэропорту</p></td></tr>';
                 countEl.textContent = '0'; return;
             }
             countEl.textContent = transport.length;
@@ -935,6 +950,7 @@
                 html += `<tr>
                     <td>${t.id}</td>
                     <td><strong>${escapeHtml(t.device_id)}</strong></td>
+                    <td><span class="status-badge">${escapeHtml((AIRPORT_NAMES && AIRPORT_NAMES[t.airport]) || t.airport || 'Шереметьево (SVO)')}</span></td>
                     <td>${t.speed || 50} км/ч</td>
                     <td><span class="status-badge ${statusClass}">${escapeHtml(statusText)}</span></td>
                     <td style="text-align:center;white-space:nowrap;">
@@ -997,10 +1013,11 @@
                     <option value="mechanical" ${emp.specialization === 'mechanical' ? 'selected' : ''}>Механика</option>
                     <option value="general" ${emp.specialization === 'general' ? 'selected' : ''}>Общая</option>
                 </select></div>
+                <div class="form-group"><label>Аэропорт</label><select id="editAirport"><option value="svo" ${emp.airport !== 'vdnh' ? 'selected' : ''}>Шереметьево (SVO)</option><option value="vdnh" ${emp.airport === 'vdnh' ? 'selected' : ''}>ВДНХ</option></select></div>
                 <div class="form-group"><label>Статус</label><select id="editStatus">
-                    <option value="free" ${emp.status === 'free' ? 'selected' : ''}>Свободен</option>
-                    <option value="busy" ${emp.status === 'busy' ? 'selected' : ''}>В работе</option>
-                    <option value="onway" ${emp.status === 'onway' ? 'selected' : ''}>В пути</option>
+                    <option value="free" ${getEngineerWorkStatus(emp) === 'free' ? 'selected' : ''}>Свободен</option>
+                    <option value="assigned" ${getEngineerWorkStatus(emp) === 'assigned' ? 'selected' : ''}>Назначен</option>
+                    <option value="working" ${getEngineerWorkStatus(emp) === 'working' ? 'selected' : ''}>В работе</option>
                 </select></div>
                 <div class="modal-actions">
                     <button class="btn btn-primary" onclick="saveEdit()">Сохранить</button>
@@ -1021,7 +1038,9 @@
                     <option value="hydraulics">Гидравлика</option><option value="electrical">Электрика</option>
                     <option value="mechanical">Механика</option><option value="general">Общая</option>
                 </select></div>
-                <div class="modal-actions"><button class="btn btn-primary" onclick="saveEdit()">Сохранить</button><button class="btn btn-secondary" onclick="closeModal()">Отмена</button></div>`;
+                <div class="form-group"><label>Аэропорт</label><select id="editAirport"><option value="svo">Шереметьево (SVO)</option><option value="vdnh">ВДНХ</option></select></div>
+                <div class="form-group"><label>Статус</label><select id="editStatus"><option value="free" selected>Свободен</option><option value="assigned">Назначен</option><option value="working">В работе</option></select></div>
+                <div class="modal-actions"><button type="button" class="btn btn-primary" onclick="saveEdit()">Сохранить</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button></div>`;
             document.getElementById('editModal').classList.add('show');
         }
 
@@ -1180,6 +1199,7 @@
             document.getElementById('modalContent').innerHTML = `
                 <div class="form-group"><label>ID устройства</label><input type="text" id="editDeviceId" value="${escapeHtml(t.device_id)}"></div>
                 <div class="form-group"><label>Скорость (км/ч)</label><input type="number" id="editSpeed" value="${t.speed || 50}"></div>
+                <div class="form-group"><label>Аэропорт</label><select id="editAirport"><option value="svo" ${t.airport !== 'vdnh' ? 'selected' : ''}>Шереметьево (SVO)</option><option value="vdnh" ${t.airport === 'vdnh' ? 'selected' : ''}>ВДНХ</option></select></div>
                 <div class="modal-actions">
                     <button class="btn btn-primary" onclick="saveEdit()">Сохранить</button>
                     <button class="btn btn-danger" onclick="deleteFromModal()">Удалить</button>
@@ -1194,6 +1214,7 @@
             document.getElementById('modalContent').innerHTML = `
                 <div class="form-group"><label>ID устройства</label><input type="text" id="editDeviceId" placeholder="CAR-006"></div>
                 <div class="form-group"><label>Скорость (км/ч)</label><input type="number" id="editSpeed" value="50"></div>
+                <div class="form-group"><label>Аэропорт</label><select id="editAirport"><option value="svo">Шереметьево (SVO)</option><option value="vdnh">ВДНХ</option></select></div>
                 <div class="modal-actions"><button class="btn btn-primary" onclick="saveEdit()">Сохранить</button><button class="btn btn-secondary" onclick="closeModal()">Отмена</button></div>`;
             document.getElementById('editModal').classList.add('show');
         }
@@ -1229,18 +1250,20 @@
             else if (editType === 'engineer') {
                 var name = document.getElementById('editName').value.trim();
                 var skill = document.getElementById('editSkill').value;
-                var status = document.getElementById('editStatus').value;
+                // При создании статус по умолчанию — свободен; при редактировании берём выбранное значение.
+                var statusElement = document.getElementById('editStatus');
+                var status = statusElement ? statusElement.value : 'free';
                 var email = document.getElementById('editEmail') ? document.getElementById('editEmail').value.trim() : '';
                 if (!name) return showToast('Введите имя', 'error');
-                var data = { name: name, specialization: skill, status: status };
+                var data = { name: name, specialization: skill, work_status: status, status: status === 'free' ? 'free' : 'busy', airport: document.getElementById('editAirport').value };
                 if (editId === null) {
                     if (!email) return showToast('Введите email', 'error');
                     data.email = email;
                     fetch(API_URL + '/engineers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
+                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } }).catch(() => showToast('Ошибка создания инженера. Проверьте соединение с сервером.', 'error'));
                 } else {
                     fetch(API_URL + '/engineers/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Обновлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
+                        .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Обновлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } }).catch(() => showToast('Ошибка сохранения инженера. Проверьте соединение с сервером.', 'error'));
                 }
             }
             else if (editType === 'dispatcher') {
@@ -1319,7 +1342,7 @@
                 var deviceId = document.getElementById('editDeviceId').value.trim();
                 var speed = parseInt(document.getElementById('editSpeed').value) || 50;
                 if (!deviceId) return showToast('Введите ID', 'error');
-                var data = { device_id: deviceId, speed: speed, lat: 55.975, lng: 37.410 };
+                var data = { device_id: deviceId, speed: speed, lat: 55.975, lng: 37.410, airport: document.getElementById('editAirport').value };
                 if (editId === null) {
                     fetch(API_URL + '/transport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
                         .then(r => r.json()).then(res => { if(res.error) showToast(res.error, 'error'); else { showToast('Добавлен', 'success'); loadData(); setTimeout(updateUI, 500); closeModal(); } });
