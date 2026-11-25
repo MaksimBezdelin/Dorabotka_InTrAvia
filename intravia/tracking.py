@@ -411,6 +411,15 @@ def _track_process_point(point):
         _log_ingest_error(point, 'unknown object')
         return result
 
+    # Живой инженер (AT-0001) ходит с телефоном: его позицию задаёт
+    # /api/engineers/<id>/location, а не виртуальный агент имитатора.
+    live_id = (os.environ.get('INTRAVIA_LIVE_ENGINEER', 'eng_3') or '').strip()
+    phone_only = os.environ.get('INTRAVIA_LIVE_PHONE_ONLY', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    if phone_only and live_id and known['type'] == 'engineer' and str(known['id']) == live_id:
+        result['applied'] = False
+        result['reason'] = 'live_engineer_phone_only'
+        return result
+
     paused = track_pause_reason(known['type'], known['id'])
     if paused:
         result['applied'] = False
