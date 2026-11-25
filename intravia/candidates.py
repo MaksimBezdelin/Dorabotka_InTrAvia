@@ -157,9 +157,13 @@ def build_candidate_table(conn, fault_type, target_lat, target_lng,
                      else REGULATION_MINUTES)
     required_skill = FAULT_SKILL.get(fault_type, 'general')
     cur = conn.cursor()
-    cur.execute("""SELECT id, name, device_id, specialization, status,
-                          coords_lat, coords_lng
-                   FROM engineers ORDER BY device_id""")
+    cur.execute("""SELECT e.id, e.name, e.device_id, e.specialization, e.status,
+                          e.coords_lat, e.coords_lng,
+                          a.at_id, a.grade, a.scope, a.skill, a.scope_desc,
+                          COALESCE(a.is_live,0) AS is_live
+                   FROM engineers e
+                   LEFT JOIN engineer_assignment a ON a.engineer_id=e.id
+                   ORDER BY e.device_id""")
     engineers = [dict(row) for row in cur.fetchall()]
 
     cur.execute("""SELECT engineer_id, id FROM requests
@@ -185,6 +189,12 @@ def build_candidate_table(conn, fault_type, target_lat, target_lng,
             'name': engineer.get('name') or device,
             'device_id': device,
             'specialization': engineer.get('specialization') or 'general',
+            'at_id': engineer.get('at_id'),
+            'grade': engineer.get('grade'),
+            'scope': engineer.get('scope'),
+            'skill': engineer.get('skill'),
+            'scope_desc': engineer.get('scope_desc'),
+            'is_live': int(engineer.get('is_live') or 0),
             'eligible': False,
             'reason': '',
             'workload': _engineer_shift_load(conn, eid),

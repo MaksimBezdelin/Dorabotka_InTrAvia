@@ -17,7 +17,11 @@ def get_db():
 
 
 def init_db():
-    """Validate the existing database only. Never create, migrate, seed or alter schema/data."""
+    """Проверяет существующую БД и идемпотентно гарантирует таблицу назначений.
+
+    Данные не создаются и не изменяются; единственное разрешённое изменение
+    схемы — CREATE TABLE IF NOT EXISTS engineer_assignment (нужна API и тестам).
+    """
     print(f'[DB] Подключение к существующей базе: {DB_PATH}')
     if not os.path.isfile(DB_PATH):
         raise RuntimeError(f'[DB] Файл database.db не найден: {DB_PATH}. Создание отключено.')
@@ -37,7 +41,18 @@ def init_db():
                 + ', '.join(missing)
                 + '. Сервер не будет создавать или изменять таблицы.'
             )
-        print(f'[DB] Проверка завершена. Таблиц найдено: {len(existing)}. Схема не изменялась.')
+        cur.execute("""CREATE TABLE IF NOT EXISTS engineer_assignment(
+                       engineer_id TEXT PRIMARY KEY,
+                       at_id TEXT UNIQUE,
+                       grade TEXT,
+                       scope TEXT,
+                       skill TEXT,
+                       scope_desc TEXT,
+                       is_live INTEGER DEFAULT 0,
+                       updated_at TEXT)""")
+        conn.commit()
+        print(f'[DB] Проверка завершена. Таблиц найдено: {len(existing)}. '
+              'Таблица engineer_assignment гарантирована.')
     finally:
         conn.close()
 

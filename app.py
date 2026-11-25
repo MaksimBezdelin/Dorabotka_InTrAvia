@@ -2483,8 +2483,11 @@ def get_engineers():
                    COALESCE(gps.lng,p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
                    gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
-                   e.status,e.task,e.phone,e.task_step,e.task_started_at
+                   e.status,e.task,e.phone,e.task_step,e.task_started_at,
+                   a.at_id,a.grade,a.scope,a.skill,a.scope_desc,
+                   COALESCE(a.is_live,0) AS is_live
                    FROM engineers e
+                   LEFT JOIN engineer_assignment a ON a.engineer_id=e.id
                    LEFT JOIN map_object_positions p
                      ON p.object_type='engineer' AND p.object_id=e.id
                    LEFT JOIN map_object_positions gps
@@ -2526,8 +2529,11 @@ def get_engineer(eng_id):
                    COALESCE(gps.lng,p.lng,e.coords_lng) AS coords_lng,
                    gps.lat AS gps_lat,gps.lng AS gps_lng,
                    gps_heading.lat AS gps_heading,gps.updated_at AS gps_updated_at,
-                   e.status,e.task,e.phone,e.task_step,e.task_started_at
+                   e.status,e.task,e.phone,e.task_step,e.task_started_at,
+                   a.at_id,a.grade,a.scope,a.skill,a.scope_desc,
+                   COALESCE(a.is_live,0) AS is_live
                    FROM engineers e
+                   LEFT JOIN engineer_assignment a ON a.engineer_id=e.id
                    LEFT JOIN map_object_positions p
                      ON p.object_type='engineer' AND p.object_id=e.id
                    LEFT JOIN map_object_positions gps
@@ -4561,14 +4567,35 @@ def api_v1_stream():
 
 
 
+def _agents_with_engineer_assignment():
+    """Снапшот агентов + поля задания AT-000N из engineer_assignment (LEFT JOIN)."""
+    payload = _agents_snapshot()
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT e.id AS engineer_id, a.at_id, a.grade, a.scope,
+                              a.skill, a.scope_desc, COALESCE(a.is_live,0) AS is_live
+                       FROM engineers e
+                       LEFT JOIN engineer_assignment a ON a.engineer_id=e.id""")
+        assignments = {str(row['engineer_id']): dict(row) for row in cur.fetchall()}
+    finally:
+        conn.close()
+    for item in payload.get('engineers', []):
+        row = assignments.get(str(item.get('id'))) or {}
+        for key in ('at_id', 'grade', 'scope', 'skill', 'scope_desc'):
+            item[key] = row.get(key)
+        item['is_live'] = int(row.get('is_live') or 0)
+    return payload
+
+
 @app.route('/api/v1/agents', methods=['GET'])
 def api_v1_agents():
-    return jsonify(_agents_snapshot())
+    return jsonify(_agents_with_engineer_assignment())
 
 
 @app.route('/api/v1/snapshot', methods=['GET'])
 def api_v1_snapshot():
-    payload = _agents_snapshot()
+    payload = _agents_with_engineer_assignment()
     conn = get_db()
     try:
         cur = conn.cursor()

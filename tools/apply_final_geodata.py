@@ -4,8 +4,10 @@
 Что делает:
   * aircrafts_positions        -> aircraft.lat/lng (+ map_object_positions 'aircraft')
   * engineers_positions        -> engineers.coords_lat/lng (+ map_object_positions 'engineer')
-                                  AT-000N сопоставляется с инженером по номеру device_id
-                                  (EN-00N), как в intravia/tracking.py.
+                                  и engineer_assignment (AT-ID, grade, scope, skill,
+                                  scope_desc, is_live). AT-000N сопоставляется с инженером
+                                  по номеру device_id (EN-00N) с учётом live-свапа
+                                  (INTRAVIA_LIVE_ENGINEER, по умолчанию eng_3).
   * service_vehicles_positions -> transport.lat/lng (+ map_object_positions 'transport')
                                   vehicle-NN -> transport.id (алиас из tracking.py).
   * service_zones              -> static/geodata/vdnh/service_zones.geojson:
@@ -151,6 +153,17 @@ def diff_snapshots(before, after):
     return problems
 
 
+ASSIGNMENT_DDL = """CREATE TABLE IF NOT EXISTS engineer_assignment(
+    engineer_id TEXT PRIMARY KEY,
+    at_id TEXT UNIQUE,
+    grade TEXT,
+    scope TEXT,
+    skill TEXT,
+    scope_desc TEXT,
+    is_live INTEGER DEFAULT 0,
+    updated_at TEXT)"""
+
+
 def engineer_map(cur):
     """device_id EN-00N -> engineer.id (та же логика, что в tracking.py)."""
     mapping = {}
@@ -161,8 +174,27 @@ def engineer_map(cur):
     return mapping
 
 
-def plan_engineers(cur, fc):
+def live_engineer_map(cur, live_id=None, live_at=None):
+    """EN-номер подписи AT -> engineer.id с учётом live-свапа.
+
+    Живой инженер (INTRAVIA_LIVE_ENGINEER, по умолчанию eng_3) занимает
+    AT-0001, а инженер с EN-001 получает его AT-номер (AT-0003).
+    Логика совпадает с intravia/tracking.py.
+    """
     mapping = engineer_map(cur)
+    live_id = (live_id or os.environ.get('INTRAVIA_LIVE_ENGINEER', 'eng_3') or 'eng_3').strip()
+    live_at = (live_at or os.environ.get('INTRAVIA_LIVE_AT', 'AT-0001') or 'AT-0001').strip()
+    live_num = int(re.sub(r'\D', '', live_id) or 0)
+    label_num = int(re.sub(r'\D', '', live_at) or 1)
+    swapped = dict(mapping)
+    if live_num and live_num in mapping and label_num in mapping:
+        swapped[label_num] = mapping[live_num]
+        swapped[live_num] = mapping[label_num]
+    return swapped, live_id
+
+
+def plan_engineers(cur, fc, live_id=None):
+    mapping, live_id = live_engineer_map(cur, live_id)
     plan, skipped = [], []
     for props, lon, lat in iter_points(fc, 'engineers_positions'):
         tabel = str(props.get('tabel_id') or '').strip()
@@ -178,10 +210,59 @@ def plan_engineers(cur, fc):
         row = cur.execute('SELECT coords_lat, coords_lng FROM engineers WHERE id=?', (eid,)).fetchone()
         cur_lat, cur_lng = (row[0], row[1]) if row else (None, None)
         changed = (cur_lat != lat or cur_lng != lon)
-        plan.append({'tabel_id': tabel, 'engineer_id': eid, 'lon': lon, 'lat': lat,
+        plan.append({'tabel_id': tabel, 'at_id': 'AT-%04d' % num, 'engineer_id': eid,
+                     'lon': lon, 'lat': lat,
                      'old_lat': cur_lat, 'old_lng': cur_lng, 'changed': changed,
-                     'grade': props.get('grade')})
+                     'grade': props.get('grade'), 'scope': props.get('scope'),
+                     'skill': props.get('skill'), 'scope_desc': props.get('scope_desc'),
+                     'is_live': 1 if str(eid) == live_id else 0})
     return plan, skipped
+
+
+def plan_assignments(cur, fc, live_id=None):
+    """Заполнение engineer_assignment из геоданных (идемпотентно)."""
+    mapping, live_id = live_engineer_map(cur, live_id)
+    plan, skipped = [], []
+    for props, _lon, _lat in iter_points(fc, 'engineers_positions'):
+        tabel = str(props.get('tabel_id') or '').strip()
+        m = re.fullmatch(r'AT-(\d+)', tabel, re.IGNORECASE)
+        if not m:
+            skipped.append((tabel, 'нет AT-NNNN'))
+            continue
+        num = int(m.group(1))
+        eid = mapping.get(num)
+        if not eid:
+            skipped.append((tabel, 'в БД нет инженера с device_id EN-%03d' % num))
+            continue
+        plan.append({'engineer_id': str(eid), 'at_id': 'AT-%04d' % num,
+                     'grade': props.get('grade'), 'scope': props.get('scope'),
+                     'skill': props.get('skill'), 'scope_desc': props.get('scope_desc'),
+                     'is_live': 1 if str(eid) == live_id else 0})
+    return plan, skipped
+
+
+def upsert_assignment(cur, row, when):
+    """Пишет строку engineer_assignment, только если значения изменились."""
+    values = (row['grade'], row['scope'], row['skill'], row['scope_desc'],
+              int(row['is_live']))
+    existing = cur.execute(
+        'SELECT grade, scope, skill, scope_desc, is_live FROM engineer_assignment '
+        'WHERE engineer_id=?', (row['engineer_id'],)).fetchone()
+    same = (existing is not None and tuple(existing) == values
+            and cur.execute('SELECT at_id FROM engineer_assignment WHERE engineer_id=?',
+                            (row['engineer_id'],)).fetchone()[0] == row['at_id'])
+    if same:
+        return False
+    cur.execute("""INSERT INTO engineer_assignment
+                   (engineer_id, at_id, grade, scope, skill, scope_desc, is_live, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(engineer_id) DO UPDATE SET
+                     at_id=excluded.at_id, grade=excluded.grade, scope=excluded.scope,
+                     skill=excluded.skill, scope_desc=excluded.scope_desc,
+                     is_live=excluded.is_live, updated_at=excluded.updated_at""",
+                (row['engineer_id'], row['at_id'], row['grade'], row['scope'],
+                 row['skill'], row['scope_desc'], int(row['is_live']), when))
+    return True
 
 
 def plan_transport(cur, fc):
@@ -246,7 +327,7 @@ def apply_db(db_path, engineers_fc, vehicles_fc, aircraft_fc, dry_run):
     conn = sqlite3.connect(db_path, timeout=30)
     conn.execute('PRAGMA busy_timeout=30000')
     stats = {'engineering_changed': 0, 'transport_changed': 0, 'aircraft_changed': 0,
-             'aircraft_inserted': 0, 'mop_written': 0}
+             'aircraft_inserted': 0, 'mop_written': 0, 'assignments_written': 0}
     try:
         cur = conn.cursor()
         for tbl in ('engineers', 'transport', 'aircraft', 'map_object_positions', 'requests', 'users'):
@@ -255,9 +336,11 @@ def apply_db(db_path, engineers_fc, vehicles_fc, aircraft_fc, dry_run):
         for tbl in FIM_TABLES:
             if not table_exists(cur, tbl):
                 log.warning('FIM-таблица %s отсутствует (пропускаю проверку)', tbl)
+        cur.execute(ASSIGNMENT_DDL)
 
         before = snapshot(cur)
         eng_plan, eng_skip = plan_engineers(cur, engineers_fc)
+        assign_plan, assign_skip = plan_assignments(cur, engineers_fc)
         tr_plan, tr_skip = plan_transport(cur, vehicles_fc)
         ac_plan = plan_aircraft(cur, aircraft_fc)
 
@@ -268,6 +351,13 @@ def apply_db(db_path, engineers_fc, vehicles_fc, aircraft_fc, dry_run):
             log.info('  %s -> %s %s (%s, %s)', p['tabel_id'], p['engineer_id'],
                      'ИЗМЕНИТЬ' if p['changed'] else 'без изменений',
                      p['lat'], p['lon'])
+        log.info('План назначений engineer_assignment: %d, пропущено: %d',
+                 len(assign_plan), len(assign_skip))
+        for s in assign_skip:
+            log.warning('  назначение %s пропущено: %s', s[0], s[1])
+        for p in assign_plan:
+            log.info('  %s -> %s grade=%s scope=%s skill=%s live=%s', p['at_id'],
+                     p['engineer_id'], p['grade'], p['scope'], p['skill'], p['is_live'])
         log.info('План транспорта: %d, пропущено: %d', len(tr_plan), len(tr_skip))
         for s in tr_skip:
             log.warning('  транспорт %s пропущен: %s', s[0], s[1])
@@ -298,6 +388,9 @@ def apply_db(db_path, engineers_fc, vehicles_fc, aircraft_fc, dry_run):
             for p in eng_plan:
                 if upsert_mop(cur, 'engineer', p['engineer_id'], p['lat'], p['lon'], when):
                     stats['mop_written'] += 1
+            for p in assign_plan:
+                if upsert_assignment(cur, p, when):
+                    stats['assignments_written'] += 1
 
             for p in tr_plan:
                 if p['changed']:
@@ -489,11 +582,12 @@ def main(argv=None):
             if status != 'ok':
                 log.error('integrity_check не ok: %s', status)
                 return 1
-            log.info('Итог: инженеры изменено=%d, транспорт=%d, ВС обновлено=%d, ВС добавлено=%d, '
-                     'map_object_positions=%d, зоны=%s',
-                     stats['engineering_changed'], stats['transport_changed'],
-                     stats['aircraft_changed'], stats['aircraft_inserted'],
-                     stats['mop_written'], 'обновлены' if zones_changed else 'без изменений')
+            log.info('Итог: инженеры изменено=%d, назначений записано=%d, транспорт=%d, '
+                     'ВС обновлено=%d, ВС добавлено=%d, map_object_positions=%d, зоны=%s',
+                     stats['engineering_changed'], stats['assignments_written'],
+                     stats['transport_changed'], stats['aircraft_changed'],
+                     stats['aircraft_inserted'], stats['mop_written'],
+                     'обновлены' if zones_changed else 'без изменений')
         else:
             log.info('DRY-RUN завершён без записи')
         return 0
