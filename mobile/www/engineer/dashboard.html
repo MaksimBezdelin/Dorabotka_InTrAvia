@@ -908,14 +908,31 @@
         }
 
         var session = sessionStorage.getItem('userSession');
-        if (!session) { window.location.href = '/login.html'; return; }
+        var user = null;
+        try { user = session ? JSON.parse(session) : null; } catch (_) { user = null; }
 
-        var user;
-        try {
-            user = JSON.parse(session);
-            if (user.role !== 'engineer') { window.location.href = '/login.html'; return; }
-            engineerId = user.id || 'eng_1';
-        } catch (_) { window.location.href = '/login.html'; return; }
+        if (!user || user.role !== 'engineer') {
+            // sessionStorage на телефоне может не пережить переход из логина
+            // (новая вкладка/WebView). Серверная cookie-сессия при этом живая —
+            // восстанавливаем пользователя по ней, а не выкидываем на логин.
+            var loginPath = window.location.pathname.indexOf('/mobile/') === 0 ? '/mobile/login.html' : '/login.html';
+            fetch('/api/auth/session', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(d) {
+                    if (d && d.authenticated && d.user && d.user.role === 'engineer') {
+                        sessionStorage.setItem('userSession', JSON.stringify({
+                            id: d.user.id, name: d.user.name, role: d.user.role,
+                            email: d.user.email || '', avatar: d.user.avatar || '🔧'
+                        }));
+                        window.location.reload();
+                    } else {
+                        window.location.href = loginPath;
+                    }
+                })
+                .catch(function() { window.location.href = loginPath; });
+            return;
+        }
+        engineerId = user.id || 'eng_1';
 
         document.getElementById('userName').textContent = user.name || 'Инженер';
         var mobileEngineerName = document.getElementById('mobileEngineerName'); if (mobileEngineerName) mobileEngineerName.textContent = user.name || 'Мои задачи';
@@ -3365,7 +3382,7 @@
             stopEngineerGpsTracking();
             stopMoving();
             sessionStorage.removeItem('userSession');
-            window.location.href = '/login.html';
+            window.location.href = window.location.pathname.indexOf('/mobile/') === 0 ? '/mobile/login.html' : '/login.html';
         };
 
         window.showToast = showToast;
